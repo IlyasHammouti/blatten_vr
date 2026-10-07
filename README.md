@@ -8,27 +8,21 @@ Premier rendu à remettre le 25 novembre 2026.
 Ce dépôt contient **le code et les réglages**. Les données lourdes (relief, images, simulation) n'y sont pas : elles
 se retéléchargent ou se partagent à part (voir plus bas).
 
-## Démarrage rapide (nouvelle machine)
+## Démarrage
 
-1. Installer **Blender 5.2 LTS** et **Python 3.8+**.
-2. Cloner le dépôt **en dehors d'un dossier synchronisé** (OneDrive, Dropbox) : les dossiers `.git` et les gros fichiers s'y abîment.
-3. Copier `config.local.example.json` en `config.local.json` et y mettre le chemin de Blender et le dossier des données (`data_root`).
-4. Dans l'ordre :
+**Nouvelle machine : suivre `TUTO.md`**, pas à pas (installation, configuration, données, benchmark). Il peut aussi être collé à ChatGPT
+pour être guidé. La suite de ce fichier est la référence.
+
+Un double-clic sur `blatten.py` (ou `lancer_blatten.bat`) ouvre un menu ; la fenêtre attend Entrée avant de se fermer. Commandes principales :
 
 ```
-python blatten.py setup          # Blender trouvé, bibliothèques installées, dossiers créés
-python blatten.py download       # dalles swisstopo (reprise automatique, relançable)
-python blatten.py terrain        # terrain de Johan -> maillage (nécessite les VDB de Johan)
-python blatten.py prep-particules DOSSIER_PLY --stride 10   # PLY de Johan -> .npy
-python blatten.py prep-env       # relief + image aérienne, calage sur la simulation
-python blatten.py bench          # temps de rendu de VOTRE machine (même caméra, mêmes réglages pour tous)
-python blatten.py bench-compare  # tableau des benchmarks: signale ceux qui ne sont pas comparables
-python blatten.py status         # à tout moment: ce qui est prêt, ce qui manque
+python blatten.py status          # ce qui est prêt, ce qui manque
+python blatten.py setup           # Blender trouvé, bibliothèques installées, dossiers créés
+python blatten.py bench           # temps de rendu de VOTRE machine
+python blatten.py bench-compare   # tableau des benchmarks, signale ceux qui ne sont pas comparables
 ```
 
-Un double-clic sur `blatten.py` (ou sur `lancer_blatten.bat`) ouvre le même menu. La fenêtre attend alors Entrée avant de se
-fermer, pour que les messages d'erreur restent lisibles. Dans un terminal : ouvrir le dossier dans l'Explorateur, taper `cmd` dans
-la barre d'adresse, Entrée, puis lancer les commandes ci-dessus (`--pause` ajouté à une commande force l'attente).
+Préparation des données (`download`, `terrain`, `prep-particules`, `prep-env`) : voir `TUTO.md` et `docs/ARCHITECTURE.md`.
 
 ## Structure
 

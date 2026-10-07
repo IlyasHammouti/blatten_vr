@@ -1,6 +1,6 @@
 # Handover pour l'IA de Maxime (ChatGPT ou autre)
 
-À coller en début de conversation, avec `docs/CONTRAT_MATIERE.md`, `docs/ARCHITECTURE.md` et le code de `src/matiere/`.
+À coller en début de conversation (après `TUTO.md` si l'installation n'est pas faite), avec `docs/CONTRAT_MATIERE.md`, `docs/ARCHITECTURE.md` et le code de `src/matiere/`.
 
 ## Contexte
 
