@@ -1,0 +1,11 @@
+{
+  "_doc": "Réglages communs au groupe (versionnés). Ce qui dépend de VOTRE machine va dans config.local.json.",
+  "data_root": "data",
+  "terrain_vdb": "Nesthorn_terrain_klein.vdb",
+  "release_vdb": "Nesthorn_release_klein.vdb",
+  "swisstopo_max_year": 2024,
+  "scene": {
+    "sky": "couvert",
+    "fog": 0.6
+  }
+}

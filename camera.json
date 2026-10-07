@@ -1,0 +1,6 @@
+{
+  "cam": [-776.4, 754.9, 1708.07],
+  "rot_deg": [94.4, 0.0, -117.4],
+  "confirmed": false,
+  "note": "Position choisie par Ilyas le 2026-10-07 dans Blender (repere Blender recentre, Z = altitude). LV95 environ E 2628342 N 1140870. A confirmer avec le groupe: passer confirmed a true."
+}

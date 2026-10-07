@@ -1,0 +1,8 @@
+{
+  "_doc": "Copier ce fichier en config.local.json (ignoré par git) et l'adapter. Chaque clé est facultative.",
+  "blender": "C:/Program Files/Blender Foundation/Blender 5.2/blender.exe",
+  "data_root": "D:/Blatten_data",
+  "cache_dir": null,
+  "swisstopo_dir": null,
+  "johan_dir": null
+}

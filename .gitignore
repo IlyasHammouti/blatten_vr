@@ -1,0 +1,23 @@
+# Données lourdes: jamais dans git (voir README, section "Où sont les données")
+data/
+*.ply
+*.vdb
+*.tif
+*.tiff
+*.npy
+*.blend
+*.blend1
+*.zip
+
+# Régénérable
+render/
+__pycache__/
+.pylibs/
+*.part
+
+# Propre à chaque machine
+config.local.json
+
+# Les résultats de benchmark SONT versionnés (comparaison entre machines): bench_results/*.json
+bench_results/*.jpg
+bench_results/*.png
