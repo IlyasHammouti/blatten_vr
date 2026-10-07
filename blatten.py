@@ -24,6 +24,7 @@ import argparse
 import concurrent.futures as cf
 import glob
 import json
+import math
 import os
 import re
 import shutil
@@ -349,6 +350,79 @@ def cmd_render(cfg, paths, extra):
     return run_blender(cfg, SCRIPTS["scene"], a)
 
 
+def _ply_step(path):
+    m = re.findall(r"(\d+)", os.path.splitext(os.path.basename(path))[0])
+    return int(m[-1]) if m else 0
+
+
+def _find_ply_dir(paths, wanted):
+    """Dossier de Johan contenant les PLY numérotés (le plus fourni). `wanted`: numéros nécessaires."""
+    best = None
+    roots = [paths.johan] + [d for d in glob.glob(os.path.join(paths.johan, "*")) if os.path.isdir(d)]
+    for d in roots:
+        files = glob.glob(os.path.join(d, "*.ply"))
+        if len(files) > 20 and (best is None or len(files) > best[0]):
+            best = (len(files), d)
+    return best[1] if best else None
+
+
+def cmd_test_clip(cfg, paths, extra):
+    """Test grandeur nature: quelques secondes de l'événement, dans l'environnement, avec les vrais fichiers de Johan."""
+    ap = argparse.ArgumentParser(prog="test-clip", allow_abbrev=False)
+    ap.add_argument("--start", type=int, default=50, help="numéro du premier fichier PLY (1 fichier = 1 s simulée)")
+    ap.add_argument("--seconds", type=float, default=3.0, help="durée du clip en secondes")
+    ap.add_argument("--stride", type=int, default=5, help="1 particule sur N (5 = environ 234 000 particules)")
+    ap.add_argument("--ply", help="dossier des PLY de Johan (défaut: détecté dans johan_dir)")
+    ap.add_argument("--every", type=int, default=1, help="rendre une image sur N du clip (3 = essai rapide)")
+    ap.add_argument("--quality", type=int, default=48, help="échantillons du clip (demi-résolution)")
+    ap.add_argument("--samples", type=int, nargs="+", default=[24, 48, 96, 192], help="échantillons des images pleine résolution")
+    ap.add_argument("--no-keys", action="store_true", help="saute les images pleine résolution")
+    ap.add_argument("--no-video", action="store_true", help="saute le clip")
+    ap.add_argument("--reconvert", action="store_true", help="refait la conversion des PLY")
+    a, rest = ap.parse_known_args(extra)
+
+    if not os.path.exists(os.path.join(paths.cache, "env", "env_meta.json")):
+        sys.exit(f"Environnement absent : {os.path.join(paths.cache, 'env', 'env_meta.json')}\n"
+                 "Décompressez cache_ilyas.zip dans cache_dir, ou lancez prep-env (voir TUTO.md).")
+    need = list(range(a.start, a.start + int(math.ceil(a.seconds)) + 1))
+    ply_dir = a.ply or _find_ply_dir(paths, need)
+    if not ply_dir or not os.path.isdir(ply_dir):
+        sys.exit(f"Dossier des PLY de Johan introuvable (cherché dans {paths.johan}).\n"
+                 "Indiquez-le avec --ply \"D:/.../dossier_des_ply\".")
+    by_step = {_ply_step(f): f for f in glob.glob(os.path.join(ply_dir, "*.ply"))}
+    missing = [n for n in need if n not in by_step]
+    if missing:
+        sys.exit(f"Fichiers PLY manquants dans {ply_dir} : numéros {missing}")
+    print(f"PLY : {ply_dir} (fichiers {need[0]} à {need[-1]})")
+
+    clip_dir = os.path.join(paths.cache, "clip", f"f{need[0]}-{need[-1]}_k{a.stride}")
+    meta_p = os.path.join(clip_dir, "meta.json")
+    if a.reconvert or not os.path.exists(meta_p):
+        origin = [1117.4016956592827, 0.0, -1121.1231332002285]    # repère de la simulation (voir docs/CONTRAT_MATIERE.md)
+        old = _load_json(os.path.join(paths.cache, "meta.json"))
+        if old.get("origin"):
+            origin = old["origin"]
+        print(f"\n--- conversion de {len(need)} fichiers (1 particule sur {a.stride}) vers {clip_dir} ---")
+        rc = run_blender(cfg, SCRIPTS["prep_part"],
+                         [by_step[n] for n in need] + ["--out", clip_dir, "--stride", a.stride, "--reset",
+                                                       "--origin"] + [repr(float(x)) for x in origin])
+        if rc != 0 or not os.path.exists(meta_p):
+            sys.exit("La conversion des PLY a échoué (voir le message plus haut).")
+    else:
+        print(f"Conversion déjà faite : {clip_dir}  (--reconvert pour la refaire)")
+
+    args = scene_args(cfg, paths, with_vdb=False)
+    args[args.index("--data") + 1] = clip_dir
+    args += ["--env-dir", paths.cache, "--dt-per-step", "1.0", "--clip", "--clip-seconds", a.seconds,
+             "--clip-every", a.every, "--clip-quality", a.quality, "--clip-samples"] + a.samples
+    if a.no_keys:
+        args.append("--clip-no-keys")
+    if a.no_video:
+        args.append("--clip-no-video")
+    print("\n--- rendu (plusieurs heures en pleine qualité, interruption possible: relancer la même commande reprend le clip) ---")
+    return run_blender(cfg, SCRIPTS["scene"], args + rest)
+
+
 MENU = [
     ("status", "Etat des données et des réglages"),
     ("setup", "Installation (Blender, bibliothèques, dossiers), une seule fois"),
@@ -360,6 +434,7 @@ MENU = [
     ("open", "Ouvrir la scène dans Blender"),
     ("bench", "Benchmark de rendu de cette machine"),
     ("bench-compare", "Comparer les benchmarks enregistrés"),
+    ("test-clip", "Test grandeur nature: 3 s de l'événement dans l'environnement (plusieurs heures)"),
 ]
 
 
@@ -387,7 +462,7 @@ def cmd_menu(cfg, paths, extra):
 COMMANDS = {
     "status": cmd_status, "setup": cmd_setup, "download": cmd_download, "prep-env": cmd_prep_env,
     "prep-particules": cmd_prep_particules, "terrain": cmd_terrain, "views": cmd_views, "test360": cmd_test360,
-    "open": cmd_open, "bench": cmd_bench, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
+    "open": cmd_open, "bench": cmd_bench, "test-clip": cmd_test_clip, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
 }
 
 

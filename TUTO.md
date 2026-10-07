@@ -143,7 +143,27 @@ git push -u origin maxime/bench
 
 Puis prévenir Ilyas. `python blatten.py bench-compare` affiche le tableau des machines (il signale celles qui ne sont pas comparables).
 
-## 10. Ensuite : la matière
+## 10. Test grandeur nature : 3 secondes de l'événement
+
+À faire après le benchmark. Il rend **3 secondes réelles de l'avalanche** (secondes 50 à 53 de la simulation) dans l'environnement,
+avec les vrais fichiers de Johan, pour juger l'aspect et mesurer le temps réel.
+
+```
+python blatten.py test-clip
+```
+
+Le programme convertit 4 PLY (dans `cache_dir/clip/`), puis produit dans `render/test_clip/` :
+- 4 images 3840x1920 avec 24, 48, 96 et 192 échantillons (pour choisir le bon compromis qualité / temps),
+- un clip de 3 s en demi-résolution, image par image (`clip_apercu.mp4`, ou le dossier `clip/` si ffmpeg manque),
+- un JSON de temps dans `bench_results/clip_<machine>_<date>.json`, à pousser sur GitHub comme le benchmark.
+
+Durée : environ 2 h 30 sur un PC comme celui d'Ilyas (le clip prend l'essentiel). On peut interrompre et relancer la même commande :
+les images du clip déjà rendues sont conservées. Pour un essai rapide : `python blatten.py test-clip --every 3` (une image sur trois).
+
+Limites : caméra provisoire, particules en sphères, relief à 2 m. C'est un test de temps et d'aspect, pas une image finale.
+Pour que la vidéo se monte, installer ffmpeg (`winget install ffmpeg` dans une invite de commandes), sinon seules les images sont produites.
+
+## 11. Ensuite : la matière
 
 Une fois le benchmark fait, ton travail est dans `src/matiere/`. Lire `docs/CONTRAT_MATIERE.md` (les décisions déjà prises) et
 donner `docs/HANDOVER_IA_MATIERE.md` à ton IA pour qu'elle t'aide à coder cette partie. Travailler sur une branche `maxime/...`.

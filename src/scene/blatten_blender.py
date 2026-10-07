@@ -88,6 +88,10 @@ CFG = dict(
     bench=False,            # mode benchmark: rend des images test et estime le temps du rendu final (src/bench/bench.py)
     bench_scale=None,       # échelle de la résolution du benchmark (None: 1.0 avec GPU, 0.25 sans)
     bench_no_warm=False,    # benchmark: saute la série "données persistantes" (plus rapide)
+    env_dir=None,           # dossier contenant env/ (défaut: celui des particules). Sert au test-clip
+    clip=False,             # test grandeur nature: quelques secondes de l'événement (src/bench/clip.py)
+    clip_seconds=3.0, clip_every=1, clip_quality=48, clip_scale=0.5, clip_samples=(24, 48, 96, 192),
+    clip_no_keys=False, clip_no_video=False, clip_fullscale=1.0,
     persistent=False,       # rendu: garde en mémoire ce qui ne change pas d'une image à l'autre (plus rapide, plus de mémoire)
 )
 
@@ -1150,19 +1154,24 @@ def parse_args():
     ap.add_argument("--camera-confirmed", action="store_true"); ap.add_argument("--accept-lowres", action="store_true")
     ap.add_argument("--bench", action="store_true"); ap.add_argument("--bench-scale", type=float)
     ap.add_argument("--bench-no-warm", action="store_true"); ap.add_argument("--persistent", action="store_true")
+    ap.add_argument("--env-dir"); ap.add_argument("--clip", action="store_true")
+    ap.add_argument("--clip-seconds", type=float); ap.add_argument("--clip-every", type=int)
+    ap.add_argument("--clip-quality", type=int); ap.add_argument("--clip-fullscale", type=float); ap.add_argument("--clip-scale", type=float)
+    ap.add_argument("--clip-samples", type=int, nargs="+")
+    ap.add_argument("--clip-no-keys", action="store_true"); ap.add_argument("--clip-no-video", action="store_true")
     a = ap.parse_args(argv)
     for k, v in vars(a).items():
         if k == "mono":
             if v:
                 CFG["stereo"] = False
-        elif k in ("no_env", "camera_confirmed", "accept_lowres", "bench", "bench_no_warm", "persistent"):
+        elif k in ("no_env", "camera_confirmed", "accept_lowres", "bench", "bench_no_warm", "persistent", "clip", "clip_no_keys", "clip_no_video"):
             if v:
                 CFG[k] = True
         elif v is not None and v is not False:
             CFG[k.replace("-", "_")] = v
     if a.render_anim:
         CFG["render_anim"] = True
-    for k in ("terrain", "release", "data_dir", "out"):  # chemins absolus (le dossier courant varie)
+    for k in ("terrain", "release", "data_dir", "out", "env_dir"):  # chemins absolus (le dossier courant varie)
         if CFG.get(k):
             CFG[k] = os.path.abspath(CFG[k])
 
@@ -1175,10 +1184,14 @@ def main():
     data_dir = CFG["data_dir"] or os.path.join(root, "data", "cache")
     out_dir = CFG["out"] or os.path.join(root, "render")
     os.makedirs(out_dir, exist_ok=True)
-    if CFG["bench"]:
+    if CFG["bench"] or CFG["clip"]:
         sys.path.insert(0, os.path.join(os.path.dirname(here), "bench"))
         import bench
+    if CFG["bench"]:
         bench.prepare(CFG)
+    elif CFG["clip"]:
+        import clip
+        clip.prepare(CFG)
 
     load_camera_file(root)
     scene = reset_scene()
@@ -1209,7 +1222,7 @@ def main():
             vdb_to_mesh(CFG["terrain"], "Terrain", CFG["terrain_only"], offset, rot, coll,
                         (0.26, 0.23, 0.21, 1), data_dir)
         return
-    env = None if CFG["no_env"] else load_env(data_dir)
+    env = None if CFG["no_env"] else load_env(CFG["env_dir"] or data_dir)
     if env:
         em = env["meta"]
         log(f"environnement swisstopo: scène à E {em['scene_E0']:.1f} N {em['scene_N0']:.1f} (LV95), "
@@ -1262,6 +1275,13 @@ def main():
         bench.run(scene, root, CFG, log, PRESETS,
                   extra=dict(particules=int(seq.count), fichiers_particules=len(seq.files), environnement_swisstopo=bool(env)),
                   data_dir=data_dir)
+        return
+
+    if CFG["clip"]:
+        clip.run(scene, root, CFG, log, PRESETS,
+                 extra=dict(particules=int(seq.count), stride=seq.meta.get("stride"),
+                            fichiers_particules=[f["step"] for f in seq.files], environnement_swisstopo=bool(env)),
+                 data_dir=data_dir, bench=bench)
         return
 
     if CFG["save"]:

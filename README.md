@@ -20,6 +20,7 @@ python blatten.py status          # ce qui est prêt, ce qui manque
 python blatten.py setup           # Blender trouvé, bibliothèques installées, dossiers créés
 python blatten.py bench           # temps de rendu de VOTRE machine
 python blatten.py bench-compare   # tableau des benchmarks, signale ceux qui ne sont pas comparables
+python blatten.py test-clip       # test grandeur nature: 3 s de l'événement dans l'environnement (voir TUTO.md)
 ```
 
 Préparation des données (`download`, `terrain`, `prep-particules`, `prep-env`) : voir `TUTO.md` et `docs/ARCHITECTURE.md`.
@@ -35,7 +36,7 @@ data_sources/swisstopo/   listes d'URL des dalles (CSV) : c'est ce qui rend l'en
 src/environnement/        prépa du relief et de l'image aérienne, calage, installation des bibliothèques
 src/matiere/              particules de Johan -> .npy, puis (à venir) surface de la matière et poussière
 src/scene/                scène Blender : terrain, ciel, brume, caméra 360, rendu
-src/bench/                benchmark de rendu
+src/bench/                benchmark de rendu (bench.py) et test grandeur nature (clip.py)
 src/audio/                son spatialisé (plan seulement)
 bench_results/            résultats de benchmark (JSON versionnés, pour comparer les machines)
 docs/                     prérequis de la version finale, architecture
