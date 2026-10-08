@@ -154,7 +154,7 @@ python blatten.py test-clip
 
 Le programme convertit 4 PLY (dans `cache_dir/clip/`), puis produit dans `render/test_clip/` :
 - 4 images 3840x1920 avec 24, 48, 96 et 192 échantillons (pour choisir le bon compromis qualité / temps),
-- un clip de 3 s en demi-résolution, image par image (`clip_apercu.mp4`, ou le dossier `clip/` si ffmpeg manque),
+- un clip de 3 s en demi-résolution, image par image (`clip_apercu.mp4`, ou le dossier `clip/` si ffmpeg manque). La version `clip_apercu_360.mp4` contient les métadonnées 360 : c'est celle à ouvrir dans VLC (glisser la souris pour tourner) ou à envoyer sur YouTube. Pour une autre vidéo : `python blatten.py meta360 fichier.mp4`,
 - un JSON de temps dans `bench_results/clip_<machine>_<date>.json`, à pousser sur GitHub comme le benchmark.
 
 Durée : environ 2 h 30 sur un PC comme celui d'Ilyas (le clip prend l'essentiel). On peut interrompre et relancer la même commande :

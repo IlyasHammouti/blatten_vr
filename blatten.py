@@ -337,6 +337,21 @@ def cmd_bench(cfg, paths, extra):
     return run_blender(cfg, SCRIPTS["scene"], scene_args(cfg, paths) + ["--bench"] + extra)
 
 
+def cmd_meta360(cfg, paths, extra):
+    """Ajoute les métadonnées 360 à un MP4 équirectangulaire (YouTube, VLC)."""
+    files = [a for a in extra if not a.startswith("-")]
+    if not files:
+        sys.exit("Indiquez le fichier, par exemple :\n  python blatten.py meta360 render/test_clip/clip_apercu.mp4")
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("inject_360", os.path.join(SRC, "scene", "inject_360.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    for f in files:
+        out = f[:-4] + "_360.mp4" if f.lower().endswith(".mp4") else f + "_360.mp4"
+        mod.inject(f, out)
+        print("écrit :", out)
+
+
 def cmd_bench_compare(cfg, paths, extra):
     import importlib.util
     spec = importlib.util.spec_from_file_location("bench", os.path.join(SRC, "bench", "bench.py"))
@@ -462,7 +477,7 @@ def cmd_menu(cfg, paths, extra):
 COMMANDS = {
     "status": cmd_status, "setup": cmd_setup, "download": cmd_download, "prep-env": cmd_prep_env,
     "prep-particules": cmd_prep_particules, "terrain": cmd_terrain, "views": cmd_views, "test360": cmd_test360,
-    "open": cmd_open, "bench": cmd_bench, "test-clip": cmd_test_clip, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
+    "open": cmd_open, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
 }
 
 

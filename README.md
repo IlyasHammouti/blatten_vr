@@ -21,6 +21,7 @@ python blatten.py setup           # Blender trouvé, bibliothèques installées,
 python blatten.py bench           # temps de rendu de VOTRE machine
 python blatten.py bench-compare   # tableau des benchmarks, signale ceux qui ne sont pas comparables
 python blatten.py test-clip       # test grandeur nature: 3 s de l'événement dans l'environnement (voir TUTO.md)
+python blatten.py meta360 f.mp4  # ajoute les métadonnées 360 à une vidéo équirectangulaire (YouTube, VLC)
 ```
 
 Préparation des données (`download`, `terrain`, `prep-particules`, `prep-env`) : voir `TUTO.md` et `docs/ARCHITECTURE.md`.

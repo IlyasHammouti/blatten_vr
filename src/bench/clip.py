@@ -15,6 +15,7 @@ import platform
 import shutil
 import statistics
 import subprocess
+import sys
 import time
 
 
@@ -167,9 +168,18 @@ def run(scene, root, cfg, log, presets, extra=None, data_dir=None, bench=None):
         if times:
             v.update(moyenne_s=round(statistics.mean(times), 1), mediane_s=round(statistics.median(times), 1),
                      min_s=round(min(times), 1), max_s=round(max(times), 1), par_image_s=[round(t, 1) for t in times])
-        result["clip"] = v
         if mp4:
             log("vidéo d'aperçu :", mp4)
+            try:   # métadonnées 360 : sans elles, YouTube et VLC montrent une vidéo plate
+                sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scene"))
+                import inject_360
+                m360 = mp4[:-4] + "_360.mp4"
+                inject_360.inject(mp4, m360)
+                v["video_360"] = m360
+                log("vidéo avec métadonnées 360 (à ouvrir dans VLC ou à envoyer sur YouTube) :", m360)
+            except Exception as e:
+                log("métadonnées 360 non ajoutées:", e)
+        result["clip"] = v
 
     # Estimation du rendu final à partir des images fixes (même caméra, même matière, mêmes réglages)
     est = {}
