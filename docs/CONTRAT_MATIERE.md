@@ -55,6 +55,7 @@ Légende : **Décidé** = choix déjà fait ensemble. **Hypothèse** = pas encor
 - Le travail de Maxime vit dans `src/matiere/`. Une branche `maxime/...`, fusion dans `main` par pull request quand ça tourne.
 - Les données lourdes (`.npy`, `.ply`, `.vdb`, `.blend`) ne vont pas dans git.
 - Le script de matière doit rester lançable par `python blatten.py ...` (nouvelle commande ajoutée au menu), et afficher des messages d'erreur lisibles.
+- Côté aléa, la scène charge un module avec `--matiere <nom>` (fichier `src/matiere/<nom>.py`, gabarit : `rendu_matiere.py`). Voir `docs/HANDOVER_ALEA.md` (branche `alea`).
 - Mélange des approches d'Ilyas et de Maxime : prévu, à discuter ensemble une fois la première version de Maxime disponible.
 
 ## 8. Questions ouvertes (à trancher en groupe)

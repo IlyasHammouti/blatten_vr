@@ -107,6 +107,13 @@ attend la touche Entrée avant de se fermer, ce qui laisse lire les erreurs.
 
 Relancer `python blatten.py status` : l'environnement doit être signalé prêt.
 
+**Haute résolution autour de la caméra (facultatif, recommandé pour la version finale)**
+
+1. `python blatten.py download --dry-run` (taille), puis `python blatten.py download` : récupère aussi swissALTI3D 0,5 m, SWISSIMAGE 10 cm et swissBUILDINGS3D v2 (listes dans `data_sources/swisstopo/`).
+2. `python blatten.py prep-env --hires` : fabrique `dem_05m.npy` et les patchs d'ortho fine.
+3. `python blatten.py visible --eye 1.7 --ecrire-camera` : calcule la zone visible depuis la caméra (sans limite de distance), l'enregistre à part
+   dans `<cache>/env/visible/` (rien n'est supprimé) et place la caméra à 1,70 m du sol. Ensuite `--cull` dans la scène ne garde que cette zone.
+
 ## 8. Convertir les PLY de Johan (attention)
 
 Le cache d'Ilyas contient un `meta.json` qui vient d'**un ancien fichier unique**. Convertir les 202 nouveaux dedans mélangerait les données.

@@ -6,6 +6,8 @@ blatten.py : point d'entrée unique du projet Blatten VR 360.
     python blatten.py setup           trouve Blender, installe les bibliothèques, crée les dossiers
     python blatten.py download        télécharge les dalles swisstopo (listes dans data_sources/)
     python blatten.py prep-env        relief + image aérienne, calage sur la simulation
+    python blatten.py prep-env --hires   relief 0,5 m + images 50 cm / 10 cm autour de la caméra (après download)
+    python blatten.py visible [--eye 1.7]   zone du relief visible depuis la caméra (fichiers à part, rien n'est écrasé)
     python blatten.py prep-particules DOSSIER_PLY [--stride N ...]   PLY de Johan -> .npy
     python blatten.py terrain         convertit le terrain de Johan en maillage (une fois)
     python blatten.py views           8 aperçus pour choisir un point de vue
@@ -41,6 +43,7 @@ SCRIPTS = {
     "prep_env": os.path.join(SRC, "environnement", "prep_env.py"),
     "install": os.path.join(SRC, "environnement", "installer_bibliotheques.py"),
     "prep_part": os.path.join(SRC, "matiere", "prep_particules.py"),
+    "visible": os.path.join(SRC, "environnement", "visible.py"),
 }
 
 
@@ -223,14 +226,16 @@ def _parse_csvs(csv_dir, max_year):
                 if m:
                     guess[ds][m.group(1)] = u
                 continue
-            m = re.search(r"_(\d{4})_(\d{4}-\d{4})_", name)
+            # année (ou année-mois pour les bâtiments: _2024-05_) puis clé de dalle (2628-1140 ou 1268-14)
+            m = re.search(r"_(\d{4})(?:-(\d{2}))?_(\d{4}-\d{2,4})_", name)
             if not m:
                 continue
-            y, k = int(m.group(1)), m.group(2)
+            y, k = int(m.group(1)), m.group(3)
+            order = y * 100 + int(m.group(2) or 0)
             if y > max_year:
                 continue
-            if k not in sets[ds] or y > sets[ds][k][1]:
-                sets[ds][k] = (u, y)
+            if k not in sets[ds] or order > sets[ds][k][1]:
+                sets[ds][k] = (u, order)
     return sets, guess
 
 
@@ -251,6 +256,25 @@ def _fetch(url, dest, tries=3):
     return False, last
 
 
+def _head_size(url):
+    try:
+        req = urllib.request.Request(url, method="HEAD")
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return int(r.headers.get("Content-Length") or 0)
+    except Exception:
+        return None
+
+
+def _print_sizes(todo):
+    """Taille totale à télécharger (requêtes HEAD, rien n'est téléchargé)."""
+    with cf.ThreadPoolExecutor(8) as ex:
+        sizes = list(ex.map(_head_size, [u for u, _f in todo]))
+    ok = [x for x in sizes if x]
+    if ok:
+        note = "" if len(ok) == len(sizes) else f" (taille connue pour {len(ok)} dalles sur {len(sizes)})"
+        print(f"    taille à télécharger: {sum(ok) / 1e9:.2f} Go{note}")
+
+
 def cmd_download(cfg, paths, extra, max_year=None, dry=False, workers=4):
     max_year = max_year or int(cfg.get("swisstopo_max_year", 2024))
     sets, guess = _parse_csvs(paths.csv, max_year)
@@ -264,6 +288,8 @@ def cmd_download(cfg, paths, extra, max_year=None, dry=False, workers=4):
         todo = [(u, f) for u, f in todo if not os.path.exists(f)]
         print(f"\n=== {ds} : {len(items)} dalles, {len(items) - len(todo)} déjà présentes, {len(todo)} à télécharger (année max {max_year}) ===")
         if dry:
+            if 0 < len(todo) <= 60:
+                _print_sizes(todo)
             continue
         done = fail = 0
         with cf.ThreadPoolExecutor(workers) as ex:
@@ -296,6 +322,10 @@ def cmd_download(cfg, paths, extra, max_year=None, dry=False, workers=4):
 
 def cmd_prep_env(cfg, paths, extra):
     return run_blender(cfg, SCRIPTS["prep_env"], ["--swisstopo", paths.swisstopo, "--data", paths.cache] + extra)
+
+
+def cmd_visible(cfg, paths, extra):
+    return run_blender(cfg, SCRIPTS["visible"], ["--data", paths.cache] + extra)
 
 
 def cmd_prep_particules(cfg, paths, extra):
@@ -444,6 +474,7 @@ MENU = [
     ("download", "Télécharger les dalles swisstopo"),
     ("terrain", "Convertir le terrain de Johan en maillage (une fois)"),
     ("prep-env", "Préparer relief + image aérienne (calage)"),
+    ("visible", "Calculer la zone du relief visible depuis la caméra"),
     ("views", "8 aperçus pour choisir le point de vue"),
     ("test360", "Image test 360 basse résolution"),
     ("open", "Ouvrir la scène dans Blender"),
@@ -475,7 +506,7 @@ def cmd_menu(cfg, paths, extra):
 
 
 COMMANDS = {
-    "status": cmd_status, "setup": cmd_setup, "download": cmd_download, "prep-env": cmd_prep_env,
+    "status": cmd_status, "setup": cmd_setup, "download": cmd_download, "prep-env": cmd_prep_env, "visible": cmd_visible,
     "prep-particules": cmd_prep_particules, "terrain": cmd_terrain, "views": cmd_views, "test360": cmd_test360,
     "open": cmd_open, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
 }

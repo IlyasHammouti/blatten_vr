@@ -385,6 +385,111 @@ def retouch_ortho(raw, dem, step, delight_strength=0.65, harm_strength=0.7):
     return harmonize(x, strength=harm_strength) if harm_strength > 0 else x
 
 
+# ----------------------------------------------------------------------------------
+# Haute résolution (swissALTI3D 0,5 m, SWISSIMAGE 10 cm) autour de la caméra
+# ----------------------------------------------------------------------------------
+def latest_per_tile(tiles):
+    """Une seule dalle par carré de 1 km: la plus récente (au cas où plusieurs années sont présentes)."""
+    best = {}
+    for t in tiles:
+        m = re.search(r"_(\d{4})_(\d{4}-\d{4})_", os.path.basename(t["path"]))
+        k, y = (m.group(2), int(m.group(1))) if m else (os.path.basename(t["path"]), 0)
+        if k not in best or y > best[k][0]:
+            best[k] = (y, t)
+    return [v[1] for v in best.values()]
+
+
+def hires_step(a, out):
+    """Relief 0,5 m (dem_05m.npy) et images locales (ortho_50cm.jpg, ortho_10cm.jpg) centrées sur la caméra.
+    Réutilise le calage déjà fait (env_meta.json): ne refait ni la recherche ni le relief 2 m.
+    Écrit dans env_meta.json les clés "dem05" et "ortho_patches"."""
+    mp = os.path.join(out, "env_meta.json")
+    meta = json.load(open(mp))
+    t0 = time.time()
+    alti = latest_per_tile(list_tiles(os.path.join(a.swisstopo, "swissalti3d_05m")))
+    if not alti:
+        log("pas de dalle swissALTI3D 0,5 m (dossier swissalti3d_05m): haute résolution ignorée")
+        return
+    gx0 = min(t["x0"] for t in alti)
+    gy1 = max(t["y1"] for t in alti)
+    gx1 = max(t["x0"] + t["w"] * t["s"] for t in alti)
+    gy0 = min(t["y1"] - t["h"] * t["s"] for t in alti)
+    step = 0.5
+    W, H = int(round((gx1 - gx0) / step)), int(round((gy1 - gy0) / step))
+    log(f"{len(alti)} dalles 0,5 m: E {gx0:.0f}..{gx1:.0f} N {gy0:.0f}..{gy1:.0f} ({W}x{H} pixels)")
+    dem, cov, n = mosaic(alti, gx0, gy1, W, H, step)
+    log(f"relief 0,5 m: {n} dalles, trous: {(~cov).mean() * 100:.2f} %")
+    dem = fill_nan(dem)
+    np.save(os.path.join(out, "dem_05m.npy"), dem)
+    meta["dem05"] = dict(file="dem_05m.npy", x0=gx0, y1=gy1, step=step, shape=[H, W])
+
+    # centre des images locales: la caméra (camera.json ou --camera), arrondie à 10 m
+    cam = a.camera
+    if not cam:
+        cp = os.path.join(ROOT, "camera.json")
+        if os.path.exists(cp):
+            cam = json.load(open(cp)).get("cam")
+    patches = []
+    if a.skip_ortho:
+        log("--skip-ortho: images locales ignorées")
+    elif imagecodecs is None:
+        log("imagecodecs manquant: images locales ignorées")
+    elif not cam:
+        log("pas de caméra (camera.json): images locales ignorées")
+    else:
+        imgs = latest_per_tile(list_tiles(os.path.join(a.swisstopo, "swissimage_10cm")))
+        if not imgs:
+            log("pas de dalle SWISSIMAGE 10 cm (dossier swissimage_10cm): images locales ignorées")
+        else:
+            Ec = round((meta["scene_E0"] + cam[0]) / 10.0) * 10.0
+            Nc = round((meta["scene_N0"] + meta["flip"] * cam[1]) / 10.0) * 10.0
+            ref = None
+            mo = meta.get("ortho")
+            if mo and os.path.exists(os.path.join(out, mo["file"])):
+                ref = imagecodecs.jpeg8_decode(open(os.path.join(out, mo["file"]), "rb").read())
+            specs = sorted(((float(x.split(":")[0]), float(x.split(":")[1])) for x in a.ortho_locales.split(",")), reverse=True)
+            for pstep, half in specs:                       # du plus grossier au plus fin
+                S = int(round(2 * half / pstep))
+                x0, y1 = Ec - half, Nc + half
+                img, cv, nt = mosaic(imgs, x0, y1, S, S, pstep, rgb=True)
+                if nt == 0:
+                    log(f"  image {pstep * 100:g} cm: aucune dalle ne couvre {half:g} m autour de la caméra, ignorée")
+                    continue
+                if (~cv).any():
+                    mean = img[cv].reshape(-1, 3).mean(0)
+                    img[~cv] = mean.astype(np.uint8)
+                    log(f"  image {pstep * 100:g} cm: {(~cv).mean() * 100:.1f} % hors dalles (couleur moyenne)")
+                ii = (np.arange(S, dtype=np.float32) + 0.5) * pstep
+                Ee = (x0 + ii)[None, :] + np.zeros((S, 1), np.float32)
+                Nn = (y1 - ii)[:, None] + np.zeros((1, S), np.float32)
+                dem_p = bilinear(dem, gx0, gy1, step, Ee, Nn).astype(np.float32)
+                del Ee, Nn
+                img = delight(img, dem_p, pstep, a.deslight)
+                del dem_p
+                if ref is not None:   # raccord de teinte avec l'image 2 m (années et dates de vol différentes)
+                    f = max(1, int(round(2.0 / pstep)))
+                    dn = reduce_block(img, f).astype(np.float32)
+                    ix = int(round((x0 - mo["x0"]) / 2.0)); iy = int(round((mo["y1"] - y1) / 2.0))
+                    h, w = dn.shape[:2]
+                    if ix >= 0 and iy >= 0 and iy + h <= ref.shape[0] and ix + w <= ref.shape[1]:
+                        rc = ref[iy:iy + h, ix:ix + w].reshape(-1, 3).astype(np.float32)
+                        g = np.clip(np.median(rc, axis=0) / np.maximum(np.median(dn.reshape(-1, 3), axis=0), 1.0), 0.7, 1.4)
+                        img = np.clip(img.astype(np.float32) * g + 0.5, 0, 255).astype(np.uint8)
+                        log(f"  image {pstep * 100:g} cm: gain de raccord avec l'image 2 m {g.round(3).tolist()}")
+                name = f"ortho_{int(round(pstep * 100))}cm.jpg"
+                data = imagecodecs.jpeg8_encode(img, level=93)
+                with open(os.path.join(out, name), "wb") as fh:
+                    fh.write(data)
+                patches.append(dict(file=name, x0=x0, y1=y1, step=pstep, shape=[S, S]))
+                log(f"  {name}: {S}x{S} pixels, {len(data) / 1e6:.0f} Mo, centre E {Ec:.0f} N {Nc:.0f}")
+            del ref
+    meta["ortho_patches"] = patches
+    meta["hires_created"] = time.strftime("%Y-%m-%d %H:%M")
+    with open(mp, "w") as fh:
+        json.dump(meta, fh, indent=2)
+    log(f"haute résolution terminée en {time.time() - t0:.0f} s")
+
+
 def main():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else sys.argv[1:]
     ap = argparse.ArgumentParser(prog="prep_env")
@@ -398,11 +503,18 @@ def main():
     ap.add_argument("--retouche-ortho", action="store_true", help="refait seulement la retouche de l'image (ortho_2m_brut.jpg + dem_2m.npy), sans recalage")
     ap.add_argument("--deslight", type=float, default=0.75, help="force du déséclairage de l'image (0 = aucun)")
     ap.add_argument("--harmonise", type=float, default=0.7, help="force de l'homogénéisation des dalles (0 = aucune)")
+    ap.add_argument("--hires", action="store_true", help="seulement la haute résolution (relief 0,5 m, images 10 cm) autour de la caméra, sur le calage existant")
+    ap.add_argument("--camera", type=float, nargs=3, metavar=("X", "Y", "Z"), help="caméra (repère Blender), sinon camera.json")
+    ap.add_argument("--ortho-locales", default="0.5:1000,0.1:200", help="images locales pas:demi-côté en m (défaut 0.5:1000,0.1:200)")
     ap.add_argument("--johan-points", help="fichier .npy (X, Y, Z, |nz|) de la nappe supérieure du terrain de Johan, au lieu de lire le maillage")
     a = ap.parse_args(argv)
     out = a.out or os.path.join(a.data, "env")
     os.makedirs(out, exist_ok=True)
     t0 = time.time()
+
+    if a.hires:
+        hires_step(a, out)
+        return
 
     if a.retouche_ortho:  # seulement l'image: part de ortho_2m_brut.jpg et du relief 2 m déjà calculés
         mp = os.path.join(out, "env_meta.json")
@@ -533,8 +645,11 @@ def main():
     with open(os.path.join(out, "env_meta.json"), "w") as fh:
         json.dump(meta, fh, indent=2)
     log(f"terminé en {time.time() - t0:.0f} s, résultats dans {out}")
-    log("RAPPEL: données de travail à 2 m. Avant le rendu final, quand la caméra est choisie: télécharger swissALTI3D 0,5 m "
-        "et SWISSIMAGE 10 cm (dalles autour de la caméra, bonne date), voir PREREQUIS_VERSION_FINALE.md.")
+    if os.path.isdir(os.path.join(a.swisstopo, "swissalti3d_05m")):
+        hires_step(a, out)
+    else:
+        log("RAPPEL: relief et image à 2 m. Pour la haute résolution: python blatten.py download (listes 0,5 m et 10 cm), "
+            "puis python blatten.py prep-env --hires")
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@
   "swisstopo_max_year": 2024,
   "scene": {
     "sky": "couvert",
-    "fog": 0.6
+    "fog": 0.6,
+    "dt_per_step": 1.0
   }
 }

@@ -88,6 +88,9 @@ CFG = dict(
     bench=False,            # mode benchmark: rend des images test et estime le temps du rendu final (src/bench/bench.py)
     bench_scale=None,       # échelle de la résolution du benchmark (None: 1.0 avec GPU, 0.25 sans)
     bench_no_warm=False,    # benchmark: saute la série "données persistantes" (plus rapide)
+    matiere="defaut",       # "defaut": particules en sphères (build_debris ci-dessous), ou nom d'un module de src/matiere/ (ex. rendu_matiere), voir docs/HANDOVER_ALEA.md
+    cull=False,             # ne construit que le relief VISIBLE depuis la caméra (masques de "python blatten.py visible")
+    no_hires=False,         # ignore le relief 0,5 m et les images locales (comparaison / test mémoire)
     env_dir=None,           # dossier contenant env/ (défaut: celui des particules). Sert au test-clip
     clip=False,             # test grandeur nature: quelques secondes de l'événement (src/bench/clip.py)
     clip_seconds=3.0, clip_every=1, clip_quality=48, clip_scale=0.5, clip_samples=(24, 48, 96, 192),
@@ -179,9 +182,36 @@ def frame_to_time(scene, frame):
     return (frame - scene.frame_start) / fps / CFG["time_scale"]
 
 
+MATIERE = dict(mod=None)   # module de matière externe (src/matiere/<nom>.py), None = matière par défaut ci-dessous
+
+
+def load_matiere(root):
+    """Charge src/matiere/<CFG["matiere"]>.py. Interface (voir docs/HANDOVER_ALEA.md):
+         build(scene, seq, coll, cfg, log, helpers) -> objet principal de la matière (ou None)
+         update(scene, t, seq)   appelée à chaque changement d'image, t = temps de simulation en s
+    """
+    import importlib.util
+    name = CFG["matiere"]
+    path = name if name.endswith(".py") else os.path.join(root, "src", "matiere", name + ".py")
+    if not os.path.exists(path):
+        raise SystemExit(f"Module de matière introuvable: {path}")
+    spec = importlib.util.spec_from_file_location("matiere_externe", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    for fn in ("build", "update"):
+        if not hasattr(mod, fn):
+            raise SystemExit(f"{path}: fonction {fn}() manquante (interface: docs/HANDOVER_ALEA.md)")
+    log(f"matière: module externe {path}")
+    return mod
+
+
 @persistent
 def on_frame(scene, *args):
-    apply_time(frame_to_time(scene, scene.frame_current))
+    t = frame_to_time(scene, scene.frame_current)
+    if MATIERE["mod"] is not None:
+        MATIERE["mod"].update(scene, t, STATE["seq"])
+    else:
+        apply_time(t)
 
 
 # ----------------------------------------------------------------------------------
@@ -379,7 +409,33 @@ def load_env(data_dir):
     a128 = _block_mean(a32, 4)
     lv = {2.0: (a2, d2["x0"], d2["y1"], 2.0), 8.0: (a8, d8["x0"], d8["y1"], 8.0),
           32.0: (a32, d8["x0"], d8["y1"], 32.0), 128.0: (a128, d8["x0"], d8["y1"], 128.0)}
-    return dict(meta=m, dir=d, levels=lv)
+    if m.get("dem05") and not CFG["no_hires"]:   # relief 0,5 m autour de la caméra (prep-env --hires)
+        d5 = m["dem05"]
+        a5 = np.load(os.path.join(d, d5["file"]))
+        lv[0.5] = (a5, d5["x0"], d5["y1"], 0.5)
+        lv[1.0] = (_block_mean(a5, 2), d5["x0"], d5["y1"], 1.0)
+    vis = None
+    vd = os.path.join(d, "visible")
+    if CFG["cull"]:
+        if os.path.exists(os.path.join(vd, "visible_2m.npy")):
+            v2 = np.load(os.path.join(vd, "visible_2m.npy"))
+            v8 = np.load(os.path.join(vd, "visible_8m.npy"))
+
+            def pool(v, f):
+                h, w = v.shape[0] // f * f, v.shape[1] // f * f
+                return v[:h, :w].reshape(h // f, f, w // f, f).any(axis=(1, 3))
+            vis = {0.5: (v2, d2["x0"], d2["y1"], 2.0), 1.0: (v2, d2["x0"], d2["y1"], 2.0), 2.0: (v2, d2["x0"], d2["y1"], 2.0),
+                   8.0: (v8, d8["x0"], d8["y1"], 8.0), 32.0: (pool(v8, 4), d8["x0"], d8["y1"], 32.0),
+                   128.0: (pool(v8, 16), d8["x0"], d8["y1"], 128.0)}
+            p05 = os.path.join(vd, "visible_05m.npy")
+            if m.get("dem05") and not CFG["no_hires"] and os.path.exists(p05):   # masque fin pour les anneaux 0,5 et 1 m
+                v5, d5 = np.load(p05), m["dem05"]
+                vis[0.5] = (v5, d5["x0"], d5["y1"], 0.5)
+                vis[1.0] = (pool(v5, 2), d5["x0"], d5["y1"], 1.0)
+            log(f"coupe du relief non visible (--cull): {np.mean(v2) * 100:.1f} % de la grille 2 m conservée")
+        else:
+            log("--cull demandé mais pas de masque: lancer d'abord python blatten.py visible (relief complet utilisé)")
+    return dict(meta=m, dir=d, levels=lv, vis=vis)
 
 
 def _bilin(level, E, N):
@@ -390,6 +446,15 @@ def _bilin(level, E, N):
     fy, fx = (v - i).astype(np.float32), (u - j).astype(np.float32)
     return ((1 - fy) * ((1 - fx) * arr[i, j] + fx * arr[i, j + 1]) +
             fy * ((1 - fx) * arr[i + 1, j] + fx * arr[i + 1, j + 1]))
+
+
+def _vis_at(level, E, N):
+    """Vrai là où le masque de visibilité l'est (ou hors de la grille du masque: on garde)."""
+    arr, x0, y1, s = level
+    i = np.floor((E - x0) / s).astype(np.int64)
+    j = np.floor((y1 - N) / s).astype(np.int64)
+    ok = (i >= 0) & (i < arr.shape[1]) & (j >= 0) & (j < arr.shape[0])
+    return ~ok | arr[np.clip(j, 0, arr.shape[0] - 1), np.clip(i, 0, arr.shape[1] - 1)]
 
 
 def env_ring(env, Ec, Nc, step, H, hole, next_step):
@@ -435,6 +500,9 @@ def env_ring(env, Ec, Nc, step, H, hole, next_step):
         keep = ~inside
     else:
         keep = np.ones((n, n), bool)
+    if env.get("vis") is not None and step in env["vis"]:
+        cu = -H + (np.arange(n) + 0.5) * step
+        keep = keep & _vis_at(env["vis"][step], Ec + cu[None, :], Nc + cu[:, None])
     v00 = (r * (n + 1) + c)[keep]
     quads = np.stack([v00, v00 + 1, v00 + n + 2, v00 + n + 1], axis=1)
     if flip < 0:
@@ -471,16 +539,35 @@ def quads_to_mesh(name, co, quads):
     return me
 
 
+HIRES_RINGS = [(0.5, 384.0), (1.0, 768.0)]   # (pas, demi-côté) ajoutés au centre quand le relief 0,5 m existe
+
+
+def env_rings(env, Ec, Nc):
+    rings = list(ENV_RINGS)
+    if 0.5 in env["levels"]:
+        arr, x0, y1, st = env["levels"][0.5]
+        cx1, cy0 = x0 + arr.shape[1] * st, y1 - arr.shape[0] * st
+        hi = []
+        for stp, H in HIRES_RINGS:   # chaque anneau doit tenir dans l'emprise du relief 0,5 m
+            if Ec - H >= x0 and Ec + H <= cx1 and Nc - H >= cy0 and Nc + H <= y1:
+                hi.append((stp, H))
+            else:
+                log(f"  anneau {stp:g} m (demi-côté {H:g} m) hors de l'emprise du relief 0,5 m: ignoré")
+        rings = hi + rings
+    return rings
+
+
 def build_env_terrain(env, center, coll, mat):
     m = env["meta"]
     flip = m["flip"]
     Ec = round((m["scene_E0"] + center[0]) / 128.0) * 128.0
     Nc = round((m["scene_N0"] + flip * center[1]) / 128.0) * 128.0
-    log(f"relief swisstopo centré sur E {Ec:.0f} N {Nc:.0f} (anneaux {', '.join(f'{s:g} m' for s, _ in ENV_RINGS)})")
+    rings = env_rings(env, Ec, Nc)
+    log(f"relief swisstopo centré sur E {Ec:.0f} N {Nc:.0f} (anneaux {', '.join(f'{s:g} m' for s, _ in rings)})")
     prev = 0.0
     objs = []
-    for k, (step, H) in enumerate(ENV_RINGS):
-        nxt = ENV_RINGS[k + 1][0] if k + 1 < len(ENV_RINGS) else None
+    for k, (step, H) in enumerate(rings):
+        nxt = rings[k + 1][0] if k + 1 < len(rings) else None
         co, quads = env_ring(env, Ec, Nc, step, H, prev, nxt)
         me = quads_to_mesh(f"Relief_{step:g}m", co, quads)
         me.materials.append(mat)
@@ -635,6 +722,29 @@ def build_terrain_material(env=None):
         hs.inputs["Value"].default_value = CFG["ortho_gain"]
         L.new(tex.outputs["Color"], hs.inputs["Color"])
         col = mix(inside, col, hs.outputs["Color"])
+        for pa in ([] if CFG["no_hires"] else em.get("ortho_patches", [])):   # images locales 50 cm, 10 cm (du plus grossier au plus fin)
+            pimg = bpy.data.images.load(os.path.join(env["dir"], pa["file"]))
+            pimg.colorspace_settings.name = "sRGB"
+            pt = N.new("ShaderNodeTexImage")
+            pt.image, pt.interpolation, pt.extension = pimg, "Linear", "EXTEND"
+            pm = N.new("ShaderNodeMapping")
+            pm.vector_type = "POINT"
+            pW, pH = pa["shape"][1] * pa["step"], pa["shape"][0] * pa["step"]
+            pnb = pa["y1"] - pH
+            pm.inputs["Location"].default_value = ((em["scene_E0"] - pa["x0"]) / pW, (em["scene_N0"] - pnb) / pH, 0.0)
+            pm.inputs["Scale"].default_value = (1.0 / pW, em["flip"] / pH, 1.0)
+            L.new(geo.outputs["Position"], pm.inputs["Vector"])
+            L.new(pm.outputs["Vector"], pt.inputs["Vector"])
+            psep = N.new("ShaderNodeSeparateXYZ")
+            L.new(pm.outputs["Vector"], psep.inputs["Vector"])
+            pdu = math("MINIMUM", psep.outputs["X"], math("SUBTRACT", 1.0, psep.outputs["X"]))
+            pdv = math("MINIMUM", psep.outputs["Y"], math("SUBTRACT", 1.0, psep.outputs["Y"]))
+            pin = mrange(math("MINIMUM", pdu, pdv), 0.0, min(0.2, 30.0 / pW))   # fondu sur 30 m en bord d'image
+            phs = N.new("ShaderNodeHueSaturation")
+            phs.inputs["Saturation"].default_value = 0.8
+            phs.inputs["Value"].default_value = CFG["ortho_gain"]
+            L.new(pt.outputs["Color"], phs.inputs["Color"])
+            col = mix(pin, col, phs.outputs["Color"])
     # neige : en altitude et sur pentes douces (l'image date de l'été, le 28 mai il y en avait plus haut)
     sl = CFG["snow_line"] if env else 2350.0
     snow_alt = mrange(alt, sl, sl + 400.0)
@@ -936,11 +1046,12 @@ def check_final_prereqs(env):
         bloquants.append("aucune position de caméra explicite (--cam X Y Z): la position automatique n'est qu'un test")
     if env:
         m = env["meta"]
-        if m["dem2"]["step"] > 0.5 + 1e-6:
-            resolution.append(f"relief swissALTI3D à {m['dem2']['step']:g} m au lieu de 0,5 m autour de la caméra")
+        if (not m.get("dem05") or CFG["no_hires"]) and m["dem2"]["step"] > 0.5 + 1e-6:
+            resolution.append(f"relief swissALTI3D à {m['dem2']['step']:g} m au lieu de 0,5 m autour de la caméra (python blatten.py prep-env --hires)")
         o = m.get("ortho")
-        if not o or o["step"] > 0.1 + 1e-6:
-            resolution.append(f"image SWISSIMAGE à {o['step'] if o else '?'} m au lieu de 10 cm autour de la caméra")
+        fin = min([p["step"] for p in m.get("ortho_patches", [])] + [o["step"] if o else 9.0])
+        if CFG["no_hires"] or fin > 0.1 + 1e-6:
+            resolution.append(f"image SWISSIMAGE à {fin:g} m au lieu de 10 cm autour de la caméra")
     else:
         resolution.append("environnement swisstopo absent (cache/env)")
     if resolution and CFG["accept_lowres"]:
@@ -1154,6 +1265,8 @@ def parse_args():
     ap.add_argument("--camera-confirmed", action="store_true"); ap.add_argument("--accept-lowres", action="store_true")
     ap.add_argument("--bench", action="store_true"); ap.add_argument("--bench-scale", type=float)
     ap.add_argument("--bench-no-warm", action="store_true"); ap.add_argument("--persistent", action="store_true")
+    ap.add_argument("--matiere")
+    ap.add_argument("--cull", action="store_true"); ap.add_argument("--no-hires", action="store_true")
     ap.add_argument("--env-dir"); ap.add_argument("--clip", action="store_true")
     ap.add_argument("--clip-seconds", type=float); ap.add_argument("--clip-every", type=int)
     ap.add_argument("--clip-quality", type=int); ap.add_argument("--clip-fullscale", type=float); ap.add_argument("--clip-scale", type=float)
@@ -1164,7 +1277,7 @@ def parse_args():
         if k == "mono":
             if v:
                 CFG["stereo"] = False
-        elif k in ("no_env", "camera_confirmed", "accept_lowres", "bench", "bench_no_warm", "persistent", "clip", "clip_no_keys", "clip_no_video"):
+        elif k in ("no_env", "camera_confirmed", "accept_lowres", "bench", "bench_no_warm", "persistent", "clip", "clip_no_keys", "clip_no_video", "cull", "no_hires"):
             if v:
                 CFG[k] = True
         elif v is not None and v is not False:
@@ -1209,8 +1322,16 @@ def main():
 
     coll = new_collection(scene, "Blatten")
     CFG["color"] = CFG["color"] or ("natural" if CFG["look"] == "realiste" else "speed")
-    deb = build_debris(scene, seq, coll)
-    deb.color = (0.95, 0.55, 0.15, 1)
+    if CFG["matiere"] and CFG["matiere"] != "defaut":
+        MATIERE["mod"] = load_matiere(root)
+        STATE["seq"] = seq
+        helpers = dict(to_blender=to_blender, frame_to_time=frame_to_time, apply_height_fog=apply_height_fog,
+                       new_collection=new_collection, build_default=lambda: build_debris(scene, seq, coll))
+        deb = MATIERE["mod"].build(scene, seq, coll, CFG, log, helpers)
+    else:
+        deb = build_debris(scene, seq, coll)
+    if deb is not None:
+        deb.color = (0.95, 0.55, 0.15, 1)
 
     # VDB: repère simulation Y haut, recentrés comme les particules (origine en Houdini)
     rot = (math.pi / 2, 0.0, 0.0)
