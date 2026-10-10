@@ -1,0 +1,183 @@
+BLATTEN 360 - SOURCES POUR LA BANDE SON
+Projet de médiation scientifique, M2 DYNARISK
+Liste établie le 10 octobre 2026
+
+Légende :
+  [REF]   = référence d'écoute seulement (vidéo protégée, ne pas réutiliser le son sans accord)
+  [LIBRE] = sons réutilisables, vérifier la licence de chaque fichier
+  [SCI]   = source scientifique, à citer
+  [?]     = son d'origine non vérifié, à écouter au casque
+
+
+========================================================================
+1. BLATTEN (28 MAI 2025) - PRESSE ET REPORTAGES
+========================================================================
+
+[REF] SRF - Bilder und Videos zeigen das Ausmass im Walliser Blatten
+      https://www.srf.ch/news/schweiz/katastrophe-im-loetschental-ein-grollen-ein-beben-und-in-blatten-ist-nichts-mehr-wie-zuvor
+      -> Témoignages : grosse détonation entendue à Wiler, coupure de
+         courant, onde de pression ressentie loin, séisme de magnitude 3,1.
+
+[REF] Global News - Video shows Swiss village being flattened by glacier collapse
+      https://globalnews.ca/news/11201406/glacier-collapse-blatten-switzerland-video/
+
+[REF] Euronews - Aerial footage shows Alpine village buried by Birch glacier slide
+      https://www.euronews.com/video/2025/05/29/aerial-footage-shows-alpine-village-buried-by-birch-glacier-slide
+      -> Images aériennes après l'événement (dépôt, échelle).
+
+[REF] Al Jazeera - Glacier collapse buries Swiss village
+      https://www.aljazeera.com/video/newsfeed/2025/5/29/glacier-collapse-buries-swiss-village#flips-6373598921112:0
+
+
+========================================================================
+2. BLATTEN - VIDÉOS YOUTUBE
+========================================================================
+
+[REF][?] Landslide in Blatten - Swiss Alps - May 2025
+      https://www.youtube.com/watch?v=-SpEK8YaxSs
+      -> A écouter en premier : vidéo d'amateur probable.
+
+[REF][?] MASSIVE glacier collapses, buries Swiss village with ice and rock
+      https://www.youtube.com/watch?v=ivCHkFmvZTU
+
+[REF] Suisse : l'effondrement d'un glacier détruit le village de Blatten
+      https://www.youtube.com/watch?v=FgvZI8hNLdY
+      -> Reportage, probablement commenté.
+
+
+========================================================================
+3. ÉVÉNEMENTS COMPARABLES - VIDÉOS YOUTUBE
+========================================================================
+
+--- Piz Cengalo / Bondo, Grisons, 23 août 2017 (environ 3 millions de m3) ---
+    L'analogue suisse le plus proche de Blatten.
+
+[REF][?] Riesiger Bergsturz in Graubünden - Augenzeugenvideo vom 23.07.17
+      https://www.youtube.com/watch?v=uma5t46IeVU
+      -> Vidéo de témoin direct : meilleure piste pour un son brut.
+         Attention : le titre indique 23.07, l'événement date du 23.08.
+
+[REF][?] Felssturz Pizzo Cengalo (1/2)
+      https://www.youtube.com/watch?v=rjy4JTbQqXQ
+
+[REF][?] Felssturz Pizzo Cengalo 2/2
+      https://www.youtube.com/watch?v=HA5bvVPShfA
+
+[REF][?] Bergsturz am Piz Cengalo 2017
+      https://www.youtube.com/watch?v=L12It3dAZSE
+
+[REF][?] Impressionnante avalanche à Bondo
+      https://www.youtube.com/watch?v=nK0rFAiRoZ0
+      -> Lave torrentielle qui a suivi : son d'un écoulement chargé de blocs.
+
+--- Glacier de la Marmolada, Dolomites, 3 juillet 2022 ---
+    Effondrement de glacier, 11 morts : usage en référence d'écoute seulement.
+
+[REF][?] Glacier Collapse in Italian Alpes at Dolomite summit Marmolada
+      https://www.youtube.com/watch?v=OBJEECi7de4
+
+[REF] Les images de l'effondrement du glacier (Alpes italiennes)
+      https://www.youtube.com/watch?v=0nh3k6GpP_E
+      -> Le titre indique "au moins 6 morts", bilan provisoire.
+
+--- Cervin (Matterhorn) et compilations d'éboulements ---
+
+[REF][?] Huge rock avalanches captured on the Matterhorn
+      https://www.youtube.com/shorts/hkvl8EdkKL8
+
+[REF][?] Éboulement du Cervin, 5 août (short)
+      https://www.youtube.com/shorts/9FbvTWsT9cM
+
+[REF][?] Massive Rockfalls Caught on Camera !
+      https://www.youtube.com/watch?v=pLHdDr8BZQM
+
+[REF][?] 10 Massive Rockfalls Caught on Camera
+      https://www.youtube.com/watch?v=eePxKaQbWRQ
+      -> Compilations : pratiques pour comparer, vérifier qu'aucune
+         musique n'a été ajoutée.
+
+--- Alta, Norvège, 3 juin 2020 (glissement dans de l'argile) ---
+    Autre type de mouvement : utile pour le son de bâtiments détruits.
+
+[REF][?] Moment powerful landslide sweeps away buildings in Norway
+      https://www.youtube.com/watch?v=Xwh2Z2nkTsw
+
+[REF][?] Man Watches as Landslide Sweeps Home into the Sea in Norway
+      https://www.youtube.com/watch?v=jFNkyMyzgsg
+
+[REF][?] Maisons flottant dans la mer (Alta, Norvège)
+      https://www.youtube.com/watch?v=VWOsGjJo_oI
+
+
+========================================================================
+4. RECHERCHE SCIENTIFIQUE - SISMIQUE ET INFRASONS
+========================================================================
+
+[SCI] Integrated Analysis of the Blatten Rock-Ice Avalanche: Seismology,
+      Geomorphology, and Modeling - Lucas et al., International Mountain
+      Conference, Innsbruck, septembre 2025 (J. Kang et J. Gaume co-auteurs)
+      https://imc2025.info/imc25/abstract/integrated-analysis-of-the-blatten-rock-ice-avalanche-seismology-geomorphology-and-modeling/
+      -> Résumé seulement. Demander l'article ou les diapositives à Johan
+         Gaume : durée des phases de l'événement, utile pour caler le son.
+
+[SCI] Toney et al. (2021) - Reconstructing the dynamics of the highly similar
+      May 2016 and June 2019 Iliamna Volcano (Alaska) ice-rock avalanches
+      from seismoacoustic data - Earth Surface Dynamics, 9, 271-293
+      https://esurf.copernicus.org/articles/9/271/2021/
+      -> Infrasons centrés vers 0,5 Hz (inaudibles), détectés à plus de 600 km.
+      -> La rupture initiale fait peu de bruit ; l'infrason naît quand la
+         masse devient un écoulement granulaire et turbulent.
+
+[SCI] Automatic detection of avalanches: evaluation of three different
+      approaches - Natural Hazards (Springer)
+      https://link.springer.com/article/10.1007/s11069-017-2754-1
+      -> Non lu (accès refusé lors de la recherche). A ouvrir.
+
+[SCI] BDLFPH_rev-1.pdf - HAL Sorbonne Université
+      https://hal.sorbonne-universite.fr/hal-01609011/document
+      -> Non lu (page protégée). Contenu à vérifier.
+
+
+========================================================================
+5. SONIFICATION DES DONNÉES SISMIQUES
+========================================================================
+   Principe : accélérer un signal sismique pour le rendre audible.
+   Attention : cela casse le temps réel de la vidéo.
+
+[SCI] Listen, watch, learn: SeisSound video products - SCEC
+      https://central.scec.org/publication/1562
+
+[SCI] Listen, Watch, Learn: SeisSound Video Products - Seismological
+      Research Letters, 83(2), 281 (même travail, version article)
+      https://pubs.geoscienceworld.org/ssa/srl/article-abstract/83/2/281/143938/Listen-Watch-Learn-SeisSound-Video-Products?redirectedFrom=fulltext
+
+[SCI] Seismic Waveform Auditory Display
+      https://sos.allshookup.org/auditory-display.html
+
+
+========================================================================
+6. BANQUES DE SONS RÉUTILISABLES
+========================================================================
+
+[LIBRE] BBC Sound Effects - plus de 33 000 sons gratuits (MusicRadar)
+      https://www.musicradar.com/news/free-bbc-sound-effect-samples
+      -> Vérifier la licence sur le site de la BBC (usage éducatif).
+
+[LIBRE] Sonic Dictionary (Duke University) - rockfall
+      https://sonicdictionary.duke.edu/tags/rockfall.html
+
+[LIBRE] Sonic Dictionary (Duke University) - Avalanche (Small)
+      https://sonicdictionary.duke.edu/items/avalanche-small.html
+
+
+========================================================================
+À FAIRE
+========================================================================
+
+[ ] Écouter au casque toutes les vidéos [?] : son d'origine si on entend
+    le vent, les voix ou les pas de la personne qui filme.
+[ ] Noter pour chaque vidéo la distance à l'événement quand elle est connue
+    (de loin : grondement grave ; de près : chocs et craquements).
+[ ] Demander à Johan Gaume l'article ou les diapositives de l'IMC 2025.
+[ ] Ouvrir l'article Natural Hazards et le document HAL.
+[ ] Relever la licence de chaque son téléchargé (BBC, Sonic Dictionary).
