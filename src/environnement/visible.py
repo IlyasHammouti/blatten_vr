@@ -69,7 +69,7 @@ def block_any(v, f):
     return v[:h, :w].reshape(h // f, f, w // f, f).any(axis=(1, 3))
 
 
-def viewshed_multi(levels, Ec, Nc, zeye, rmax=None):
+def viewshed_multi(levels, Ec, Nc, zeye, rmax=None, tol=0.0):
     """Visibilité depuis (Ec, Nc, zeye) sur plusieurs relief emboîtés (le plus fin d'abord).
     Chaque point d'un rayon est lu dans le relief le plus fin qui le couvre: l'avant-plan est donc vu à la résolution du
     maillage réellement construit, et le lointain en plus grossier. Renvoie un masque booléen par niveau (sur sa propre grille)."""
@@ -116,7 +116,7 @@ def viewshed_multi(levels, Ec, Nc, zeye, rmax=None):
             info.append((c, ok, ii, jj))
         hm = np.maximum.accumulate(ang, axis=1)
         prev = np.concatenate([np.full((ang.shape[0], 1), -np.inf), hm[:, :-1]], axis=1)
-        seen = (ang >= prev) & np.isfinite(ang)
+        seen = (ang >= prev - tol / rs[None, :]) & np.isfinite(ang)   # tolérance verticale tol (m): on préfère un excès à un trou
         for k, inf in enumerate(info):
             if inf is None:
                 continue
@@ -149,6 +149,10 @@ def main():
     ap.add_argument("--eye", type=float, help="hauteur d'yeux au-dessus du sol (m): remplace le Z de la caméra")
     ap.add_argument("--ecrire-camera", action="store_true", help="avec --eye: écrit le Z obtenu dans camera.json")
     ap.add_argument("--marge", type=float, default=12.0, help="marge (m) ajoutée autour de la zone visible")
+    ap.add_argument("--leve", type=float, default=4.0, help="calcul fait depuis une caméra relevée de ce nombre de mètres (prudence: la caméra frôle le sol, "
+                    "la visibilité y est très sensible; une zone en trop coûte peu, un trou coûte cher)")
+    ap.add_argument("--tol", type=float, default=5.0, help="tolérance verticale (m) sous la ligne d'horizon: une cellule à moins de tol sous elle reste visible")
+    ap.add_argument("--no-hires", action="store_true", help="ignorer le relief 0,5 m (à utiliser avec la scène --no-hires)")
     ap.add_argument("--rmax", type=float, help="distance maximale (m); défaut: aucune, jusqu'au bord des données")
     a = ap.parse_args(argv)
 
@@ -187,13 +191,13 @@ def main():
     out = os.path.join(env, "visible")
     os.makedirs(out, exist_ok=True)
     levels = []
-    if m.get("dem05"):
+    if m.get("dem05") and not a.no_hires:
         d5 = m["dem05"]
         levels.append(dict(name="05m", D=np.asarray(best[0]), x0=d5["x0"], y1=d5["y1"], step=d5["step"]))
     levels.append(dict(name="2m", D=D2, x0=d2["x0"], y1=d2["y1"], step=d2["step"]))
     levels.append(dict(name="8m", D=D8, x0=d8["x0"], y1=d8["y1"], step=d8["step"]))
     log("niveaux: " + ", ".join(f"{L['name']} ({L['D'].shape[1]}x{L['D'].shape[0]})" for L in levels))
-    vs = viewshed_multi(levels, Ec, Nc, zeye, a.rmax)
+    vs = viewshed_multi(levels, Ec, Nc, zeye + a.leve, a.rmax, a.tol)
     for L, v in zip(levels, vs):
         log(f"  {L['name']}: {v.mean() * 100:.1f} % de sa grille visible ({time.time() - t0:.0f} s)")
 
@@ -226,7 +230,7 @@ def main():
     v2, v8 = marks["2m"], marks["8m"]
     np.save(os.path.join(out, "dem_2m_visible.npy"), np.where(v2, D2, np.nan).astype(np.float32))
 
-    meta = dict(camera=cam, E=Ec, N=Nc, z_sol=ground + dz, eye_above_ground=zeye + dz - (ground + dz), marge_m=a.marge,
+    meta = dict(camera=cam, E=Ec, N=Nc, z_sol=ground + dz, eye_above_ground=zeye + dz - (ground + dz), marge_m=a.marge, leve_m=a.leve, tol_m=a.tol,
                 rmax_m=a.rmax, niveaux=[L["name"] for L in levels], pct={k: float(v.mean() * 100) for k, v in marks.items()},
                 pct_2m=float(v2.mean() * 100), pct_8m=float(v8.mean() * 100),
                 created=time.strftime("%Y-%m-%d %H:%M"))

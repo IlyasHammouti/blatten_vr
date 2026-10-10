@@ -502,7 +502,12 @@ def env_ring(env, Ec, Nc, step, H, hole, next_step):
         keep = np.ones((n, n), bool)
     if env.get("vis") is not None and step in env["vis"]:
         cu = -H + (np.arange(n) + 0.5) * step
-        keep = keep & _vis_at(env["vis"][step], Ec + cu[None, :], Nc + cu[:, None])
+        # une maille est gardée si UN point de sa surface (grille 3 x 3) est visible (mailles larges: le centre seul ne suffit pas)
+        vv = np.zeros((n, n), bool)
+        for oy in (-0.5, 0.0, 0.5):
+            for ox in (-0.5, 0.0, 0.5):
+                vv |= _vis_at(env["vis"][step], Ec + (cu + ox * step * 0.999)[None, :], Nc + (cu + oy * step * 0.999)[:, None])
+        keep = keep & vv
     v00 = (r * (n + 1) + c)[keep]
     quads = np.stack([v00, v00 + 1, v00 + n + 2, v00 + n + 1], axis=1)
     if flip < 0:

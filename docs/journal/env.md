@@ -12,3 +12,8 @@
 - **Zone visible** : `python blatten.py visible` calcule ce que la caméra voit (fichiers dans `cache/env/visible/`, rien n'est écrasé).
   `--cull` dans la scène ne construit que le relief visible. Sur la caméra actuelle, environ 85 % du relief est caché.
 - Demande à ALEA: la matière cachée derrière une crête peut aussi être retirée (le masque `visible_2m.npy` est utilisable pour les particules), à ton initiative.
+
+## 2026-10-10 (suite) : zone visible validée sans haute résolution
+- `visible` calcule le masque sur chaque niveau (0,5 / 2 / 8 m), depuis une caméra relevée de 4 m (`--leve`), avec tolérance verticale 5 m (`--tol`) et marge 12 m.
+- Test cloud: `--no-hires --cull` donne la même image que sans coupe (0 pixel de différence). Le masque doit être calculé avec les mêmes niveaux que la scène (`visible --no-hires` si la scène est lancée avec `--no-hires`).
+- Non validé: cas haute résolution (le test cloud dépasse 8 Go de mémoire). À vérifier sur le PC d'Ilyas: image `--cull` identique à l'image sans `--cull`.
