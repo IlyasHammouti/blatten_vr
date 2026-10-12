@@ -89,6 +89,8 @@ CFG = dict(
     bench_scale=None,       # échelle de la résolution du benchmark (None: 1.0 avec GPU, 0.25 sans)
     bench_no_warm=False,    # benchmark: saute la série "données persistantes" (plus rapide)
     matiere="defaut",       # "defaut": particules en sphères (build_debris ci-dessous), ou nom d'un module de src/matiere/ (ex. rendu_matiere), voir docs/HANDOVER_ALEA.md
+    env_only=False,         # ENVIRONNEMENT SEUL: ni particules ni zone de rupture (décor d'avant l'événement)
+    lite=False,             # version légère: environnement seul + relief visible seulement, enregistrée avec ses images dans render/blatten_env_lite.blend
     cull=False,             # ne construit que le relief VISIBLE depuis la caméra (masques de "python blatten.py visible")
     no_hires=False,         # ignore le relief 0,5 m et les images locales (comparaison / test mémoire)
     env_dir=None,           # dossier contenant env/ (défaut: celui des particules). Sert au test-clip
@@ -1271,6 +1273,7 @@ def parse_args():
     ap.add_argument("--bench", action="store_true"); ap.add_argument("--bench-scale", type=float)
     ap.add_argument("--bench-no-warm", action="store_true"); ap.add_argument("--persistent", action="store_true")
     ap.add_argument("--matiere")
+    ap.add_argument("--env-only", action="store_true"); ap.add_argument("--lite", action="store_true")
     ap.add_argument("--cull", action="store_true"); ap.add_argument("--no-hires", action="store_true")
     ap.add_argument("--env-dir"); ap.add_argument("--clip", action="store_true")
     ap.add_argument("--clip-seconds", type=float); ap.add_argument("--clip-every", type=int)
@@ -1282,7 +1285,7 @@ def parse_args():
         if k == "mono":
             if v:
                 CFG["stereo"] = False
-        elif k in ("no_env", "camera_confirmed", "accept_lowres", "bench", "bench_no_warm", "persistent", "clip", "clip_no_keys", "clip_no_video", "cull", "no_hires"):
+        elif k in ("no_env", "camera_confirmed", "accept_lowres", "bench", "bench_no_warm", "persistent", "clip", "clip_no_keys", "clip_no_video", "cull", "no_hires", "env_only", "lite"):
             if v:
                 CFG[k] = True
         elif v is not None and v is not False:
@@ -1311,6 +1314,8 @@ def main():
         import clip
         clip.prepare(CFG)
 
+    if CFG["lite"]:
+        CFG["env_only"] = CFG["cull"] = True
     load_camera_file(root)
     scene = reset_scene()
     seq = Sequence(data_dir)
@@ -1327,7 +1332,10 @@ def main():
 
     coll = new_collection(scene, "Blatten")
     CFG["color"] = CFG["color"] or ("natural" if CFG["look"] == "realiste" else "speed")
-    if CFG["matiere"] and CFG["matiere"] != "defaut":
+    if CFG["env_only"]:
+        deb = None
+        log("ENVIRONNEMENT SEUL: aucune particule, aucune zone de rupture")
+    elif CFG["matiere"] and CFG["matiere"] != "defaut":
         MATIERE["mod"] = load_matiere(root)
         STATE["seq"] = seq
         helpers = dict(to_blender=to_blender, frame_to_time=frame_to_time, apply_height_fog=apply_height_fog,
@@ -1353,7 +1361,7 @@ def main():
         em = env["meta"]
         log(f"environnement swisstopo: scène à E {em['scene_E0']:.1f} N {em['scene_N0']:.1f} (LV95), "
             f"écart de calage médian {em.get('mad', em.get('rms', 0)):.2f} m")
-    if CFG["terrain"] and not env:
+    if CFG["terrain"] and not env and not CFG["env_only"]:
         t = vdb_to_mesh(CFG["terrain"], "Terrain", CFG["terrain_voxel"], offset, rot, coll,
                         (0.16, 0.14, 0.12, 1), data_dir, convert=CFG["terrain_voxel"] is not None)
         if t:
@@ -1361,7 +1369,7 @@ def main():
             if CFG["look"] == "realiste":
                 t.data.materials.clear()
                 t.data.materials.append(build_terrain_material())
-    if CFG["release"]:
+    if CFG["release"] and not CFG["env_only"]:
         o = vdb_to_mesh(CFG["release"], "Release", CFG["release_voxel"], offset, rot, coll,
                         (0.8, 0.1, 0.1, 1), data_dir)
         o.color = (0.9, 0.1, 0.1, 1)
@@ -1410,6 +1418,11 @@ def main():
                  data_dir=data_dir, bench=bench)
         return
 
+    if CFG["lite"]:
+        path = os.path.join(out_dir, "blatten_env_lite.blend")
+        bpy.ops.file.pack_all()
+        bpy.ops.wm.save_as_mainfile(filepath=path, compress=True)
+        log(f"version lite enregistrée: {path} ({os.path.getsize(path) / 1e6:.0f} Mo, images incluses)")
     if CFG["save"]:
         path = os.path.join(root, "blatten_scene.blend")
         bpy.ops.wm.save_as_mainfile(filepath=path)

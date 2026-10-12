@@ -44,6 +44,7 @@ SCRIPTS = {
     "install": os.path.join(SRC, "environnement", "installer_bibliotheques.py"),
     "prep_part": os.path.join(SRC, "matiere", "prep_particules.py"),
     "visible": os.path.join(SRC, "environnement", "visible.py"),
+    "comparer": os.path.join(SRC, "environnement", "comparer.py"),
 }
 
 
@@ -368,6 +369,28 @@ def cmd_test360(cfg, paths, extra):
     return run_blender(cfg, SCRIPTS["scene"], scene_args(cfg, paths) + ["--preset", "test", "--render-frame", "1"] + extra)
 
 
+def cmd_valider_env(cfg, paths, extra):
+    """Rend la même image test deux fois (environnement seul, mono), avec puis sans coupe du relief invisible, et les compare."""
+    d1, d2 = os.path.join(ROOT, "render", "val_cull"), os.path.join(ROOT, "render", "val_sans_cull")
+    base = scene_args(cfg, paths) + ["--preset", "test", "--render-frame", "1", "--mono", "--env-only"]
+    print("\n--- 1/3 image AVEC coupe du relief invisible ---")
+    if run_blender(cfg, SCRIPTS["scene"], base + ["--cull", "--out", d1] + extra):
+        return 1
+    print("\n--- 2/3 image SANS coupe (relief complet) ---")
+    if run_blender(cfg, SCRIPTS["scene"], base + ["--out", d2] + extra):
+        return 1
+    print("\n--- 3/3 comparaison ---")
+    return run_blender(cfg, SCRIPTS["comparer"], [os.path.join(d1, "frame_0001.png"), os.path.join(d2, "frame_0001.png"),
+                                                  os.path.join(ROOT, "render", "val_difference.png")])
+
+
+def cmd_lite(cfg, paths, extra):
+    """Version légère de l'environnement: seul le relief visible depuis la caméra, sans particules, images incluses."""
+    rc = run_blender(cfg, SCRIPTS["scene"], scene_args(cfg, paths) + ["--lite", "--preset", "test"] + extra)
+    print("Fichier:", os.path.join(ROOT, "render", "blatten_env_lite.blend"))
+    return rc
+
+
 def cmd_open(cfg, paths, extra):
     return run_blender(cfg, SCRIPTS["scene"], scene_args(cfg, paths) + ["--save"] + extra, background=False)
 
@@ -544,6 +567,8 @@ MENU = [
     ("open", "Ouvrir la scène dans Blender", []),
     ("bench", "Benchmark de rendu de cette machine", []),
     ("bench-compare", "Comparer les benchmarks enregistrés", []),
+    ("valider-env", "VALIDER l'environnement seul: même image avec et sans coupe du relief invisible, comparées", []),
+    ("lite", "Créer la VERSION LITE de l'environnement (relief visible seulement, sans aléa, un seul fichier .blend)", []),
     ("test-clip", "Test grandeur nature: 3 s de l'événement dans l'environnement (plusieurs heures)", []),
 ]
 
@@ -581,7 +606,7 @@ def cmd_menu(cfg, paths, extra):
 COMMANDS = {
     "status": cmd_status, "setup": cmd_setup, "download": cmd_download, "prep-env": cmd_prep_env, "visible": cmd_visible,
     "prep-particules": cmd_prep_particules, "terrain": cmd_terrain, "views": cmd_views, "test360": cmd_test360,
-    "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
+    "valider-env": cmd_valider_env, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
 }
 
 
