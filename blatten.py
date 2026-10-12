@@ -275,17 +275,21 @@ def _print_sizes(todo):
         print(f"    taille à télécharger: {sum(ok) / 1e9:.2f} Go{note}")
 
 
-def cmd_download(cfg, paths, extra, max_year=None, dry=False, workers=4):
+def cmd_download(cfg, paths, extra, max_year=None, dry=False, workers=4, jeux=None):
     max_year = max_year or int(cfg.get("swisstopo_max_year", 2024))
     sets, guess = _parse_csvs(paths.csv, max_year)
     if not sets:
         sys.exit(f"Aucun fichier swiss*.csv dans {paths.csv}")
     for ds in sorted(sets):
+        if jeux and not any(j in ds for j in jeux):
+            continue
         dest = os.path.join(paths.swisstopo, ds)
         os.makedirs(dest, exist_ok=True)
         items = sorted(sets[ds].values())
         todo = [(u, os.path.join(dest, os.path.basename(u))) for u, _y in items]
-        todo = [(u, f) for u, f in todo if not os.path.exists(f)]
+        # une dalle déjà présente sous une autre année (ex. 2019 au lieu de 2024) n'est pas retéléchargée
+        have = {re.sub(r"_(19|20)\d\d(-\d\d)?_", "_", n) for n in os.listdir(dest)}
+        todo = [(u, f) for u, f in todo if not os.path.exists(f) and re.sub(r"_(19|20)\d\d(-\d\d)?_", "_", os.path.basename(f)) not in have]
         print(f"\n=== {ds} : {len(items)} dalles, {len(items) - len(todo)} déjà présentes, {len(todo)} à télécharger (année max {max_year}) ===")
         if dry:
             if 0 < len(todo) <= 60:
@@ -516,13 +520,14 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter, allow_abbrev=False)
     ap.add_argument("commande", nargs="?", default="menu", choices=sorted(COMMANDS),
                     help="sans commande (double-clic), le menu s'ouvre")
+    ap.add_argument("--jeux", nargs="+", help="download: ne traiter que ces jeux (ex. 05m 10cm buildings3d)")
     ap.add_argument("--max-year", type=int, help="download: année maximale des dalles (défaut: config)")
     ap.add_argument("--dry-run", action="store_true", help="download: compte sans télécharger")
     a, extra = ap.parse_known_args()
     cfg = load_config()
     paths = Paths(cfg)
     if a.commande == "download":
-        return cmd_download(cfg, paths, extra, max_year=a.max_year, dry=a.dry_run)
+        return cmd_download(cfg, paths, extra, max_year=a.max_year, dry=a.dry_run, jeux=a.jeux)
     return COMMANDS[a.commande](cfg, paths, extra) or 0
 
 
