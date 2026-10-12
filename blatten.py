@@ -277,6 +277,11 @@ def _print_sizes(todo):
 
 def cmd_download(cfg, paths, extra, max_year=None, dry=False, workers=4, jeux=None):
     max_year = max_year or int(cfg.get("swisstopo_max_year", 2024))
+    if extra:   # appelé depuis le menu: options passées en liste
+        if "--dry-run" in extra:
+            dry = True
+        if "--jeux" in extra:
+            jeux = [x for x in extra[extra.index("--jeux") + 1:] if not x.startswith("--")]
     sets, guess = _parse_csvs(paths.csv, max_year)
     if not sets:
         sys.exit(f"Aucun fichier swiss*.csv dans {paths.csv}")
@@ -472,26 +477,29 @@ def cmd_test_clip(cfg, paths, extra):
     return run_blender(cfg, SCRIPTS["scene"], args + rest)
 
 
+# (commande, texte du menu, options fixes). Les options fixes évitent à l'utilisateur de taper des paramètres.
 MENU = [
-    ("status", "Etat des données et des réglages"),
-    ("setup", "Installation (Blender, bibliothèques, dossiers), une seule fois"),
-    ("download", "Télécharger les dalles swisstopo"),
-    ("terrain", "Convertir le terrain de Johan en maillage (une fois)"),
-    ("prep-env", "Préparer relief + image aérienne (calage)"),
-    ("visible", "Calculer la zone du relief visible depuis la caméra"),
-    ("views", "8 aperçus pour choisir le point de vue"),
-    ("test360", "Image test 360 basse résolution"),
-    ("open", "Ouvrir la scène dans Blender"),
-    ("bench", "Benchmark de rendu de cette machine"),
-    ("bench-compare", "Comparer les benchmarks enregistrés"),
-    ("test-clip", "Test grandeur nature: 3 s de l'événement dans l'environnement (plusieurs heures)"),
+    ("status", "Etat des données et des réglages", []),
+    ("setup", "Installation (Blender, bibliothèques, dossiers), une seule fois", []),
+    ("download", "Télécharger les dalles swisstopo de base (relief et image 2 m)", ["--jeux", "2m"]),
+    ("download", "Télécharger la HAUTE RESOLUTION autour de la caméra (relief 0,5 m, image 10 cm, bâtiments 3D)", ["--jeux", "05m", "10cm", "buildings3d"]),
+    ("terrain", "Convertir le terrain de Johan en maillage (une fois)", []),
+    ("prep-env", "Préparer relief + image aérienne (calage)", []),
+    ("prep-env", "Préparer la HAUTE RESOLUTION (après son téléchargement)", ["--hires"]),
+    ("visible", "Calculer la zone du relief visible depuis la caméra (et régler la caméra à hauteur d'yeux)", []),
+    ("views", "8 aperçus pour choisir le point de vue", []),
+    ("test360", "Image test 360 basse résolution", []),
+    ("open", "Ouvrir la scène dans Blender", []),
+    ("bench", "Benchmark de rendu de cette machine", []),
+    ("bench-compare", "Comparer les benchmarks enregistrés", []),
+    ("test-clip", "Test grandeur nature: 3 s de l'événement dans l'environnement (plusieurs heures)", []),
 ]
 
 
 def cmd_menu(cfg, paths, extra):
     while True:
         print("\n==== Blatten VR 360 ====")
-        for i, (c, d) in enumerate(MENU, 1):
+        for i, (c, d, _x) in enumerate(MENU, 1):
             print(f" {i} = {d}")
         print(" 0 = Quitter")
         ch = input("Votre choix : ").strip()
@@ -499,12 +507,21 @@ def cmd_menu(cfg, paths, extra):
             return 0
         if not ch.isdigit() or not 1 <= int(ch) <= len(MENU):
             continue
-        name = MENU[int(ch) - 1][0]
-        ex = []
+        name, _d, ex = MENU[int(ch) - 1]
+        ex = list(ex)
         if name in ("test360", "open"):
             v = input("Numéro de vue 1 à 8 (Entrée = automatique) : ").strip()
             if v:
                 ex = ["--vue", v]
+        if name == "visible":
+            h = input("Hauteur des yeux au-dessus du sol, en m (Entrée = 1,7 ; 0 = ne pas toucher à la caméra) : ").strip().replace(",", ".")
+            if h != "0":
+                ex = ["--eye", h or "1.7", "--ecrire-camera"]
+        if name == "download":   # on compte d'abord, puis on demande confirmation
+            print("\nComptage des dalles à télécharger ...")
+            COMMANDS[name](cfg, paths, ex + ["--dry-run"])
+            if input("\nLancer le téléchargement maintenant ? (o/n) : ").strip().lower() not in ("o", "oui", "y"):
+                continue
         COMMANDS[name](cfg, paths, ex)
         input("\nEntrée pour revenir au menu ...")
 

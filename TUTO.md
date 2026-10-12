@@ -107,12 +107,14 @@ attend la touche Entrée avant de se fermer, ce qui laisse lire les erreurs.
 
 Relancer `python blatten.py status` : l'environnement doit être signalé prêt.
 
-**Haute résolution autour de la caméra (facultatif, recommandé pour la version finale)**
+**Haute résolution autour de la caméra (recommandé pour la version finale)**: tout se fait depuis le menu (`lancer_blatten.bat`).
 
-1. `python blatten.py download --dry-run --jeux 05m 10cm buildings3d` (nombre de dalles et taille), puis la même commande sans `--dry-run` : récupère swissALTI3D 0,5 m, SWISSIMAGE 10 cm et swissBUILDINGS3D v2 (listes dans `data_sources/swisstopo/`).
-2. `python blatten.py prep-env --hires` : fabrique `dem_05m.npy` et les patchs d'ortho fine.
-3. `python blatten.py visible --eye 1.7 --ecrire-camera` : calcule la zone visible depuis la caméra (sans limite de distance), l'enregistre à part
-   dans `<cache>/env/visible/` (rien n'est supprimé) et place la caméra à 1,70 m du sol. Ensuite `--cull` dans la scène ne garde que cette zone.
+1. Choix **4** (télécharger la haute résolution): le menu compte les dalles (12 + 12 + 10) puis demande confirmation avant de télécharger.
+2. Choix **7** (préparer la haute résolution): fabrique le relief 0,5 m et l'image fine.
+3. Choix **8** (zone visible): calcule ce que la caméra voit, sans limite de distance, dans un fichier à part (rien n'est supprimé),
+   et règle la caméra à hauteur d'yeux (1,7 m par défaut). À refaire si tu déplaces la caméra.
+
+(Équivalents en ligne de commande: `python blatten.py download --jeux 05m 10cm buildings3d`, `prep-env --hires`, `visible --eye 1.7 --ecrire-camera`.)
 
 ## 8. Convertir les PLY de Johan (attention)
 
