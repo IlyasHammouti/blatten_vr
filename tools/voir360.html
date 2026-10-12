@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Visionneuse 360</title>
+<style>
+html,body{margin:0;height:100%;background:#111;color:#eee;font:14px system-ui,sans-serif;overflow:hidden}
+canvas{position:fixed;inset:0;width:100%;height:100%;cursor:grab;touch-action:none}
+#bar{position:fixed;left:0;right:0;top:0;display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 12px;background:rgba(0,0,0,.6)}
+select,button{font:inherit;background:#222;color:#eee;border:1px solid #555;padding:4px 8px}
+button.on{background:#e8a33d;color:#111;border-color:#e8a33d}
+#info{margin-left:auto;color:#aaa}
+</style></head><body>
+<canvas id="c"></canvas>
+<div id="bar">
+ <select id="liste"></select>
+ <span id="eyes" style="display:none">Vue : <button data-e="0" class="on">Œil gauche</button><button data-e="1">Œil droit</button></span>
+ <button id="fs">Plein écran</button>
+ <span>ou glisser un fichier image ici</span>
+ <span id="info"></span>
+</div>
+<script>
+const cv=document.getElementById('c'),gl=cv.getContext('webgl2',{antialias:false});
+if(!gl){document.body.innerHTML='<p style="padding:20px">WebGL2 indisponible dans ce navigateur.</p>'}
+const vs=`#version 300 es
+in vec2 p;out vec2 q;void main(){q=p;gl_Position=vec4(p,0,1);}`;
+const fs=`#version 300 es
+precision highp float;in vec2 q;out vec4 o;uniform sampler2D t;uniform vec2 res;uniform float yaw,pitch,fov;uniform vec2 win;
+const float PI=3.14159265;
+void main(){
+ float th=tan(radians(fov)/2.0);
+ vec3 d=normalize(vec3(q.x*th*res.x/res.y,q.y*th,-1.0));
+ float cp=cos(pitch),sp=sin(pitch),cy=cos(yaw),sy=sin(yaw);
+ d=vec3(d.x,d.y*cp-d.z*sp,d.y*sp+d.z*cp);
+ d=vec3(d.x*cy+d.z*sy,d.y,-d.x*sy+d.z*cy);
+ float u=atan(d.x,-d.z)/(2.0*PI)+0.5, v=asin(clamp(d.y,-1.0,1.0))/PI+0.5;
+ float u2=fract(u+0.5);
+ vec2 g1=vec2(dFdx(u),dFdx(v)),g2=vec2(dFdy(u),dFdy(v));
+ vec2 h1=vec2(dFdx(u2),dFdx(v)),h2=vec2(dFdy(u2),dFdy(v));
+ if(abs(g1.x)>0.5||abs(g2.x)>0.5){g1=h1;g2=h2;}
+ g1.y=-g1.y;g2.y=-g2.y;
+ o=vec4(textureGrad(t,vec2(u,(1.0-v)*win.y+win.x),g1*vec2(1.0,win.y),g2*vec2(1.0,win.y)).rgb,1.0);
+}`;
+function sh(t,s){const x=gl.createShader(t);gl.shaderSource(x,s);gl.compileShader(x);if(!gl.getShaderParameter(x,gl.COMPILE_STATUS))console.error(gl.getShaderInfoLog(x));return x}
+const pr=gl.createProgram();gl.attachShader(pr,sh(gl.VERTEX_SHADER,vs));gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,fs));gl.linkProgram(pr);gl.useProgram(pr);
+const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+const loc=gl.getAttribLocation(pr,'p');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+const U=n=>gl.getUniformLocation(pr,n);
+const tex=gl.createTexture();let W=0,H=0,stereo=false,eye=0,yaw=0,pitch=0,fov=80,need=true;
+function charger(src,nom){
+ const im=new Image();
+ im.onload=()=>{
+  W=im.naturalWidth;H=im.naturalHeight;stereo=(H>=W*0.95&&H<=W*1.05);
+  gl.bindTexture(gl.TEXTURE_2D,tex);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8,gl.RGBA,gl.UNSIGNED_BYTE,im);gl.generateMipmap(gl.TEXTURE_2D);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  const ext=gl.getExtension('EXT_texture_filter_anisotropic');if(ext)gl.texParameterf(gl.TEXTURE_2D,ext.TEXTURE_MAX_ANISOTROPY_EXT,8);
+  document.getElementById('eyes').style.display=stereo?'':'none';
+  document.getElementById('info').textContent=nom+' : '+W+' x '+H+(stereo?' (3D empilée)':'')+' | glisser: tourner, molette: zoom';
+  need=true;};
+ im.onerror=()=>{document.getElementById('info').textContent='Impossible de charger '+nom};
+ im.src=src;
+}
+function draw(){
+ const dpr=window.devicePixelRatio||1,w=Math.round(cv.clientWidth*dpr),h=Math.round(cv.clientHeight*dpr);
+ if(cv.width!==w||cv.height!==h){cv.width=w;cv.height=h}
+ gl.viewport(0,0,w,h);
+ pitch=Math.max(-1.55,Math.min(1.55,pitch));
+ gl.uniform2f(U('res'),w,h);gl.uniform1f(U('yaw'),yaw);gl.uniform1f(U('pitch'),pitch);gl.uniform1f(U('fov'),fov);
+ gl.uniform2f(U('win'),stereo?(eye===0?0.0:0.5):0.0,stereo?0.5:1.0);
+ gl.drawArrays(gl.TRIANGLES,0,3);
+}
+(function loop(){if(need&&W){draw();need=false}requestAnimationFrame(loop)})();
+let dn=null;
+cv.addEventListener('pointerdown',e=>{dn=[e.clientX,e.clientY,yaw,pitch];cv.setPointerCapture(e.pointerId);cv.style.cursor='grabbing'});
+cv.addEventListener('pointermove',e=>{if(!dn)return;const k=fov*Math.PI/180/cv.clientHeight;yaw=dn[2]-(e.clientX-dn[0])*k;pitch=dn[3]+(e.clientY-dn[1])*k;need=true});
+cv.addEventListener('pointerup',()=>{dn=null;cv.style.cursor='grab'});
+cv.addEventListener('wheel',e=>{e.preventDefault();fov=Math.max(10,Math.min(110,fov*(e.deltaY>0?1.08:0.92)));need=true},{passive:false});
+addEventListener('resize',()=>need=true);
+document.querySelectorAll('#eyes button').forEach(bt=>bt.onclick=()=>{eye=+bt.dataset.e;document.querySelectorAll('#eyes button').forEach(x=>x.classList.toggle('on',x===bt));need=true});
+document.getElementById('fs').onclick=()=>document.documentElement.requestFullscreen&&document.documentElement.requestFullscreen();
+addEventListener('dragover',e=>e.preventDefault());
+addEventListener('drop',e=>{e.preventDefault();const f=e.dataTransfer.files[0];if(f)charger(URL.createObjectURL(f),f.name)});
+const sel=document.getElementById('liste');
+sel.onchange=()=>charger(sel.value,sel.options[sel.selectedIndex].text);
+fetch('/__liste').then(r=>r.json()).then(l=>{
+ const want=new URLSearchParams(location.search).get('img');
+ l.forEach(f=>{const o=document.createElement('option');o.value='/'+f;o.textContent=f;sel.appendChild(o)});
+ if(want){sel.value='/'+want}
+ if(sel.value)charger(sel.value,sel.options[sel.selectedIndex].text);
+}).catch(()=>{document.getElementById('info').textContent='Glisse une image 360 sur la page.'});
+</script></body></html>

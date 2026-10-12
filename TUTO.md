@@ -116,6 +116,10 @@ Relancer `python blatten.py status` : l'environnement doit être signalé prêt.
 
 (Équivalents en ligne de commande: `python blatten.py download --jeux 05m 10cm buildings3d`, `prep-env --hires`, `visible --eye 1.7 --ecrire-camera`.)
 
+## Voir un rendu en 360 (qualité d'origine)
+
+Menu `lancer_blatten.bat`, choix « Voir le dernier rendu en 360 » : ouvre le navigateur sur `tools/voir360.html`, servi en local (rien n'est envoyé sur Internet). Glisser pour tourner, molette pour zoomer, liste pour changer d'image, boutons œil gauche / droit pour les images en 3D empilée. Laisser la fenêtre noire ouverte pendant la visite.
+
 ## 8. Convertir les PLY de Johan (attention)
 
 Le cache d'Ilyas contient un `meta.json` qui vient d'**un ancien fichier unique**. Convertir les 202 nouveaux dedans mélangerait les données.

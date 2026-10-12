@@ -372,6 +372,55 @@ def cmd_open(cfg, paths, extra):
     return run_blender(cfg, SCRIPTS["scene"], scene_args(cfg, paths) + ["--save"] + extra, background=False)
 
 
+def cmd_voir360(cfg, paths, extra):
+    """Ouvre un rendu dans la visionneuse 360 (tools/voir360.html) servie en local: qualité d'origine, rien n'est envoyé sur Internet."""
+    import http.server
+    import socketserver
+    import threading
+    import webbrowser
+    exts = (".png", ".jpg", ".jpeg")
+    found = []
+    for dp, _dn, fns in os.walk(os.path.join(ROOT, "render")):
+        for fn in fns:
+            if fn.lower().endswith(exts):
+                fp = os.path.join(dp, fn)
+                found.append((os.path.getmtime(fp), os.path.relpath(fp, ROOT).replace(os.sep, "/")))
+    found.sort(reverse=True)
+    if not found:
+        print("Aucune image dans le dossier render. Lance d'abord un test (image test 360).")
+        return 1
+    want = [a for a in extra if not a.startswith("-")]
+    img = want[0].replace("\\", "/") if want else found[0][1]
+
+    class H(http.server.SimpleHTTPRequestHandler):
+        def __init__(self, *a, **k):
+            super().__init__(*a, directory=ROOT, **k)
+
+        def do_GET(self):
+            if self.path.startswith("/__liste"):
+                body = json.dumps([f for _t, f in found[:60]]).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            else:
+                super().do_GET()
+
+        def log_message(self, *a):
+            pass
+
+    socketserver.TCPServer.allow_reuse_address = True
+    with socketserver.ThreadingTCPServer(("127.0.0.1", 0), H) as srv:
+        port = srv.server_address[1]
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        url = f"http://127.0.0.1:{port}/tools/voir360.html?img={img}"
+        print(f"Visionneuse 360: {img}\n(adresse locale {url})")
+        webbrowser.open(url)
+        input("\nLaisse cette fenêtre ouverte tant que tu regardes l'image. Entrée pour fermer la visionneuse ... ")
+    return 0
+
+
 def cmd_bench(cfg, paths, extra):
     return run_blender(cfg, SCRIPTS["scene"], scene_args(cfg, paths) + ["--bench"] + extra)
 
@@ -489,6 +538,7 @@ MENU = [
     ("visible", "Calculer la zone du relief visible depuis la caméra (et régler la caméra à hauteur d'yeux)", []),
     ("views", "8 aperçus pour choisir le point de vue", []),
     ("test360", "Image test 360 basse résolution", []),
+    ("voir360", "Voir le dernier rendu en 360 (qualité d'origine, dans le navigateur)", []),
     ("test360", "DIAGNOSTIC: image test 360 en une seule image (mono), AVEC haute résolution", ["--mono", "--out", "render/diag_hd"]),
     ("test360", "DIAGNOSTIC: image test 360 en une seule image (mono), SANS haute résolution", ["--mono", "--no-hires", "--out", "render/diag_sans_hd"]),
     ("open", "Ouvrir la scène dans Blender", []),
@@ -531,7 +581,7 @@ def cmd_menu(cfg, paths, extra):
 COMMANDS = {
     "status": cmd_status, "setup": cmd_setup, "download": cmd_download, "prep-env": cmd_prep_env, "visible": cmd_visible,
     "prep-particules": cmd_prep_particules, "terrain": cmd_terrain, "views": cmd_views, "test360": cmd_test360,
-    "open": cmd_open, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
+    "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
 }
 
 
