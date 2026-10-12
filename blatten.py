@@ -489,6 +489,8 @@ MENU = [
     ("visible", "Calculer la zone du relief visible depuis la caméra (et régler la caméra à hauteur d'yeux)", []),
     ("views", "8 aperçus pour choisir le point de vue", []),
     ("test360", "Image test 360 basse résolution", []),
+    ("test360", "DIAGNOSTIC: image test 360 en une seule image (mono), AVEC haute résolution", ["--mono", "--out", "render/diag_hd"]),
+    ("test360", "DIAGNOSTIC: image test 360 en une seule image (mono), SANS haute résolution", ["--mono", "--no-hires", "--out", "render/diag_sans_hd"]),
     ("open", "Ouvrir la scène dans Blender", []),
     ("bench", "Benchmark de rendu de cette machine", []),
     ("bench-compare", "Comparer les benchmarks enregistrés", []),
@@ -509,7 +511,7 @@ def cmd_menu(cfg, paths, extra):
             continue
         name, _d, ex = MENU[int(ch) - 1]
         ex = list(ex)
-        if name in ("test360", "open"):
+        if name in ("test360", "open") and not ex:
             v = input("Numéro de vue 1 à 8 (Entrée = automatique) : ").strip()
             if v:
                 ex = ["--vue", v]
