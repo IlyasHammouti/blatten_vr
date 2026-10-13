@@ -1169,11 +1169,11 @@ def _materiau_eau():
     at = N_.new("ShaderNodeAttribute"); at.attribute_name, at.attribute_type = "larg", "GEOMETRY"
     asep = N_.new("ShaderNodeSeparateColor"); L.new(at.outputs["Color"], asep.inputs[0])
     bord = mth("DIVIDE", mth("ABSOLUTE", V), mth("MAXIMUM", asep.outputs["Red"], 0.1))
-    ecume = mth("MULTIPLY", mth("GREATER_THAN", bord, 0.72), mth("GREATER_THAN", n2, 0.50))
-    ecume = mth("MAXIMUM", ecume, mth("MULTIPLY", mth("GREATER_THAN", n1, 0.80), 0.7))
+    ecume = mth("MULTIPLY", mth("GREATER_THAN", bord, 0.88), mth("GREATER_THAN", n2, 0.58))
+    ecume = mth("MAXIMUM", ecume, mth("MULTIPLY", mth("GREATER_THAN", n1, 0.84), 0.5))
     fm = N_.new("ShaderNodeMix"); fm.data_type = "RGBA"
     L.new(ecume, fm.inputs[0]); L.new(cm.outputs[2], fm.inputs[6])
-    fm.inputs[7].default_value = (0.65, 0.68, 0.70, 1.0)
+    fm.inputs[7].default_value = (0.42, 0.45, 0.47, 1.0)
     L.new(fm.outputs[2], b.inputs["Base Color"])
     if CFG["haze"] > 0:
         cam = N_.new("ShaderNodeCameraData")
