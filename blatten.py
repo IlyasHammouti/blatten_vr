@@ -48,6 +48,7 @@ SCRIPTS = {
     "prep_veg": os.path.join(SRC, "environnement", "prep_vegetation.py"),
     "comparer": os.path.join(SRC, "environnement", "comparer.py"),
     "empreinte": os.path.join(SRC, "environnement", "empreinte_alea.py"),
+    "prep_eau": os.path.join(SRC, "environnement", "prep_eau.py"),
 }
 
 
@@ -445,6 +446,11 @@ def cmd_prep_vegetation(cfg, paths, extra):
     return run_blender(cfg, SCRIPTS["prep_veg"], ["--swisstopo", paths.swisstopo, "--data", paths.cache] + extra)
 
 
+def cmd_prep_eau(cfg, paths, extra):
+    """Cours d'eau (OpenStreetMap) pour la rivière animée de la scène."""
+    return run_blender(cfg, SCRIPTS["prep_eau"], ["--data", paths.cache] + extra)
+
+
 def cmd_empreinte_alea(cfg, paths, extra):
     """Où passe la matière (particules de Johan): sert au couloir protégé de la coupe, au masquage des bâtiments et arbres balayés, au dépôt."""
     if not os.path.exists(os.path.join(paths.cache, "meta.json")):
@@ -523,6 +529,7 @@ def cmd_env_complet(cfg, paths, extra):
     etapes = [
         ("Télécharger la canopée", lambda: cmd_download(cfg, paths, ["--jeux", "canopee"])),
         ("Préparer les arbres", lambda: cmd_prep_vegetation(cfg, paths, [])),
+        ("Préparer la rivière (OpenStreetMap)", lambda: cmd_prep_eau(cfg, paths, [])),
         ("Empreinte de l'aléa (si les particules sont préparées)", lambda: cmd_empreinte_alea(cfg, paths, [])),
         ("Zone visible avec couloir protégé de l'aléa", lambda: cmd_visible(cfg, paths, [])),
         ("Image test de l'environnement seul", lambda: cmd_test360(cfg, paths, ["--mono", "--env-only", "--cull", "--out", "render/env_seul"])),
@@ -712,69 +719,191 @@ def cmd_test_clip(cfg, paths, extra):
 
 
 # (commande, texte du menu, options fixes). Les options fixes évitent à l'utilisateur de taper des paramètres.
-MENU = [
-    ("status", "Etat des données et des réglages", []),
-    ("setup", "Installation (Blender, bibliothèques, dossiers), une seule fois", []),
-    ("download", "Télécharger les dalles swisstopo de base (relief et image 2 m)", ["--jeux", "2m"]),
-    ("download", "Télécharger la HAUTE RESOLUTION autour de la caméra (relief 0,5 m, image 10 cm, bâtiments 3D)", ["--jeux", "05m", "10cm", "buildings3d"]),
-    ("terrain", "Convertir le terrain de Johan en maillage (une fois)", []),
-    ("prep-env", "Préparer relief + image aérienne (calage)", []),
-    ("prep-env", "Préparer la HAUTE RESOLUTION (après son téléchargement)", ["--hires"]),
-    ("visible", "Calculer la zone du relief visible depuis la caméra (et régler la caméra à hauteur d'yeux)", []),
-    ("views", "8 aperçus pour choisir le point de vue", []),
-    ("test360", "Image test 360 basse résolution", []),
-    ("voir360", "Voir le dernier rendu en 360 (qualité d'origine, dans le navigateur)", []),
-    ("test360", "DIAGNOSTIC: image test 360 en une seule image (mono), AVEC haute résolution", ["--mono", "--out", "render/diag_hd"]),
-    ("test360", "DIAGNOSTIC: image test 360 en une seule image (mono), SANS haute résolution", ["--mono", "--no-hires", "--out", "render/diag_sans_hd"]),
-    ("open", "Ouvrir la scène dans Blender", []),
-    ("bench", "Benchmark de rendu de cette machine", []),
-    ("bench-compare", "Comparer les benchmarks enregistrés", []),
-    ("valider-env", "VALIDER l'environnement seul: même image avec et sans coupe du relief invisible, comparées", []),
-    ("lite", "Créer la VERSION LITE de l'environnement (relief visible seulement, sans aléa, un seul fichier .blend)", []),
-    ("prep-batiments", "Préparer les BATIMENTS 3D (après leur téléchargement)", []),
-    ("test360", "Image test de l'ENVIRONNEMENT SEUL (sans aléa, avec bâtiments), mono", ["--mono", "--env-only", "--cull", "--out", "render/env_seul"]),
-    ("download", "Télécharger la CANOPEE (hauteur de la végétation, pour les arbres)", ["--jeux", "canopee"]),
-    ("prep-vegetation", "Préparer les ARBRES (après le téléchargement de la canopée)", []),
-    ("env-complet", "UN SEUL CLIC: canopée + arbres + empreinte aléa + zone visible + image test de l'environnement seul, puis visionneuse", []),
-    ("test-clip", "Test grandeur nature: 3 s de l'événement dans l'environnement (plusieurs heures)", []),
-    ("empreinte-alea", "Calculer l'EMPREINTE DE L'ALEA (où passe la matière), pour protéger ce couloir de la coupe et masquer bâtiments et arbres balayés", []),
+# ----------------------------------------------------------------------------------
+# Menus (façon lanceur): un écran d'accueil, des rubriques, et dans chacune des actions avec une pastille d'état
+#   OK = déjà fait   .. = pas encore fait   (rien) = action qui se relance à volonté
+# ----------------------------------------------------------------------------------
+def _etat(paths):
+    """Ce qui est déjà prêt, d'après les fichiers (lecture seule, rapide)."""
+    e = {}
+    em = _load_json(os.path.join(paths.cache, "env", "env_meta.json"))
+    e["base_dl"] = bool(glob.glob(os.path.join(paths.swisstopo, "swissalti3d_2m", "*.tif")))
+    e["env"] = bool(em)
+    e["hd_dl"] = bool(glob.glob(os.path.join(paths.swisstopo, "swissalti3d_05m", "*.tif*")) or glob.glob(os.path.join(paths.swisstopo, "*05m*", "*.tif*")))
+    e["hd"] = bool(em.get("dem05"))
+    e["visible"] = os.path.exists(os.path.join(paths.cache, "env", "visible", "visible_meta.json"))
+    e["bat"] = bool(em.get("batiments"))
+    e["canopee_dl"] = bool(glob.glob(os.path.join(paths.swisstopo, "swisssurface3d_raster_05m", "*.tif*")))
+    e["veg"] = bool(em.get("vegetation"))
+    e["eau"] = bool(em.get("eau"))
+    e["emp"] = bool(em.get("alea_empreinte"))
+    pm = _load_json(os.path.join(paths.cache, "meta.json"))
+    e["nplies"] = len(pm.get("files", []))
+    e["part"] = e["nplies"] > 0
+    e["terrain"] = bool(glob.glob(os.path.join(paths.cache, "Terrain_mesh_*m.blend")))
+    e["lite"] = os.path.exists(os.path.join(ROOT, "render", "blatten_env_lite.blend"))
+    e["cam"] = bool(_load_json(os.path.join(ROOT, "camera.json")).get("confirmed"))
+    return e
+
+
+# (étiquette, commande, arguments, explication, clé d'état ou None, invite spéciale ou None)
+RUBRIQUES = [
+    ("Préparer l'environnement", "données, relief, bâtiments, arbres, rivière: dans l'ordre", [
+        ("Télécharger relief et image de base (2 m)", "download", ["--jeux", "2m"], "une fois", "base_dl", "dl"),
+        ("Préparer relief + image aérienne (calage)", "prep-env", [], "après le téléchargement", "env", None),
+        ("Télécharger la haute résolution autour de la caméra", "download", ["--jeux", "05m", "10cm", "buildings3d"], "relief 0,5 m, image 10 cm, bâtiments 3D", "hd_dl", "dl"),
+        ("Préparer la haute résolution", "prep-env", ["--hires"], "après son téléchargement", "hd", None),
+        ("Calculer la zone visible depuis la caméra", "visible", [], "à refaire si la caméra bouge ou après l'empreinte de l'aléa", "visible", "visible"),
+        ("Préparer les bâtiments 3D", "prep-batiments", [], "après le téléchargement HD", "bat", None),
+        ("Télécharger la canopée (hauteur de végétation, forêts)", "download", ["--jeux", "canopee"], "arbres: emprise 0,5 m et jusqu'à 4,6 km, OFEV pour les essences", "canopee_dl", "dl"),
+        ("Préparer les arbres et arbustes", "prep-vegetation", [], "après la canopée", "veg", None),
+        ("Préparer la rivière (cours d'eau OpenStreetMap)", "prep-eau", [], "Internet requis", "eau", None),
+        ("TOUT ENCHAINER en un clic (canopée, arbres, rivière, empreinte, zone visible, image test)", "env-complet", [], "recommandé: reprend ce qui manque, une étape en échec n'arrête pas les autres", None, None),
+    ]),
+    ("Voir et vérifier", "images test, version lite, Blender", [
+        ("Image test de l'ENVIRONNEMENT SEUL (bâtiments, arbres, rivière)", "test360", ["--mono", "--env-only", "--cull", "--out", "render/env_seul"], "le contrôle habituel; à regarder avec « Voir en 360 »", None, None),
+        ("Voir le dernier rendu en 360 (navigateur, qualité d'origine)", "voir360", [], "", None, None),
+        ("VERSION LITE: créer et ouvrir dans Blender", "lite", [], "un seul fichier, relief visible seulement; vue caméra: pavé num 0", "lite", None),
+        ("Ouvrir la scène complète dans Blender", "open", [], "lourd", None, None),
+        ("8 aperçus pour choisir le point de vue", "views", [], "", None, None),
+        ("Image test 360 basse résolution", "test360", [], "", None, None),
+        ("Valider la coupe du relief invisible (avec / sans, comparées)", "valider-env", [], "doit conclure IDENTIQUES (bruit près)", None, None),
+        ("Diagnostic: image mono AVEC haute résolution", "test360", ["--mono", "--out", "render/diag_hd"], "", None, None),
+        ("Diagnostic: image mono SANS haute résolution", "test360", ["--mono", "--no-hires", "--out", "render/diag_sans_hd"], "", None, None),
+    ]),
+    ("Aléa (matière)", "particules de Johan, empreinte, test grandeur nature", [
+        ("Convertir les particules de Johan (PLY vers .npy)", "prep-particules", [], "demande le dossier des PLY", "part", "ply"),
+        ("Convertir le terrain de Johan en maillage", "terrain", [], "une fois", "terrain", None),
+        ("Empreinte de l'aléa (où passe la matière)", "empreinte-alea", [], "protège le couloir de la coupe, masque bâtiments, arbres et rivière balayés; refaire la zone visible ensuite", "emp", None),
+        ("Test grandeur nature: 3 s de l'événement dans l'environnement", "test-clip", [], "plusieurs heures", None, None),
+    ]),
+    ("Rendu et performances", "rendu final, benchmark, métadonnées YouTube", [
+        ("RENDU FINAL (animation complète)", "render", [], "très long: demande confirmation", None, "final"),
+        ("Benchmark de rendu de cette machine", "bench", [], "", None, None),
+        ("Comparer les benchmarks enregistrés", "bench-compare", [], "", None, None),
+        ("Ajouter les métadonnées 360 à un MP4 (YouTube)", "meta360", [], "demande le fichier", None, "mp4"),
+    ]),
+    ("Installation et état", "à faire une fois, ou en cas de doute", [
+        ("Etat des données et des réglages", "status", [], "", None, None),
+        ("Installation (Blender, bibliothèques, dossiers)", "setup", [], "une seule fois", None, None),
+    ]),
 ]
+
+
+def _pastille(e, cle):
+    if cle is None:
+        return "    "
+    return " OK " if e.get(cle) else " .. "
+
+
+def _invite(code, name, ex, cfg, paths):
+    """Questions éventuelles avant de lancer une action. Rend la liste d'arguments, ou None pour annuler."""
+    ex = list(ex)
+    if code == "visible":
+        h = input("Hauteur des yeux au-dessus du sol, en m (Entrée = 1,7 ; 0 = ne pas toucher à la caméra) : ").strip().replace(",", ".")
+        if h != "0":
+            ex = ["--eye", h or "1.7", "--ecrire-camera"]
+    elif code == "dl":     # on compte d'abord, puis on demande confirmation
+        print("\nComptage des dalles à télécharger ...")
+        COMMANDS[name](cfg, paths, ex + ["--dry-run"])
+        if input("\nLancer le téléchargement maintenant ? (o/n) : ").strip().lower() not in ("o", "oui", "y"):
+            return None
+    elif code == "ply":
+        d = input(f"Dossier des PLY (Entrée = {paths.johan}) : ").strip().strip('"') or paths.johan
+        st = input("Une particule sur N (Entrée = 10) : ").strip() or "10"
+        ex = [d, "--stride", st]
+    elif code == "final":
+        print("\nLe rendu final dure des dizaines d'heures. Les garde-fous sont dans docs/.")
+        fr = input("Images à rendre, par exemple 1 1200 (Entrée = les réglages de config.json) : ").strip()
+        if input("Lancer le rendu final ? (o/n) : ").strip().lower() not in ("o", "oui", "y"):
+            return None
+        ex = ["--frames"] + fr.split() if fr else []
+    elif code == "mp4":
+        f = input("Fichier MP4 (glisser-déposer dans la fenêtre) : ").strip().strip('"')
+        if not f:
+            return None
+        ex = [f]
+    return ex
+
+
+def _lancer(cfg, paths, label, name, ex, code):
+    ex = _invite(code, name, ex, cfg, paths)
+    if ex is None:
+        return
+    print(f"\n>>> {label}\n")
+    try:
+        COMMANDS[name](cfg, paths, ex)
+    except SystemExit as e:
+        if e.code not in (None, 0):
+            print(f"\n!! {e.code}")
+    except Exception:
+        traceback.print_exc()
+    input("\nEntrée pour revenir au menu ...")
+
+
+def _ecran_rubrique(cfg, paths, titre, sous, items):
+    while True:
+        e = _etat(paths)
+        print(f"\n==== {titre} ====\n     {sous}\n")
+        for i, (lab, _c, _x, hint, cle, _k) in enumerate(items, 1):
+            print(f" {i:>2} [{_pastille(e, cle)}] {lab}" + (f"\n          {hint}" if hint else ""))
+        print("\n  0 = Retour")
+        ch = input("Votre choix : ").strip()
+        if ch in ("", "0"):
+            return
+        if not ch.isdigit() or not 1 <= int(ch) <= len(items):
+            continue
+        lab, name, ex, _h, _c, code = items[int(ch) - 1]
+        _lancer(cfg, paths, lab, name, ex, code)
+
+
+def _resume(e):
+    def f(ok):
+        return "OK" if ok else ".."
+    return (f"Caméra {f(e['cam'])} | Relief HD {f(e['hd'])} | Zone visible {f(e['visible'])} | Bâtiments {f(e['bat'])} | Arbres {f(e['veg'])} | "
+            f"Rivière {f(e['eau'])} | Particules {e['nplies']} fichier(s) | Empreinte aléa {f(e['emp'])}")
 
 
 def cmd_menu(cfg, paths, extra):
     while True:
-        print("\n==== Blatten VR 360 ====")
-        for i, (c, d, _x) in enumerate(MENU, 1):
-            print(f" {i} = {d}")
-        print(" 0 = Quitter")
-        ch = input("Votre choix : ").strip()
+        e = _etat(paths)
+        print("\n========================================")
+        print("           BLATTEN VR 360")
+        print("========================================")
+        print(" " + _resume(e))
+        print("\n  1 = TOUT PREPARER EN UN CLIC (environnement: reprend ce qui manque)")
+        print("  2 = Aperçu rapide: image test de l'environnement seul, puis visionneuse 360")
+        print("  3 = Version lite dans Blender (pour se promener et vérifier bâtiments, arbres, rivière)")
+        print()
+        for i, (t, s_, _it) in enumerate(RUBRIQUES, 4):
+            print(f"  {i} = {t:<26} {s_}")
+        print("  0 = Quitter")
+        ch = input("\nVotre choix : ").strip()
         if ch in ("", "0"):
             return 0
-        if not ch.isdigit() or not 1 <= int(ch) <= len(MENU):
+        if not ch.isdigit():
             continue
-        name, _d, ex = MENU[int(ch) - 1]
-        ex = list(ex)
-        if name in ("test360", "open") and not ex:
-            v = input("Numéro de vue 1 à 8 (Entrée = automatique) : ").strip()
-            if v:
-                ex = ["--vue", v]
-        if name == "visible":
-            h = input("Hauteur des yeux au-dessus du sol, en m (Entrée = 1,7 ; 0 = ne pas toucher à la caméra) : ").strip().replace(",", ".")
-            if h != "0":
-                ex = ["--eye", h or "1.7", "--ecrire-camera"]
-        if name == "download":   # on compte d'abord, puis on demande confirmation
-            print("\nComptage des dalles à télécharger ...")
-            COMMANDS[name](cfg, paths, ex + ["--dry-run"])
-            if input("\nLancer le téléchargement maintenant ? (o/n) : ").strip().lower() not in ("o", "oui", "y"):
-                continue
-        COMMANDS[name](cfg, paths, ex)
-        input("\nEntrée pour revenir au menu ...")
+        n = int(ch)
+        if n == 1:
+            _lancer(cfg, paths, "Tout préparer", "env-complet", [], None)
+        elif n == 2:
+            _lancer(cfg, paths, "Image test de l'environnement seul", "test360", ["--mono", "--env-only", "--cull", "--out", "render/env_seul"], None)
+            if os.path.exists(os.path.join(ROOT, "render", "env_seul", "frame_0001.png")):
+                try:
+                    cmd_voir360(cfg, paths, ["render/env_seul/frame_0001.png"])
+                except Exception:
+                    pass
+        elif n == 3:
+            _lancer(cfg, paths, "Version lite", "lite", [], None)
+        elif 4 <= n < 4 + len(RUBRIQUES):
+            t, s_, it = RUBRIQUES[n - 4]
+            _ecran_rubrique(cfg, paths, t, s_, it)
 
 
 COMMANDS = {
     "status": cmd_status, "setup": cmd_setup, "download": cmd_download, "prep-env": cmd_prep_env, "prep-batiments": cmd_prep_batiments, "prep-vegetation": cmd_prep_vegetation, "env-complet": cmd_env_complet, "visible": cmd_visible,
     "prep-particules": cmd_prep_particules, "terrain": cmd_terrain, "views": cmd_views, "test360": cmd_test360,
-    "valider-env": cmd_valider_env, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
+    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
 }
 
 

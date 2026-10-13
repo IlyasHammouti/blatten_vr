@@ -62,7 +62,7 @@ la signature `build`/`update`, les noms de réglages de `CFG` (scène), `config.
 ### Environnement figé (état du 13 octobre 2026)
 
 Caméra confirmée (`camera.json`), relief HD, bâtiments 3D, arbres (jusqu'à 4,6 km) et zone visible sont terminés côté ENV. Ce que ça change pour toi:
-- La scène masque bâtiments et arbres à l'instant où la matière les atteint (`alea_empreinte.npz`, menu 25). Rien à faire de ton côté.
+- La scène masque bâtiments et arbres à l'instant où la matière les atteint (`alea_empreinte.npz`, rubrique « Aléa » du menu). Rien à faire de ton côté.
 - `cache/env/alea_empreinte.npz` te donne la surface du dépôt (`zfin`), l'instant d'arrivée (`tarr`) et l'altitude maximale (`zmax`) sur une grille de 4 m (LV95): matière première pour remodeler le fond de vallée (le relief swisstopo est d'avant l'événement).
 - Le relief hors du couloir est coupé s'il n'est pas visible depuis la caméra: ne compte pas dessus pour de la lumière rasante ou des ombres venant de l'arrière-plan caché.
 - Détails dans `docs/journal/env.md` (entrée du 2026-10-13).

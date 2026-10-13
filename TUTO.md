@@ -190,19 +190,26 @@ donner `docs/HANDOVER_IA_MATIERE.md` à ton IA pour qu'elle t'aide à coder cett
 Erreurs fréquentes : `python` non reconnu (Python pas dans le PATH, le réinstaller en cochant la case), chemin avec `\` au lieu de `/` dans
 `config.local.json`, cache dézippé un niveau trop bas, Blender introuvable (vérifier le chemin dans `config.local.json`).
 
-## Environnement seul : bâtiments, arbres, version lite
+## Le menu (lanceur)
 
-Toutes ces étapes se lancent depuis le menu (`python blatten.py`). Les données sont d'avant l'événement (28 mai 2025).
+`python blatten.py` (ou double-clic) ouvre un écran d'accueil avec l'état du projet sur une ligne, trois raccourcis et cinq rubriques.
+Dans une rubrique, chaque action porte une pastille: `OK` = déjà fait, `..` = pas encore fait, rien = action qu'on relance à volonté.
 
-| Menu | À quoi ça sert |
+| Accueil | Ce que ça fait |
 |---|---|
-| 17 | Valider la coupe du relief invisible: la même image avec et sans coupe, comparées (le verdict doit dire IDENTIQUES, ou une différence de bruit seulement) |
-| 18 | Créer la version lite: un seul fichier `render\\blatten_env_lite.blend`, sans aléa, relief visible seulement |
-| 19 | Préparer les bâtiments 3D (une fois, après le téléchargement HD). Toits: couleur lue sur l image aérienne; façades: palette locale (bois sombre, crépi, pierre) avec fenêtres en grille |
-| 20 | Image test de l'environnement seul (sans aléa, avec bâtiments et arbres), à regarder avec le 11 |
-| 21 | Télécharger la canopée (hauteur de la végétation), puis |
-| 22 | Préparer les arbres: emprise 0,5 m puis jusqu à 4,6 km avec le modèle de surface 2 m (amincis avec la distance), et arbustes en avant-plan |
-| 23 | UN SEUL CLIC: télécharge la canopée, prépare les arbres, calcule l'empreinte de l'aléa (si les particules sont prêtes), recalcule la zone visible avec le couloir protégé, rend l'image test |
-| 25 | Empreinte de l'aléa seule: où passe la matière. Protège ce couloir de la coupe et masque bâtiments et arbres au passage de la matière |
+| 1 Tout préparer en un clic | canopée, arbres, rivière, empreinte de l'aléa (si les particules sont prêtes), zone visible avec couloir protégé, image test; une étape en échec n'arrête pas les autres |
+| 2 Aperçu rapide | image test de l'environnement seul, puis visionneuse 360 |
+| 3 Version lite dans Blender | un seul fichier `render\blatten_env_lite.blend` (relief visible seulement, sans aléa), ouvert dans Blender: vue caméra au pavé num 0 |
+| 4 Préparer l'environnement | les téléchargements et préparations, dans l'ordre: base 2 m, calage, haute résolution, zone visible, bâtiments, canopée, arbres, rivière |
+| 5 Voir et vérifier | images test, visionneuse 360, version lite, Blender, aperçus, validation de la coupe, diagnostics |
+| 6 Aléa (matière) | particules de Johan, terrain de Johan, empreinte de l'aléa, test grandeur nature |
+| 7 Rendu et performances | rendu final (demande confirmation), benchmark, comparaison, métadonnées 360 pour YouTube |
+| 8 Installation et état | état des données, installation |
+
+Détails de l'environnement (les données sont d'avant l'événement du 28 mai 2025):
+- **Bâtiments**: toits et façades en motifs procéduraux selon le type (rondins de mélèze, planches, crépi, pierre; dalles, bardeaux, tuiles, tôle), fenêtres en grille.
+- **Arbres**: essences locales, emprise 0,5 m puis jusqu'à 4,6 km (amincis avec la distance), arbustes en avant-plan, sol de forêt sous la canopée.
+- **Rivière**: cours d'eau OpenStreetMap, rubans d'eau animés (courant, rides, écume), Internet requis une fois.
+- **Pentes raides**: l'image aérienne est fondue vers une roche striée pour éviter l'étirement.
 
 Options de la scène: `--env-only` (sans particules), `--no-buildings`, `--no-trees`, `--tree-dist 2500`.

@@ -93,6 +93,7 @@ CFG = dict(
     lite=False,             # version légère: environnement seul + relief visible seulement, enregistrée avec ses images dans render/blatten_env_lite.blend
     cull=False,             # ne construit que le relief VISIBLE depuis la caméra (masques de "python blatten.py visible")
     no_buildings=False,     # ne place pas les bâtiments 3D (python blatten.py prep-batiments les prépare)
+    no_water=False,         # pas de rivière animée (python blatten.py prep-eau la prépare)
     no_trees=False,         # ne place pas les arbres (python blatten.py prep-vegetation les prépare)
     tree_dist=4700.0,       # distance maximale des arbres modélisés (m); au-delà l'image aérienne suffit
     no_hires=False,         # ignore le relief 0,5 m et les images locales (comparaison / test mémoire)
@@ -1090,6 +1091,181 @@ def build_trees(env, coll, cam):
     return ob0
 
 
+def _z_sol(env, E, N):
+    """Altitude du sol = celle du maillage de la scène (même anneau, même résolution) aux points (E, N)."""
+    m = env["meta"]
+    Z = np.zeros(len(E))
+    ri = env.get("ring_info")
+    dz = m.get("dz", 0.0)
+    dz = dz if abs(dz) < 30 else 0.0
+    done = np.zeros(len(E), bool)
+    if ri:
+        Ec, Nc, rings = ri
+        cheb = np.maximum(np.abs(E - Ec), np.abs(N - Nc))
+        for step, H in rings:
+            sel = (cheb <= H) & ~done
+            if sel.any():
+                Z[sel] = _bilin(env["levels"][step], E[sel], N[sel]) + dz
+                done |= sel
+    if not done.all():
+        lv = env["levels"][min(env["levels"])] if env.get("levels") else None
+        if lv is not None:
+            Z[~done] = _bilin(lv, E[~done], N[~done]) + dz
+    return Z
+
+
+def _materiau_eau():
+    """Eau de rivière animée: rides étirées dans le sens du courant qui défilent (vitesse ~2 m/s), reflets du ciel (rugosité faible),
+    teinte laiteuse de torrent glaciaire, écume sur les bords. Le temps vient de l'image courante (pilote), donc la rivière vit dans la vidéo."""
+    mt = bpy.data.materials.new("Eau")
+    mt.use_nodes = True
+    nt = mt.node_tree
+    N_, L, mth, _ch = _noeuds_outils(nt)
+    b = nt.nodes["Principled BSDF"]
+    b.inputs["Roughness"].default_value = 0.10
+    b.inputs["IOR"].default_value = 1.33
+    uvn = N_.new("ShaderNodeUVMap"); uvn.uv_map = "UVMap"
+    sep = N_.new("ShaderNodeSeparateXYZ"); L.new(uvn.outputs["UV"], sep.inputs[0])
+    U, V = sep.outputs[0], sep.outputs[1]
+    tn = N_.new("ShaderNodeValue"); tn.label = "temps (s)"
+    try:
+        fc = tn.outputs[0].driver_add("default_value")
+        fc.driver.type = "SCRIPTED"
+        fps = max(float(bpy.context.scene.render.fps), 1.0)
+        fc.driver.expression = f"(frame - 1) / {fps:g}"
+    except Exception as e:
+        log(f"eau: pilote de temps impossible ({e}), rivière figée")
+    T = tn.outputs[0]
+
+    def bruit(vec_xyz, scale, detail):
+        c = N_.new("ShaderNodeCombineXYZ")
+        for nm, v in zip(("X", "Y", "Z"), vec_xyz):
+            if isinstance(v, (int, float)):
+                c.inputs[nm].default_value = v
+            else:
+                L.new(v, c.inputs[nm])
+        n = N_.new("ShaderNodeTexNoise")
+        n.inputs["Scale"].default_value = scale
+        n.inputs["Detail"].default_value = detail
+        n.inputs["Roughness"].default_value = 0.55
+        L.new(c.outputs[0], n.inputs["Vector"])
+        return n.outputs["Fac"]
+    n1 = bruit((mth("MULTIPLY", V, 1.1), mth("MULTIPLY", mth("SUBTRACT", U, mth("MULTIPLY", T, 1.8)), 0.35), mth("MULTIPLY", T, 0.45)), 1.0, 5.0)
+    n2 = bruit((mth("MULTIPLY", V, 3.6), mth("MULTIPLY", mth("SUBTRACT", U, mth("MULTIPLY", T, 2.4)), 1.2), mth("MULTIPLY", T, 0.9)), 1.0, 3.0)
+    h = mth("ADD", mth("MULTIPLY", n1, 0.7), mth("MULTIPLY", n2, 0.3))
+    bump = N_.new("ShaderNodeBump")
+    bump.inputs["Strength"].default_value = 0.55
+    bump.inputs["Distance"].default_value = 0.12
+    L.new(h, bump.inputs["Height"])
+    L.new(bump.outputs["Normal"], b.inputs["Normal"])
+    # couleur: eau trouble verdâtre, plus claire dans les crêtes; écume sur les bords et dans les turbulences
+    r = N_.new("ShaderNodeMapRange"); r.clamp = True
+    r.inputs["From Min"].default_value, r.inputs["From Max"].default_value = 0.3, 0.75
+    L.new(n1, r.inputs["Value"])
+    cm = N_.new("ShaderNodeMix"); cm.data_type = "RGBA"
+    L.new(r.outputs["Result"], cm.inputs[0])
+    cm.inputs[6].default_value = (0.020, 0.040, 0.042, 1.0)
+    cm.inputs[7].default_value = (0.085, 0.120, 0.115, 1.0)
+    at = N_.new("ShaderNodeAttribute"); at.attribute_name, at.attribute_type = "larg", "GEOMETRY"
+    asep = N_.new("ShaderNodeSeparateColor"); L.new(at.outputs["Color"], asep.inputs[0])
+    bord = mth("DIVIDE", mth("ABSOLUTE", V), mth("MAXIMUM", asep.outputs["Red"], 0.1))
+    ecume = mth("MULTIPLY", mth("GREATER_THAN", bord, 0.72), mth("GREATER_THAN", n2, 0.50))
+    ecume = mth("MAXIMUM", ecume, mth("MULTIPLY", mth("GREATER_THAN", n1, 0.80), 0.7))
+    fm = N_.new("ShaderNodeMix"); fm.data_type = "RGBA"
+    L.new(ecume, fm.inputs[0]); L.new(cm.outputs[2], fm.inputs[6])
+    fm.inputs[7].default_value = (0.65, 0.68, 0.70, 1.0)
+    L.new(fm.outputs[2], b.inputs["Base Color"])
+    if CFG["haze"] > 0:
+        cam = N_.new("ShaderNodeCameraData")
+        decay = mth("POWER", 2.718281828, mth("MULTIPLY", cam.outputs["View Distance"], -CFG["haze"]))
+        fog = mth("SUBTRACT", 1.0, decay)
+        em = N_.new("ShaderNodeEmission")
+        em.inputs["Color"].default_value = (0.62, 0.76, 0.95, 1)
+        em.inputs["Strength"].default_value = 2.0
+        mx = N_.new("ShaderNodeMixShader")
+        L.new(fog, mx.inputs[0])
+        L.new(b.outputs["BSDF"], mx.inputs[1])
+        L.new(em.outputs["Emission"], mx.inputs[2])
+        L.new(mx.outputs["Shader"], N_["Material Output"].inputs["Surface"])
+    apply_height_fog(mt)
+    return mt
+
+
+def build_water(env, coll, cam):
+    """Rubans d'eau le long des cours d'eau OpenStreetMap (prep-eau), posés sur le relief réel de la scène, animés par le matériau.
+    Le ruban est placé au plus bas de la section (rives comprises) puis lissé le long du cours: les berges plus hautes le cachent
+    naturellement. Avec --cull, seuls les tronçons visibles. Les tronçons atteints par la matière sont masqués à son arrivée."""
+    m = env["meta"]
+    em = m.get("eau")
+    path = os.path.join(env["dir"], em["file"]) if em else None
+    if not em or not os.path.exists(path):
+        log("eau: non préparée (python blatten.py prep-eau), scène sans rivière")
+        return None
+    z = np.load(path)
+    P, deb, larg = z["pts"].astype(np.float64), z["debut"], z["larg"]
+    fin = np.append(deb[1:], len(P))
+    mat = _materiau_eau()
+    V_all, T_all, UV_all, LG_all, TA_all = [], [], [], [], []
+    off = 0
+    nseg = 0
+    for k in range(len(deb)):
+        q = P[deb[k]:fin[k]]
+        d = np.hypot(*np.diff(q, axis=0).T)
+        s = np.concatenate([[0.0], np.cumsum(d)])
+        if s[-1] < 6.0:
+            continue
+        ns = int(s[-1] // 5.0) + 2
+        ss = np.linspace(0, s[-1], ns)
+        E = np.interp(ss, s, q[:, 0]); N = np.interp(ss, s, q[:, 1])
+        tx, ty = np.gradient(E), np.gradient(N)
+        nrm = np.maximum(np.hypot(tx, ty), 1e-6)
+        nx, ny = -ty / nrm, tx / nrm
+        w2 = 0.5 * float(larg[k])
+        zl = _z_sol(env, E + nx * w2, N + ny * w2)
+        zc = _z_sol(env, E, N)
+        zr = _z_sol(env, E - nx * w2, N - ny * w2)
+        zz = np.minimum(np.minimum(zl, zr), zc)
+        zz = np.convolve(np.pad(zz, 3, mode="edge"), np.ones(7) / 7.0, mode="valid") + 0.10
+        # le niveau de l'eau ne remonte jamais vers l'aval
+        zz = np.minimum.accumulate(zz)
+        X = E - m["scene_E0"]; Y = m["flip"] * (N - m["scene_N0"])
+        ok = np.hypot(X - cam.x, Y - cam.y) <= CFG["tree_dist"]
+        if env.get("vis") and 2.0 in env["vis"]:
+            ok &= _vis_at(env["vis"][2.0], E, N)
+        nxs, nys = nx, m["flip"] * ny
+        L_ = np.stack([X + nxs * w2, Y + nys * w2, zz], 1)
+        R_ = np.stack([X - nxs * w2, Y - nys * w2, zz], 1)
+        seg = np.nonzero(ok[:-1] & ok[1:])[0]
+        if not len(seg):
+            continue
+        verts = np.empty((ns * 2, 3)); verts[0::2], verts[1::2] = L_, R_
+        uvv = np.empty((ns * 2, 2)); uvv[0::2, 0] = ss; uvv[1::2, 0] = ss; uvv[0::2, 1] = w2; uvv[1::2, 1] = -w2
+        lg = np.zeros((ns * 2, 3)); lg[:, 0] = w2
+        tri = np.concatenate([np.stack([2 * seg, 2 * seg + 1, 2 * seg + 2], 1), np.stack([2 * seg + 1, 2 * seg + 3, 2 * seg + 2], 1)])
+        Em = E[seg]; Nm = N[seg]
+        ta = np.tile(_arrivee(env, Em, Nm), 2)
+        V_all.append(verts); T_all.append(tri + off); UV_all.append(uvv); LG_all.append(lg); TA_all.append(ta)
+        off += ns * 2
+        nseg += len(seg)
+    if not V_all:
+        log("eau: aucun tronçon dans la zone visible")
+        return None
+    Vv = np.concatenate(V_all); Tt = np.concatenate(T_all); UVv = np.concatenate(UV_all); LGv = np.concatenate(LG_all); TA = np.concatenate(TA_all)
+    ob = None
+    for g in np.unique(TA):
+        sel = TA == g
+        o = _objet_triangles("Eau" if not np.isfinite(g) else f"Eau_t{g:g}", Vv, Tt[sel], [mat], None, attrs={"larg": LGv.astype(np.float32)})
+        uvl = o.data.uv_layers.new(name="UVMap")
+        uvl.data.foreach_set("uv", UVv[Tt[sel].ravel()].astype(np.float32).ravel())
+        # sommets inutilisés: sans effet (ils ne sont dans aucune face)
+        coll.objects.link(o)
+        if np.isfinite(g):
+            ENSEV.append((float(g), o))
+        ob = ob or o
+    log(f"eau: {nseg:,} tronçons de 5 m, {len(Tt):,} triangles, matériau animé (courant ~2 m/s)")
+    return ob
+
+
 def lv95_to_wgs84(E, N):
     y, x = (E - 2600000.0) / 1e6, (N - 1200000.0) / 1e6
     lon = 2.6779094 + 4.728982 * y + 0.791484 * y * x + 0.1306 * y * x * x - 0.0436 * y ** 3
@@ -1273,6 +1449,41 @@ def build_terrain_material(env=None):
     strata = N.new("ShaderNodeTexNoise")
     strata.inputs["Scale"].default_value, strata.inputs["Detail"].default_value = 1.0, 3.0
     L.new(comb.outputs["Vector"], strata.inputs["Vector"])
+    # sous la canopée, l'image aérienne montre la cime des arbres (déjà modélisés en volume): on la remplace par un sol de forêt sombre
+    cmk = env["meta"].get("canopee_masque") if env else None
+    if cmk and env["meta"].get("vegetation") and not CFG["no_trees"] and os.path.exists(os.path.join(env["dir"], cmk["file"])):
+        em_ = env["meta"]
+        cimg = bpy.data.images.load(os.path.join(env["dir"], cmk["file"]))
+        cimg.colorspace_settings.name = "Non-Color"
+        ct = N.new("ShaderNodeTexImage")
+        ct.image, ct.interpolation, ct.extension = cimg, "Linear", "CLIP"
+        cmp_ = N.new("ShaderNodeMapping")
+        cmp_.vector_type = "POINT"
+        cW, cH = cmk["shape"][1] * cmk["step"], cmk["shape"][0] * cmk["step"]
+        cnb = cmk["y1"] - cH
+        cmp_.inputs["Location"].default_value = ((em_["scene_E0"] - cmk["x0"]) / cW, (em_["scene_N0"] - cnb) / cH, 0.0)
+        cmp_.inputs["Scale"].default_value = (1.0 / cW, em_["flip"] / cH, 1.0)
+        L.new(geo.outputs["Position"], cmp_.inputs["Vector"])
+        L.new(cmp_.outputs["Vector"], ct.inputs["Vector"])
+        csep = N.new("ShaderNodeSeparateColor")
+        L.new(ct.outputs["Color"], csep.inputs["Color"])
+        under = mrange(csep.outputs["Red"], 0.25, 0.75, 0.0, 0.9)
+        sol = mix(n_mid, (0.020, 0.024, 0.013, 1), (0.040, 0.040, 0.024, 1))      # litière d'aiguilles, mousses
+        col = mix(under, col, sol)
+    # pentes raides: l'image projetée à la verticale s'étire en stries; on la fond vers une roche striée, teintée par l'image
+    w_steep = mrange(nor.outputs["Z"], 0.62, 0.38, 0.0, 0.85)
+    half = math("ADD", 0.0, 0.5)
+    rock_t = mix(half, rock, col)
+    st_f = math("ADD", 0.65, math("MULTIPLY", strata.outputs["Fac"], 0.7))
+    st_c = N.new("ShaderNodeCombineColor")
+    for ch in ("Red", "Green", "Blue"):
+        L.new(st_f, st_c.inputs[ch])
+    st_m = N.new("ShaderNodeMix")
+    st_m.data_type, st_m.blend_type = "RGBA", "MULTIPLY"
+    st_m.inputs[0].default_value = 1.0
+    L.new(rock_t, st_m.inputs[6])
+    L.new(st_c.outputs["Color"], st_m.inputs[7])
+    col = mix(w_steep, col, st_m.outputs[2])
     if D > 0:  # détail ajouté à l'image de 2 m, estompé avec la distance (invisible au-delà de quelques km)
         cam0 = N.new("ShaderNodeCameraData")
         near = mrange(cam0.outputs["View Distance"], 500.0, 3000.0, 1.0, 0.0)
@@ -1776,7 +1987,7 @@ def parse_args():
     ap.add_argument("--bench", action="store_true"); ap.add_argument("--bench-scale", type=float)
     ap.add_argument("--bench-no-warm", action="store_true"); ap.add_argument("--persistent", action="store_true")
     ap.add_argument("--matiere")
-    ap.add_argument("--no-buildings", action="store_true"); ap.add_argument("--no-trees", action="store_true"); ap.add_argument("--tree-dist", type=float); ap.add_argument("--env-only", action="store_true"); ap.add_argument("--lite", action="store_true")
+    ap.add_argument("--no-buildings", action="store_true"); ap.add_argument("--no-trees", action="store_true"); ap.add_argument("--no-water", action="store_true"); ap.add_argument("--tree-dist", type=float); ap.add_argument("--env-only", action="store_true"); ap.add_argument("--lite", action="store_true")
     ap.add_argument("--cull", action="store_true"); ap.add_argument("--no-hires", action="store_true")
     ap.add_argument("--env-dir"); ap.add_argument("--clip", action="store_true")
     ap.add_argument("--clip-seconds", type=float); ap.add_argument("--clip-every", type=int)
@@ -1788,7 +1999,7 @@ def parse_args():
         if k == "mono":
             if v:
                 CFG["stereo"] = False
-        elif k in ("no_env", "camera_confirmed", "accept_lowres", "bench", "bench_no_warm", "persistent", "clip", "clip_no_keys", "clip_no_video", "cull", "no_hires", "env_only", "lite", "no_buildings", "no_trees"):
+        elif k in ("no_env", "camera_confirmed", "accept_lowres", "bench", "bench_no_warm", "persistent", "clip", "clip_no_keys", "clip_no_video", "cull", "no_hires", "env_only", "lite", "no_buildings", "no_trees", "no_water"):
             if v:
                 CFG[k] = True
         elif v is not None and v is not False:
@@ -1901,6 +2112,8 @@ def main():
             build_buildings(env, coll)
         if not CFG["no_trees"]:
             build_trees(env, coll, scene.camera.location)
+        if not CFG["no_water"]:
+            build_water(env, coll, scene.camera.location)
     setup_render(scene, out_dir)
     prepare_viewports(center)
     if not bpy.app.background:  # l'interface n'est pas encore prête au démarrage: on recadre un peu après

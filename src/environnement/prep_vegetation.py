@@ -318,6 +318,11 @@ def main():
         log(f"  arbustes: {len(arb[0]):,} (sur {len(ii_):,} bosquets bas; vert >= {a.arbustes:g}, pente < 37 degrés)")
     elif a.arbustes > 0:
         log("  arbustes ignorés (imagecodecs absent)")
+    # masque de canopée (grille 2 m): sert à remplacer, dans l'image aérienne, la cime des arbres par un sol de forêt
+    f4 = max(int(round(2.0 / step)), 1)
+    h4, w4 = H // f4 * f4, W // f4 * f4
+    m_fin = (flou(nd) >= 2.0).astype(np.float32)[:h4, :w4].reshape(h4 // f4, f4, w4 // f4, f4).mean(axis=(1, 3))
+    mask_grid = (m_fin, x0, y1)
     del nd
     del dem
 
@@ -339,6 +344,12 @@ def main():
         nd2 = np.clip(np.where(np.isfinite(dsm2), dsm2 - dem2, 0.0).astype(np.float32), 0, 60)
         del dsm2
         nd2[masque_batiments(env, meta, nd2.shape, wx0, wy1, s2)] = 0
+        m2 = (flou3(nd2) >= 2.0).astype(np.float32)
+        oi_, oj_ = int(round((x0 - wx0) / s2)), int(round((wy1 - y1) / s2))
+        mf, hh, ww = mask_grid[0], mask_grid[0].shape[0], mask_grid[0].shape[1]
+        if oi_ >= 0 and oj_ >= 0 and oj_ + hh <= m2.shape[0] and oi_ + ww <= m2.shape[1]:
+            m2[oj_:oj_ + hh, oi_:oi_ + ww] = mf
+            mask_grid = (m2, wx0, wy1)
         ii, jj, h, nc = detecter(nd2, s2, a.hmin, False)
         log(f"  {nc:,} sommets >= {a.hmin:g} m, {len(h):,} gardés")
         E = wx0 + (jj + 0.5) * s2
@@ -381,6 +392,13 @@ def main():
     X = (E - meta["scene_E0"]).astype(np.float32)
     Y = (meta["flip"] * (N - meta["scene_N0"])).astype(np.float32)
     np.savez_compressed(os.path.join(env, "vegetation.npz"), x=X, y=Y, z=zg.astype(np.float32), h=h, r=r, pente=pente, sp=sp)
+    if imagecodecs is not None:
+        mg, mx0, my1 = mask_grid
+        png = imagecodecs.png_encode((np.clip(mg, 0, 1) * 255).astype(np.uint8))
+        with open(os.path.join(env, "canopee_masque.png"), "wb") as fh:
+            fh.write(png)
+        meta["canopee_masque"] = dict(file="canopee_masque.png", x0=float(mx0), y1=float(my1), step=2.0, shape=[int(mg.shape[0]), int(mg.shape[1])])
+        log(f"masque de canopée écrit ({mg.shape[1]} x {mg.shape[0]} à 2 m, {mg.mean() * 100:.0f} % couvert)")
     meta["vegetation"] = dict(file="vegetation.npz", arbres=int(len(h)), arbres_fins=int(n_fin), hmin=a.hmin, vert=a.vert, melange=bool(fm),
                               rayon=a.rayon, max_year=a.max_year, created=time.strftime("%Y-%m-%d %H:%M"))
     json.dump(meta, open(mp, "w"), indent=1)
