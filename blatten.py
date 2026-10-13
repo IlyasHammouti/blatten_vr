@@ -44,6 +44,7 @@ SCRIPTS = {
     "install": os.path.join(SRC, "environnement", "installer_bibliotheques.py"),
     "prep_part": os.path.join(SRC, "matiere", "prep_particules.py"),
     "visible": os.path.join(SRC, "environnement", "visible.py"),
+    "prep_bat": os.path.join(SRC, "environnement", "prep_batiments.py"),
     "comparer": os.path.join(SRC, "environnement", "comparer.py"),
 }
 
@@ -334,6 +335,10 @@ def cmd_prep_env(cfg, paths, extra):
     return run_blender(cfg, SCRIPTS["prep_env"], ["--swisstopo", paths.swisstopo, "--data", paths.cache] + extra)
 
 
+def cmd_prep_batiments(cfg, paths, extra):
+    return run_blender(cfg, SCRIPTS["prep_bat"], ["--swisstopo", paths.swisstopo, "--data", paths.cache] + extra)
+
+
 def cmd_visible(cfg, paths, extra):
     return run_blender(cfg, SCRIPTS["visible"], ["--data", paths.cache] + extra)
 
@@ -569,6 +574,8 @@ MENU = [
     ("bench-compare", "Comparer les benchmarks enregistrés", []),
     ("valider-env", "VALIDER l'environnement seul: même image avec et sans coupe du relief invisible, comparées", []),
     ("lite", "Créer la VERSION LITE de l'environnement (relief visible seulement, sans aléa, un seul fichier .blend)", []),
+    ("prep-batiments", "Préparer les BATIMENTS 3D (après leur téléchargement)", []),
+    ("test360", "Image test de l'ENVIRONNEMENT SEUL (sans aléa, avec bâtiments), mono", ["--mono", "--env-only", "--cull", "--out", "render/env_seul"]),
     ("test-clip", "Test grandeur nature: 3 s de l'événement dans l'environnement (plusieurs heures)", []),
 ]
 
@@ -604,7 +611,7 @@ def cmd_menu(cfg, paths, extra):
 
 
 COMMANDS = {
-    "status": cmd_status, "setup": cmd_setup, "download": cmd_download, "prep-env": cmd_prep_env, "visible": cmd_visible,
+    "status": cmd_status, "setup": cmd_setup, "download": cmd_download, "prep-env": cmd_prep_env, "prep-batiments": cmd_prep_batiments, "visible": cmd_visible,
     "prep-particules": cmd_prep_particules, "terrain": cmd_terrain, "views": cmd_views, "test360": cmd_test360,
     "valider-env": cmd_valider_env, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
 }

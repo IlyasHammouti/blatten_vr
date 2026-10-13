@@ -92,6 +92,7 @@ CFG = dict(
     env_only=False,         # ENVIRONNEMENT SEUL: ni particules ni zone de rupture (décor d'avant l'événement)
     lite=False,             # version légère: environnement seul + relief visible seulement, enregistrée avec ses images dans render/blatten_env_lite.blend
     cull=False,             # ne construit que le relief VISIBLE depuis la caméra (masques de "python blatten.py visible")
+    no_buildings=False,     # ne place pas les bâtiments 3D (python blatten.py prep-batiments les prépare)
     no_hires=False,         # ignore le relief 0,5 m et les images locales (comparaison / test mémoire)
     env_dir=None,           # dossier contenant env/ (défaut: celui des particules). Sert au test-clip
     clip=False,             # test grandeur nature: quelques secondes de l'événement (src/bench/clip.py)
@@ -587,6 +588,58 @@ def build_env_terrain(env, center, coll, mat):
     tot = sum(len(o.data.polygons) for o in objs)
     log(f"TOTAL relief: {tot:,} faces" + (" (relief invisible coupé)" if CFG["cull"] else " (relief complet)"))
     return objs
+
+
+def build_buildings(env, coll):
+    """Bâtiments swissBUILDINGS3D (avant l'événement) préparés par prep-batiments. Avec --cull, seuls ceux de la zone visible."""
+    m = env["meta"]
+    bm = m.get("batiments")
+    path = os.path.join(env["dir"], bm["file"]) if bm else None
+    if not bm or not os.path.exists(path):
+        log("bâtiments 3D: non préparés (python blatten.py prep-batiments), scène sans bâtiments")
+        return None
+    z = np.load(path)
+    V, T, nt, ctr = z["v"].astype(np.float64), z["t"], z["ntri"], z["centre"].astype(np.float64)
+    keep = np.ones(len(nt), bool)
+    if env.get("vis") and 2.0 in env["vis"]:
+        keep = _vis_at(env["vis"][2.0], m["scene_E0"] + ctr[:, 0], m["scene_N0"] + m["flip"] * ctr[:, 1])
+    ts = np.concatenate([[0], np.cumsum(nt)])
+    sel = np.concatenate([np.arange(ts[k], ts[k + 1]) for k in np.nonzero(keep)[0]]) if keep.any() else np.zeros(0, np.int64)
+    if len(sel) == 0:
+        log("bâtiments 3D: aucun dans la zone visible")
+        return None
+    tri = T[sel]
+    used, inv = np.unique(tri.ravel(), return_inverse=True)
+    co, tri = V[used], inv.reshape(-1, 3).astype(np.int32)
+    n = np.cross(co[tri[:, 1]] - co[tri[:, 0]], co[tri[:, 2]] - co[tri[:, 0]])
+    n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-9)
+    toit = (np.abs(n[:, 2]) > 0.35).astype(np.int32)     # faces peu verticales = toit
+    me = bpy.data.meshes.new("Batiments")
+    nv, nf = len(co), len(tri)
+    me.vertices.add(nv)
+    me.vertices.foreach_set("co", co.astype(np.float32).ravel())
+    me.loops.add(nf * 3)
+    me.loops.foreach_set("vertex_index", tri.ravel())
+    me.polygons.add(nf)
+    me.polygons.foreach_set("loop_start", np.arange(0, nf * 3, 3, dtype=np.int32))
+    try:
+        me.polygons.foreach_set("loop_total", np.full(nf, 3, np.int32))
+    except Exception:
+        pass
+    me.update(calc_edges=True)
+    mats = []
+    for nom, col in (("Mur", (0.55, 0.50, 0.43, 1)), ("Toit", (0.20, 0.18, 0.17, 1))):
+        mt = bpy.data.materials.new(nom)
+        mt.use_nodes = True
+        b = mt.node_tree.nodes["Principled BSDF"]
+        b.inputs["Base Color"].default_value = col
+        b.inputs["Roughness"].default_value = 0.85
+        me.materials.append(mt)
+    me.polygons.foreach_set("material_index", toit)
+    ob = bpy.data.objects.new("Batiments", me)
+    coll.objects.link(ob)
+    log(f"bâtiments 3D: {int(keep.sum())} sur {len(nt)} (zone visible), {nf:,} triangles")
+    return ob
 
 
 def lv95_to_wgs84(E, N):
@@ -1275,7 +1328,7 @@ def parse_args():
     ap.add_argument("--bench", action="store_true"); ap.add_argument("--bench-scale", type=float)
     ap.add_argument("--bench-no-warm", action="store_true"); ap.add_argument("--persistent", action="store_true")
     ap.add_argument("--matiere")
-    ap.add_argument("--env-only", action="store_true"); ap.add_argument("--lite", action="store_true")
+    ap.add_argument("--no-buildings", action="store_true"); ap.add_argument("--env-only", action="store_true"); ap.add_argument("--lite", action="store_true")
     ap.add_argument("--cull", action="store_true"); ap.add_argument("--no-hires", action="store_true")
     ap.add_argument("--env-dir"); ap.add_argument("--clip", action="store_true")
     ap.add_argument("--clip-seconds", type=float); ap.add_argument("--clip-every", type=int)
@@ -1287,7 +1340,7 @@ def parse_args():
         if k == "mono":
             if v:
                 CFG["stereo"] = False
-        elif k in ("no_env", "camera_confirmed", "accept_lowres", "bench", "bench_no_warm", "persistent", "clip", "clip_no_keys", "clip_no_video", "cull", "no_hires", "env_only", "lite"):
+        elif k in ("no_env", "camera_confirmed", "accept_lowres", "bench", "bench_no_warm", "persistent", "clip", "clip_no_keys", "clip_no_video", "cull", "no_hires", "env_only", "lite", "no_buildings"):
             if v:
                 CFG[k] = True
         elif v is not None and v is not False:
@@ -1396,6 +1449,8 @@ def main():
     if env:
         cp = center if (CFG["views"] or not bpy.app.background) else scene.camera.location   # interface: relief fin autour de l'écoulement
         build_env_terrain(env, (cp.x, cp.y), coll, build_terrain_material(env))
+        if not CFG["no_buildings"]:
+            build_buildings(env, coll)
     setup_render(scene, out_dir)
     prepare_viewports(center)
     if not bpy.app.background:  # l'interface n'est pas encore prête au démarrage: on recadre un peu après
