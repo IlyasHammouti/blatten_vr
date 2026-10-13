@@ -277,6 +277,78 @@ def _print_sizes(todo):
         print(f"    taille à télécharger: {sum(ok) / 1e9:.2f} Go{note}")
 
 
+def _lv95_to_wgs84(E, N):
+    y, x = (E - 2600000.0) / 1e6, (N - 1200000.0) / 1e6
+    lon = 2.6779094 + 4.728982 * y + 0.791484 * y * x + 0.1306 * y * x * x - 0.0436 * y ** 3
+    lat = 16.9023892 + 3.238272 * x - 0.270978 * y * y - 0.002528 * x * x - 0.0447 * y * y * x - 0.0140 * x ** 3
+    return lat * 100.0 / 36.0, lon * 100.0 / 36.0
+
+
+STAC = "https://data.geo.admin.ch/api/stac/v0.9/collections/{coll}/items"
+
+
+def _stac_tuiles(coll, bbox, max_year, cle_res):
+    """Interroge le catalogue swisstopo (STAC) et rend {feuille: (url, année)}: la dalle la plus récente <= max_year."""
+    import json as _json
+    url = STAC.format(coll=coll) + "?bbox=" + ",".join(f"{v:.5f}" for v in bbox) + "&limit=100"
+    best = {}
+    while url:
+        with urllib.request.urlopen(url, timeout=60) as r:
+            data = _json.load(r)
+        for it in data.get("features", []):
+            m = re.search(r"_(\d{4})_(\d{4}-\d{4})", it.get("id", ""))
+            if not m:
+                continue
+            y, k = int(m.group(1)), m.group(2)
+            if y > max_year:
+                continue
+            for nom, a in (it.get("assets") or {}).items():
+                if cle_res in nom and nom.endswith(".tif") and (k not in best or y > best[k][1]):
+                    best[k] = (a["href"], y)
+        url = next((l["href"] for l in data.get("links", []) if l.get("rel") == "next"), None)
+    return best
+
+
+def _download_canopee(cfg, paths, max_year, dry, workers):
+    """Modèle de surface swissSURFACE3D raster 0,5 m (hauteur de la végétation et des bâtiments) autour de la caméra."""
+    mp = os.path.join(paths.cache, "env", "env_meta.json")
+    if not os.path.exists(mp):
+        sys.exit("Préparer d'abord relief + image aérienne (menus 6 et 7): l'emprise de la haute résolution en dépend.")
+    d5 = _load_json(mp).get("dem05")
+    if not d5:
+        sys.exit("Pas de relief 0,5 m: faire d'abord la préparation de la haute résolution (menu 7).")
+    x0, y1 = d5["x0"], d5["y1"]
+    x1, y0 = x0 + d5["shape"][1] * d5["step"], y1 - d5["shape"][0] * d5["step"]
+    la0, lo0 = _lv95_to_wgs84(x0 - 200, y0 - 200)
+    la1, lo1 = _lv95_to_wgs84(x1 + 200, y1 + 200)
+    dest = os.path.join(paths.swisstopo, "swisssurface3d_raster_05m")
+    os.makedirs(dest, exist_ok=True)
+    print("\nInterrogation du catalogue swisstopo ...")
+    try:
+        tuiles = _stac_tuiles("ch.swisstopo.swisssurface3d-raster", (lo0, la0, lo1, la1), max_year, "_0.5_")
+    except Exception as e:
+        sys.exit(f"Catalogue swisstopo injoignable: {e}\nVérifier la connexion Internet et relancer.")
+    if not tuiles:
+        sys.exit("Aucune dalle trouvée dans le catalogue pour cette zone.")
+    todo = [(u, os.path.join(dest, os.path.basename(u))) for u, _y in sorted(tuiles.values())]
+    todo = [(u, f) for u, f in todo if not os.path.exists(f)]
+    ans = sorted({y for _u, y in tuiles.values()})
+    print(f"=== modèle de surface 0,5 m: {len(tuiles)} dalles (années {ans}), {len(tuiles) - len(todo)} déjà présentes, {len(todo)} à télécharger ===")
+    if dry:
+        if todo:
+            _print_sizes(todo)
+        return
+    done = fail = 0
+    with cf.ThreadPoolExecutor(workers) as ex:
+        futs = {ex.submit(_fetch, u, f): (u, f) for u, f in todo}
+        for i, fu in enumerate(cf.as_completed(futs), 1):
+            ok, err = fu.result()
+            done += ok
+            fail += not ok
+            print(f"[{i}/{len(todo)}] {'OK    ' if ok else 'ECHEC '}{os.path.basename(futs[fu][1])}{'' if ok else ' : ' + err}", flush=True)
+    print(f"Bilan: {done} téléchargées, {fail} échecs. Relancer en cas d'échec (reprise automatique).")
+
+
 def cmd_download(cfg, paths, extra, max_year=None, dry=False, workers=4, jeux=None):
     max_year = max_year or int(cfg.get("swisstopo_max_year", 2024))
     if extra:   # appelé depuis le menu: options passées en liste
@@ -284,6 +356,8 @@ def cmd_download(cfg, paths, extra, max_year=None, dry=False, workers=4, jeux=No
             dry = True
         if "--jeux" in extra:
             jeux = [x for x in extra[extra.index("--jeux") + 1:] if not x.startswith("--")]
+    if jeux and "canopee" in jeux:
+        return _download_canopee(cfg, paths, max_year, dry, workers)
     sets, guess = _parse_csvs(paths.csv, max_year)
     if not sets:
         sys.exit(f"Aucun fichier swiss*.csv dans {paths.csv}")
@@ -576,6 +650,7 @@ MENU = [
     ("lite", "Créer la VERSION LITE de l'environnement (relief visible seulement, sans aléa, un seul fichier .blend)", []),
     ("prep-batiments", "Préparer les BATIMENTS 3D (après leur téléchargement)", []),
     ("test360", "Image test de l'ENVIRONNEMENT SEUL (sans aléa, avec bâtiments), mono", ["--mono", "--env-only", "--cull", "--out", "render/env_seul"]),
+    ("download", "Télécharger la CANOPEE (hauteur de la végétation, pour les arbres)", ["--jeux", "canopee"]),
     ("test-clip", "Test grandeur nature: 3 s de l'événement dans l'environnement (plusieurs heures)", []),
 ]
 
