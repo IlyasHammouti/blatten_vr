@@ -573,6 +573,7 @@ def build_env_terrain(env, center, coll, mat):
     Ec = round((m["scene_E0"] + center[0]) / 128.0) * 128.0
     Nc = round((m["scene_N0"] + flip * center[1]) / 128.0) * 128.0
     rings = env_rings(env, Ec, Nc)
+    env["ring_info"] = (Ec, Nc, rings)
     log(f"relief swisstopo centré sur E {Ec:.0f} N {Nc:.0f} (anneaux {', '.join(f'{s:g} m' for s, _ in rings)})")
     prev = 0.0
     objs = []
@@ -644,23 +645,99 @@ def build_buildings(env, coll):
     return ob
 
 
-def _proto_arbre(cotes, faces_par_cone):
-    """Conifère simplifié: cônes empilés (rayon 1, hauteur 1, base à z = 0). Rend (sommets, triangles)."""
-    V, T = [], []
-    n = faces_par_cone
-    ang = np.linspace(0, 2 * np.pi, n, endpoint=False)
-    for z0, z1, rb in cotes:
-        k = len(V)
-        for a in ang:
-            V.append((rb * np.cos(a), rb * np.sin(a), z0))
-        V.append((0.0, 0.0, z1))
-        for i in range(n):
-            T.append((k + i, k + (i + 1) % n, k + n))
-    return np.array(V, np.float64), np.array(T, np.int32)
+# couleurs (linéaires) par essence: 0 épicéa, 1 mélèze, 2 pin cembro, 3 feuillus; tronc
+COULEURS_ARBRES = np.array([[0.020, 0.038, 0.020], [0.070, 0.105, 0.028], [0.030, 0.052, 0.024], [0.085, 0.135, 0.034]], np.float32)
+COULEUR_TRONC = np.array([0.050, 0.034, 0.024], np.float32)
+
+
+def _bipyramide(zb, zt, rb, n, jit, rng, zlow=0.3, ph=0.0):
+    """Étage de feuillage fermé (anneau de rayon rb à zb, pointe haute à zt, pointe basse): rend (sommets, triangles)."""
+    ang = np.linspace(0, 2 * np.pi, n, endpoint=False) + ph
+    r = rb * (1 + jit * (rng.random(n) - 0.5) * 2)
+    ring = np.stack([r * np.cos(ang), r * np.sin(ang), zb + (rng.random(n) - 0.5) * jit * 0.06], 1)
+    top = np.array([[0.0, 0.0, zt]])
+    bot = np.array([[0.0, 0.0, zb - (zt - zb) * zlow]])
+    V = np.concatenate([ring, top, bot])
+    T = []
+    for i in range(n):
+        j = (i + 1) % n
+        T += [(i, j, n), (j, i, n + 1)]
+    return V, np.array(T, np.int32)
+
+
+def _ellipsoide(z0, z1, n, rings, jit, rng, rmax, fmax):
+    """Couronne arrondie (type sphère aplatie) de z0 à z1; le rayon maximal est atteint à la fraction fmax de la hauteur."""
+    V = [np.array([[0.0, 0.0, z0]])]
+    for k in range(rings):
+        f = (k + 1) / (rings + 1)
+        prof = np.sin(np.pi * f ** (np.log(0.5) / np.log(fmax))) ** 0.75
+        ang = np.linspace(0, 2 * np.pi, n, endpoint=False) + rng.random() * 6.28
+        r = rmax * prof * (1 + jit * (rng.random(n) - 0.5) * 2)
+        zz = z0 + (z1 - z0) * f + (rng.random(n) - 0.5) * jit * 0.08
+        V.append(np.stack([r * np.cos(ang), r * np.sin(ang), zz], 1))
+    V.append(np.array([[0.0, 0.0, z1]]))
+    V = np.concatenate(V)
+    T = []
+    for i in range(n):
+        j = (i + 1) % n
+        T.append((0, 1 + j, 1 + i))
+        for k in range(rings - 1):
+            a0, a1 = 1 + k * n, 1 + (k + 1) * n
+            T += [(a0 + i, a0 + j, a1 + i), (a0 + j, a1 + j, a1 + i)]
+        top = 1 + rings * n
+        T.append((1 + (rings - 1) * n + i, 1 + (rings - 1) * n + j, top))
+    return V, np.array(T, np.int32)
+
+
+def _fusion(parts):
+    V, T, off = [], [], 0
+    for v, t in parts:
+        V.append(v)
+        T.append(t + off)
+        off += len(v)
+    return np.concatenate(V), np.concatenate(T)
+
+
+def _proto_arbre(espece, lod, rng):
+    """Un arbre simplifié, rayon de couronne 1, hauteur 1, pied en z = 0. Rend (sommets, triangles, indice de tronc).
+    lod 0: détaillé (< 120 m), 1: moyen (< 500 m), 2: lointain."""
+    parts = []
+    if espece in (0, 1):                      # conifères à étages (épicéa serré, mélèze plus lâche)
+        T_ = {0: (9, 4, 1), 1: (7, 3, 1)}[espece][lod]
+        n = (9, 6, 5)[lod]
+        zlow = 0.15 if espece == 0 else 0.22
+        z0 = 0.16 if espece == 0 else 0.20
+        expo = 0.95 if espece == 0 else 0.80
+        for k in range(T_):
+            zb = z0 + (1 - z0) * k / T_
+            zt = z0 + (1 - z0) * min(1.0, (k + 1.6) / T_)
+            rb = ((1 - zb) ** expo) * (1.0 if espece == 0 else 0.92)
+            parts.append(_bipyramide(zb, zt, rb, n, 0.18 if lod == 0 else 0.1, rng, zlow, rng.random() * 6.28))
+    else:                                     # pin cembro (couronne ovoïde, plus haute) et feuillus (couronne arrondie)
+        zc0, zc1 = (0.22, 1.0) if espece == 2 else (0.30, 1.0)
+        rings = (5, 3, 2)[lod]
+        n = (9, 7, 5)[lod]
+        parts.append(_ellipsoide(zc0, zc1, n, rings, 0.26 if lod == 0 else 0.14, rng, 0.82 if espece == 2 else 1.0,
+                                 0.55 if espece == 2 else 0.45))
+    V, T = _fusion(parts)
+    ntr = len(V)
+    if lod < 2:                               # tronc: prisme à 4 pans
+        a = np.linspace(0, 2 * np.pi, 4, endpoint=False)
+        r0 = 0.07
+        tv = np.concatenate([np.stack([r0 * np.cos(a), r0 * np.sin(a), np.zeros(4)], 1),
+                             np.stack([r0 * 0.6 * np.cos(a), r0 * 0.6 * np.sin(a), np.full(4, 0.30)], 1)])
+        tt = []
+        for i in range(4):
+            j = (i + 1) % 4
+            tt += [(i, j, 4 + i), (j, 4 + j, 4 + i)]
+        V = np.concatenate([V, tv])
+        T = np.concatenate([T, np.array(tt, np.int32) + ntr])
+    return V, T, ntr
 
 
 def build_trees(env, coll, cam):
-    """Arbres issus de prep-vegetation (sommets de canopée): conifères simplifiés, détaillés près de la caméra.
+    """Arbres issus de prep-vegetation: essence (épicéa, mélèze, pin cembro, feuillus), hauteur, couronne, et posés sur
+    le relief EXACTEMENT comme le maillage de la scène (même anneau, même résolution). Détail selon la distance.
     Avec --cull, seuls ceux de la zone visible. Maillage fusionné (pas d'instances: robuste, mémoire modeste)."""
     m = env["meta"]
     vm = m.get("vegetation")
@@ -669,46 +746,71 @@ def build_trees(env, coll, cam):
         log("arbres: non préparés (python blatten.py prep-vegetation), scène sans arbres")
         return None
     z = np.load(path)
-    X, Y, Z, Hh, R = (z[k].astype(np.float64) for k in ("x", "y", "z", "h", "r"))
+    X, Y, Zf, Hh, R = (z[k].astype(np.float64) for k in ("x", "y", "z", "h", "r"))
+    sp = z["sp"].astype(np.int64) if "sp" in z.files else np.zeros(len(X), np.int64)
+    pente = z["pente"].astype(np.float64) if "pente" in z.files else np.zeros(len(X))
     d = np.hypot(X - cam.x, Y - cam.y)
     keep = d <= CFG["tree_dist"]
+    E = m["scene_E0"] + X
+    N = m["scene_N0"] + m["flip"] * Y
     if env.get("vis") and 2.0 in env["vis"]:
-        keep &= _vis_at(env["vis"][2.0], m["scene_E0"] + X, m["scene_N0"] + m["flip"] * Y)
+        keep &= _vis_at(env["vis"][2.0], E, N)
     n0 = len(X)
-    X, Y, Z, Hh, R, d = X[keep], Y[keep], Z[keep], Hh[keep], R[keep], d[keep]
-    if len(X) == 0:
+    if not keep.any():
         log("arbres: aucun dans la zone visible")
         return None
+    X, Y, Zf, Hh, R, sp, pente, d, E, N = (a[keep] for a in (X, Y, Zf, Hh, R, sp, pente, d, E, N))
+    # altitude du sol = celle du maillage de la scène à cet endroit
+    Z = Zf.copy()
+    ri = env.get("ring_info")
+    if ri:
+        Ec, Nc, rings = ri
+        cheb = np.maximum(np.abs(E - Ec), np.abs(N - Nc))
+        dz = m.get("dz", 0.0)
+        dz = dz if abs(dz) < 30 else 0.0
+        done = np.zeros(len(X), bool)
+        for step, H in rings:
+            sel = (cheb <= H) & ~done
+            if sel.any():
+                Z[sel] = _bilin(env["levels"][step], E[sel], N[sel]) + dz
+                done |= sel
     rng = np.random.default_rng(7)
-    var = rng.random(len(X))
+    nv_var = 5
     yaw = rng.uniform(0, 2 * np.pi, len(X))
+    var = rng.integers(0, nv_var, len(X))
+    taille = rng.uniform(0.9, 1.1, len(X))
+    Hh = Hh * taille
     R = R * rng.uniform(0.85, 1.15, len(X))
-    Z = Z - np.clip(0.3 + 0.0005 * d, 0.3, 1.2)           # pied légèrement enterré (le relief lointain est plus grossier)
-    protos = {
-        "pres": _proto_arbre([(0.12, 0.55, 1.0), (0.38, 0.80, 0.78), (0.62, 1.0, 0.52)], 7),
-        "loin": _proto_arbre([(0.12, 1.0, 1.0)], 5),
-    }
-    co_all, tri_all, var_all = [], [], []
+    Z = Z + np.maximum(0.0, R * pente * 0.9 - 0.12 * Hh) - 0.10     # sur forte pente, la couronne amont ne rentre pas dans le sol
+    lod = np.where(d < 120.0, 0, np.where(d < 500.0, 1, 2))
+    tone = rng.uniform(0.82, 1.18, len(X))
+    protos = {(e, l, v): _proto_arbre(e, l, np.random.default_rng(1000 * e + 100 * l + v)) for e in range(4) for l in range(3) for v in range(nv_var)}
+    co_all, tri_all, col_all = [], [], []
     off = 0
-    for nom, sel in (("pres", d < 500.0), ("loin", d >= 500.0)):
+    for (e, l, v), (PV, PT, ntr) in protos.items():
+        sel = (sp == e) & (lod == l) & (var == v)
         if not sel.any():
             continue
-        PV, PT = protos[nom]
+        nt = int(sel.sum())
         c, sn = np.cos(yaw[sel])[:, None], np.sin(yaw[sel])[:, None]
         px = PV[None, :, 0] * R[sel][:, None]
         py = PV[None, :, 1] * R[sel][:, None]
         pz = PV[None, :, 2] * Hh[sel][:, None]
         co = np.stack([X[sel][:, None] + px * c - py * sn, Y[sel][:, None] + px * sn + py * c, Z[sel][:, None] + pz], -1)
         k = len(PV)
-        nt = sel.sum()
         tri = (PT[None, :, :] + (np.arange(nt) * k + off)[:, None, None]).reshape(-1, 3)
+        g = np.clip(PV[:, 2], 0, 1)
+        shade = (0.55 + 0.45 * g)[None, :, None]                     # bas de la couronne plus sombre
+        base = np.broadcast_to(COULEURS_ARBRES[e][None, None, :], (nt, k, 3)) * shade * tone[sel][:, None, None]
+        base = base.copy()
+        base[:, ntr:, :] = COULEUR_TRONC[None, None, :]
         co_all.append(co.reshape(-1, 3))
         tri_all.append(tri)
-        var_all.append(np.repeat(var[sel], k))
+        col_all.append(base.reshape(-1, 3))
         off += nt * k
     co = np.concatenate(co_all).astype(np.float32)
     tri = np.concatenate(tri_all).astype(np.int32)
-    va = np.concatenate(var_all).astype(np.float32)
+    col = np.concatenate(col_all).astype(np.float32)
     me = bpy.data.meshes.new("Arbres")
     nv, nf = len(co), len(tri)
     me.vertices.add(nv)
@@ -722,25 +824,22 @@ def build_trees(env, coll, cam):
     except Exception:
         pass
     me.update(calc_edges=True)
-    me.attributes.new("var", "FLOAT", "POINT")
-    me.attributes["var"].data.foreach_set("value", va)
+    ca = me.color_attributes.new("col", "FLOAT_COLOR", "POINT")
+    ca.data.foreach_set("color", np.concatenate([col, np.ones((nv, 1), np.float32)], 1).ravel())
     mt = bpy.data.materials.new("Arbre")
     mt.use_nodes = True
     nt_ = mt.node_tree
     b = nt_.nodes["Principled BSDF"]
-    b.inputs["Roughness"].default_value = 0.9
+    b.inputs["Roughness"].default_value = 0.92
     at = nt_.nodes.new("ShaderNodeAttribute")
-    at.attribute_name, at.attribute_type = "var", "GEOMETRY"
-    rp = nt_.nodes.new("ShaderNodeValToRGB")
-    cr = rp.color_ramp
-    cr.elements[0].position, cr.elements[0].color = 0.0, (0.030, 0.050, 0.022, 1)    # épicéa sombre
-    cr.elements[1].position, cr.elements[1].color = 1.0, (0.085, 0.120, 0.040, 1)    # mélèze clair (fin mai)
-    nt_.links.new(at.outputs["Fac"], rp.inputs["Fac"])
-    nt_.links.new(rp.outputs["Color"], b.inputs["Base Color"])
+    at.attribute_name, at.attribute_type = "col", "GEOMETRY"
+    nt_.links.new(at.outputs["Color"], b.inputs["Base Color"])
     me.materials.append(mt)
     ob = bpy.data.objects.new("Arbres", me)
     coll.objects.link(ob)
-    log(f"arbres: {len(X):,} sur {n0:,} (visibles, à moins de {CFG['tree_dist']:.0f} m), {nf:,} triangles")
+    nl = [int((lod == i).sum()) for i in range(3)]
+    log(f"arbres: {len(X):,} sur {n0:,} (visibles, à moins de {CFG['tree_dist']:.0f} m), {nf:,} triangles "
+        f"(détaillés {nl[0]:,}, moyens {nl[1]:,}, lointains {nl[2]:,})")
     return ob
 
 

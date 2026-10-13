@@ -335,11 +335,20 @@ def _download_canopee(cfg, paths, max_year, dry, workers):
     todo = [(u, f) for u, f in todo if not os.path.exists(f)]
     ans = sorted({y for _u, y in tuiles.values()})
     print(f"=== modèle de surface 0,5 m: {len(tuiles)} dalles (années {ans}), {len(tuiles) - len(todo)} déjà présentes, {len(todo)} à télécharger ===")
+    # taux de mélange des forêts (OFEV, 10 m, part de feuillus): donne l'essence des arbres. Fichier national, une seule fois.
+    mel_url = ("https://data.geo.admin.ch/ch.bafu.landesforstinventar-waldmischungsgrad/landesforstinventar-waldmischungsgrad/"
+               "landesforstinventar-waldmischungsgrad_2056.tif")
+    mel_dir = os.path.join(paths.swisstopo, "waldmischungsgrad")
+    mel_f = os.path.join(mel_dir, os.path.basename(mel_url))
+    os.makedirs(mel_dir, exist_ok=True)
+    mel_todo = [] if os.path.exists(mel_f) else [(mel_url, mel_f)]
+    print(f"=== taux de mélange des forêts (OFEV, essences): {'déjà présent' if not mel_todo else 'à télécharger (fichier national)'} ===")
     if dry:
-        if todo:
-            _print_sizes(todo)
+        if todo or mel_todo:
+            _print_sizes(todo + mel_todo)
         return
     done = fail = 0
+    todo = todo + mel_todo
     with cf.ThreadPoolExecutor(workers) as ex:
         futs = {ex.submit(_fetch, u, f): (u, f) for u, f in todo}
         for i, fu in enumerate(cf.as_completed(futs), 1):
@@ -471,7 +480,14 @@ def cmd_valider_env(cfg, paths, extra):
 def cmd_lite(cfg, paths, extra):
     """Version légère de l'environnement: seul le relief visible depuis la caméra, sans particules, images incluses."""
     rc = run_blender(cfg, SCRIPTS["scene"], scene_args(cfg, paths) + ["--lite", "--preset", "test"] + extra)
-    print("Fichier:", os.path.join(ROOT, "render", "blatten_env_lite.blend"))
+    f = os.path.join(ROOT, "render", "blatten_env_lite.blend")
+    print("Fichier:", f)
+    if not rc and os.path.isfile(f):
+        print("Ouverture dans Blender (vue caméra: pavé num 0 ; aperçu matériau: icône sphère en haut à droite de la vue 3D) ...")
+        try:
+            subprocess.Popen([find_blender(cfg), f])
+        except Exception as e:
+            print("Ouverture impossible:", e)
     return rc
 
 
