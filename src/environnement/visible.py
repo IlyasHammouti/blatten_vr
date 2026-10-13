@@ -220,8 +220,20 @@ def main():
         coarse[oj:oj + h, oi:oi + w] |= pooled
         return coarse
 
-    for k in range(len(levels) - 1, 0, -1):          # du grossier au fin: le fin remplit le grossier
+    for k in range(1, len(levels)):                  # du FIN au grossier: 0,5 m remplit 2 m, puis 2 m (déjà complété) remplit 8 m
         vs[k] = fill_from(vs[k - 1], levels[k - 1], vs[k], levels[k])
+    # contrôle: chaque masque grossier doit contenir tout ce que voit le masque fin (sinon des trous dans la scène)
+    for k in range(1, len(levels)):
+        fine, coarse = vs[k - 1], vs[k]
+        f = int(round(levels[k]["step"] / levels[k - 1]["step"]))
+        oi = int(round((levels[k - 1]["x0"] - levels[k]["x0"]) / levels[k]["step"]))
+        oj = int(round((levels[k]["y1"] - levels[k - 1]["y1"]) / levels[k]["step"]))
+        pooled = block_any(fine, f)
+        h, w = min(pooled.shape[0], coarse.shape[0] - oj), min(pooled.shape[1], coarse.shape[1] - oi)
+        manque = int((pooled[:h, :w] & ~coarse[oj:oj + h, oi:oi + w]).sum())
+        log(f"  contrôle {levels[k - 1]['name']} -> {levels[k]['name']}: {manque} cellule(s) visible(s) absente(s) du masque grossier")
+        if manque:
+            sys.exit("ERREUR interne: masque grossier incomplet, la scène aurait des trous. Rien n'est écrit.")
     marks = {}
     for L, v in zip(levels, vs):
         v = _dilate(v, max(2, int(round(a.marge / L["step"]))))
