@@ -584,6 +584,8 @@ def build_env_terrain(env, center, coll, mat):
         objs.append(ob)
         log(f"  anneau {step:g} m: {len(co):,} sommets, {len(quads):,} faces")
         prev = H
+    tot = sum(len(o.data.polygons) for o in objs)
+    log(f"TOTAL relief: {tot:,} faces" + (" (relief invisible coupé)" if CFG["cull"] else " (relief complet)"))
     return objs
 
 
