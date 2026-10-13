@@ -622,7 +622,7 @@ def _arrivee(env, E, N, pas=3.0):
     return out
 
 
-def _objet_triangles(nom, co, tri, mats, mat_index=None):
+def _objet_triangles(nom, co, tri, mats, mat_index=None, attrs=None):
     me = bpy.data.meshes.new(nom)
     nv, nf = len(co), len(tri)
     me.vertices.add(nv)
@@ -635,12 +635,106 @@ def _objet_triangles(nom, co, tri, mats, mat_index=None):
         me.polygons.foreach_set("loop_total", np.full(nf, 3, np.int32))
     except Exception:
         pass
+    try:
+        me.polygons.foreach_set("use_smooth", np.zeros(nf, bool))      # facettes plates: les fenêtres lisent la normale de la face
+    except Exception:
+        pass
     me.update(calc_edges=True)
     for mt in mats:
         me.materials.append(mt)
     if mat_index is not None:
         me.polygons.foreach_set("material_index", mat_index)
+    for nm, rgb in (attrs or {}).items():     # couleurs par sommet (linéaires)
+        ca = me.color_attributes.new(nm, "FLOAT_COLOR", "POINT")
+        ca.data.foreach_set("color", np.concatenate([rgb, np.ones((len(rgb), 1), np.float32)], 1).astype(np.float32).ravel())
     return bpy.data.objects.new(nom, me)
+
+
+def _echantillon_ortho(env, E, N):
+    """Couleur (sRGB 0..1) de l'image aérienne aux points (E, N): images locales 10 cm, 50 cm, puis l'image 2 m. NaN si hors de toutes."""
+    m = env["meta"]
+    out = np.full((len(E), 3), np.nan, np.float32)
+    srcs = sorted(m.get("ortho_patches", []), key=lambda o: o["step"]) + ([m["ortho"]] if m.get("ortho") else [])
+    for o in srcs:
+        f = os.path.join(env["dir"], o["file"])
+        if not os.path.exists(f):
+            continue
+        j = np.floor((E - o["x0"]) / o["step"]).astype(np.int64)
+        i = np.floor((o["y1"] - N) / o["step"]).astype(np.int64)
+        Hh_, Ww_ = o["shape"]
+        ok = np.isnan(out[:, 0]) & (j >= 0) & (j < Ww_) & (i >= 0) & (i < Hh_)
+        if not ok.any():
+            continue
+        img = bpy.data.images.load(f)
+        try:
+            w, h = img.size
+            arr = np.empty(w * h * 4, np.float32)
+            img.pixels.foreach_get(arr)
+            arr = arr.reshape(h, w, 4)
+            out[ok] = arr[h - 1 - i[ok], j[ok], :3]
+        finally:
+            bpy.data.images.remove(img)
+    return out
+
+
+def _materiau_mur():
+    """Façade: couleur par bâtiment (attribut 'mur') et fenêtres sombres en grille (étages ~2,9 m, travées ~3,2 m) calculées sur la position."""
+    mt = bpy.data.materials.new("Mur")
+    mt.use_nodes = True
+    nt = mt.node_tree
+    b = nt.nodes["Principled BSDF"]
+    b.inputs["Roughness"].default_value = 0.85
+    N_ = nt.nodes
+    L = nt.links
+
+    def nod(tp, **kw):
+        n = N_.new(tp)
+        for k, v in kw.items():
+            setattr(n, k, v)
+        return n
+
+    def mth(op, a=None, b_=None, clamp=False):
+        n = nod("ShaderNodeMath", operation=op)
+        n.use_clamp = clamp
+        for idx, v in ((0, a), (1, b_)):
+            if v is None:
+                continue
+            if isinstance(v, (int, float)):
+                n.inputs[idx].default_value = v
+            else:
+                L.new(v, n.inputs[idx])
+        return n.outputs[0]
+    geo = nod("ShaderNodeNewGeometry")
+    sep_p = nod("ShaderNodeSeparateXYZ"); L.new(geo.outputs["Position"], sep_p.inputs[0])
+    sep_n = nod("ShaderNodeSeparateXYZ"); L.new(geo.outputs["Normal"], sep_n.inputs[0])
+    # coordonnée le long de la façade: Position . (-ny, nx, 0)
+    u = mth("ADD", mth("MULTIPLY", sep_p.outputs[0], mth("MULTIPLY", sep_n.outputs[1], -1.0)), mth("MULTIPLY", sep_p.outputs[1], sep_n.outputs[0]))
+    fu = mth("FRACT", mth("DIVIDE", u, 3.2))
+    fz = mth("FRACT", mth("DIVIDE", sep_p.outputs[2], 2.9))
+    win = mth("MULTIPLY",
+              mth("MULTIPLY", mth("GREATER_THAN", fu, 0.30), mth("LESS_THAN", fu, 0.62)),
+              mth("MULTIPLY", mth("GREATER_THAN", fz, 0.40), mth("LESS_THAN", fz, 0.78)))
+    vert = mth("LESS_THAN", mth("ABSOLUTE", sep_n.outputs[2]), 0.4)           # seulement sur les façades verticales
+    win = mth("MULTIPLY", win, vert)
+    at = nod("ShaderNodeAttribute", attribute_name="mur", attribute_type="GEOMETRY")
+    mix = nod("ShaderNodeMix", data_type="RGBA")
+    L.new(win, mix.inputs[0])
+    L.new(at.outputs["Color"], mix.inputs[6])
+    mix.inputs[7].default_value = (0.012, 0.016, 0.022, 1.0)
+    L.new(mix.outputs[2], b.inputs["Base Color"])
+    return mt
+
+
+def _materiau_toit():
+    mt = bpy.data.materials.new("Toit")
+    mt.use_nodes = True
+    nt = mt.node_tree
+    b = nt.nodes["Principled BSDF"]
+    b.inputs["Roughness"].default_value = 0.8
+    at = nt.nodes.new("ShaderNodeAttribute")
+    at.attribute_name, at.attribute_type = "toit", "GEOMETRY"
+    nt.links.new(at.outputs["Color"], b.inputs["Base Color"])
+    return mt
 
 
 def build_buildings(env, coll):
@@ -663,14 +757,7 @@ def build_buildings(env, coll):
         return None
     ta = _arrivee(env, Ec_, Nc_)
     ts = np.concatenate([[0], np.cumsum(nt)])
-    mats = []
-    for nom, col in (("Mur", (0.55, 0.50, 0.43, 1)), ("Toit", (0.20, 0.18, 0.17, 1))):
-        mt = bpy.data.materials.new(nom)
-        mt.use_nodes = True
-        b = mt.node_tree.nodes["Principled BSDF"]
-        b.inputs["Base Color"].default_value = col
-        b.inputs["Roughness"].default_value = 0.85
-        mats.append(mt)
+    mats = [_materiau_mur(), _materiau_toit()]
     nf_tot, objs, nsw = 0, [], 0
     for g in np.unique(ta[keep]):
         kg = keep & (ta == g)
@@ -681,7 +768,27 @@ def build_buildings(env, coll):
         n = np.cross(co[tri[:, 1]] - co[tri[:, 0]], co[tri[:, 2]] - co[tri[:, 0]])
         n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-9)
         toit = (np.abs(n[:, 2]) > 0.35).astype(np.int32)     # faces peu verticales = toit
-        ob = _objet_triangles("Batiments" if not np.isfinite(g) else f"Batiments_t{g:g}", co, tri, mats, toit)
+        # couleurs par bâtiment: toit d'après l'image aérienne (médiane des sommets de toit), façade tirée dans une palette locale
+        bid = np.repeat(np.nonzero(kg)[0], nt[kg])                     # bâtiment de chaque triangle (dans l'ordre de `sel`)
+        vb = np.zeros(len(co), np.int64)
+        vb[tri.ravel()] = np.repeat(bid, 3)
+        ub, ib = np.unique(vb, return_inverse=True)
+        Ev, Nv = m["scene_E0"] + co[:, 0], m["scene_N0"] + m["flip"] * co[:, 1]
+        smp = _echantillon_ortho(env, Ev, Nv)
+        roofv = np.zeros(len(co), bool)
+        roofv[tri[toit == 1].ravel()] = True
+        rc = np.full((len(ub), 3), 0.30, np.float32)
+        for q in range(len(ub)):
+            sel_v = (ib == q) & roofv & np.isfinite(smp[:, 0])
+            if sel_v.any():
+                rc[q] = np.median(smp[sel_v], axis=0)
+        rc = np.clip(rc, 0.04, 0.85) ** 2.2                                   # sRGB -> linéaire
+        rng_b = np.random.default_rng(5)
+        pal = np.array([[0.050, 0.030, 0.020], [0.075, 0.045, 0.028], [0.50, 0.46, 0.40], [0.36, 0.32, 0.27], [0.20, 0.19, 0.18]], np.float32)   # bois sombre, bois, crépi clair, beige, pierre
+        pick = rng_b.choice(len(pal), size=len(ub), p=[0.30, 0.25, 0.20, 0.15, 0.10])
+        mc = pal[pick] * rng_b.uniform(0.85, 1.15, (len(ub), 1)).astype(np.float32)
+        ob = _objet_triangles("Batiments" if not np.isfinite(g) else f"Batiments_t{g:g}", co, tri, mats, toit,
+                              attrs={"toit": rc[ib], "mur": mc[ib]})
         coll.objects.link(ob)
         if np.isfinite(g):
             ENSEV.append((float(g), ob))

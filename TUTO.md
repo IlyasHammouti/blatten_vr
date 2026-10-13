@@ -198,7 +198,7 @@ Toutes ces étapes se lancent depuis le menu (`python blatten.py`). Les données
 |---|---|
 | 17 | Valider la coupe du relief invisible: la même image avec et sans coupe, comparées (le verdict doit dire IDENTIQUES, ou une différence de bruit seulement) |
 | 18 | Créer la version lite: un seul fichier `render\\blatten_env_lite.blend`, sans aléa, relief visible seulement |
-| 19 | Préparer les bâtiments 3D (une fois, après le téléchargement HD) |
+| 19 | Préparer les bâtiments 3D (une fois, après le téléchargement HD). Toits: couleur lue sur l image aérienne; façades: palette locale (bois sombre, crépi, pierre) avec fenêtres en grille |
 | 20 | Image test de l'environnement seul (sans aléa, avec bâtiments et arbres), à regarder avec le 11 |
 | 21 | Télécharger la canopée (hauteur de la végétation), puis |
 | 22 | Préparer les arbres: emprise 0,5 m puis jusqu à 4,6 km avec le modèle de surface 2 m (amincis avec la distance), et arbustes en avant-plan |
