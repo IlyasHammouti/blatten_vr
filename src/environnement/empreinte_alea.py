@@ -99,6 +99,10 @@ def main():
         occ2 = o
     zmax[~np.isfinite(zmax)] = np.nan
     zfin[~np.isfinite(zfin)] = np.nan
+    if len(files) < 20:
+        log(f"!! seulement {len(files)} fichier(s) de particules: l'empreinte est PARTIELLE (elle ne couvre pas le trajet de la matière) et les instants d'arrivée "
+            f"sont inconnus. Aucun bâtiment ni arbre ne sera masqué. Refaire après prep-particules sur toute la simulation (202 fichiers, --stride 10 ou plus).")
+        tarr[:] = np.nan
     np.savez_compressed(os.path.join(env, "alea_empreinte.npz"), occ=occ2, tarr=tarr, zfin=zfin, zmax=zmax, x0=E0, y1=N1, step=s)
     meta["alea_empreinte"] = dict(file="alea_empreinte.npz", fichiers=len(files), dt=a.dt, surface_km2=float(occ2.sum() * s * s / 1e6),
                                   duree_s=float((files[-1]["step"] - s0) * a.dt), created=time.strftime("%Y-%m-%d %H:%M"))
