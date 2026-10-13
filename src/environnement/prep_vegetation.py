@@ -191,6 +191,24 @@ def mosaique(dossier, x0, y1, W, H, step, max_year, motif_res=None):
     return dsm, n
 
 
+def remplir(nd, step, hmin, rng):
+    """Zone lointaine (2 m): les sommets de canopée y fusionnent (une cime = plusieurs pixels), les détecter donne 5 à 6 fois trop peu
+    d'arbres et laisse un vide. On sème donc les arbres dans la canopée, à une densité qui restitue la couverture réelle (couronne
+    de rayon 0,15 h + 0,5 m, recouvrement partiel), avec la hauteur lue sur place. Rend (i, j, h, decalage_x, decalage_y)."""
+    ns = flou3(nd)
+    cand = ns >= hmin
+    c = np.pad(cand.astype(np.int32), ((3, 2), (3, 2))).cumsum(0, dtype=np.int32).cumsum(1, dtype=np.int32)
+    k = 5
+    dens = (c[k:, k:] - c[:-k, k:] - c[k:, :-k] + c[:-k, :-k])[:cand.shape[0], :cand.shape[1]] / float(k * k)
+    ii, jj = np.nonzero(cand & (dens >= 0.4))                        # un bloc isolé n'est pas un arbre
+    h = ns[ii, jj].astype(np.float32)
+    rr = np.minimum(0.15 * h + 0.5, 4.5)
+    p = np.clip(step * step / (0.55 * np.pi * rr * rr), 0.0, 1.0)
+    ok = rng.random(len(h)) < p
+    ii, jj, h = ii[ok], jj[ok], h[ok]
+    return ii, jj, h, (rng.random(len(h)) - 0.5) * step, (rng.random(len(h)) - 0.5) * step
+
+
 def detecter(nd, step, hmin, fin):
     """Sommets de canopée (indices i, j, hauteur). fin=True: grille 0,5 m (arbres isolés), sinon grille 2 m (peuplements)."""
     H, W = nd.shape
@@ -362,10 +380,10 @@ def main():
         if oi_ >= 0 and oj_ >= 0 and oj_ + hh <= m2.shape[0] and oi_ + ww <= m2.shape[1]:
             m2[oj_:oj_ + hh, oi_:oi_ + ww] = mf
             mask_grid = (m2, wx0, wy1)
-        ii, jj, h, nc = detecter(nd2, s2, a.hmin, False)
-        log(f"  {nc:,} sommets >= {a.hmin:g} m, {len(h):,} gardés")
-        E = wx0 + (jj + 0.5) * s2
-        N = wy1 - (ii + 0.5) * s2
+        ii, jj, h, ox, oy = remplir(nd2, s2, a.hmin, np.random.default_rng(5))
+        log(f"  {len(h):,} arbres semés dans la canopée (densité d'après la couverture)")
+        E = wx0 + (jj + 0.5) * s2 + ox
+        N = wy1 - (ii + 0.5) * s2 + oy
         hors = ~((E >= ext[0]) & (E <= ext[2]) & (N >= ext[1]) & (N <= ext[3]))     # déjà couvert à 0,5 m
         hors &= np.hypot(E - Ec, N - Nc) <= a.rayon
         ii, jj, h, E, N = ii[hors], jj[hors], h[hors], E[hors], N[hors]
