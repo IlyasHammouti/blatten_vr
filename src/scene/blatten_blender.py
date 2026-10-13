@@ -93,6 +93,8 @@ CFG = dict(
     lite=False,             # version légère: environnement seul + relief visible seulement, enregistrée avec ses images dans render/blatten_env_lite.blend
     cull=False,             # ne construit que le relief VISIBLE depuis la caméra (masques de "python blatten.py visible")
     no_buildings=False,     # ne place pas les bâtiments 3D (python blatten.py prep-batiments les prépare)
+    no_trees=False,         # ne place pas les arbres (python blatten.py prep-vegetation les prépare)
+    tree_dist=2500.0,       # distance maximale des arbres modélisés (m); au-delà l'image aérienne suffit
     no_hires=False,         # ignore le relief 0,5 m et les images locales (comparaison / test mémoire)
     env_dir=None,           # dossier contenant env/ (défaut: celui des particules). Sert au test-clip
     clip=False,             # test grandeur nature: quelques secondes de l'événement (src/bench/clip.py)
@@ -639,6 +641,106 @@ def build_buildings(env, coll):
     ob = bpy.data.objects.new("Batiments", me)
     coll.objects.link(ob)
     log(f"bâtiments 3D: {int(keep.sum())} sur {len(nt)} (zone visible), {nf:,} triangles")
+    return ob
+
+
+def _proto_arbre(cotes, faces_par_cone):
+    """Conifère simplifié: cônes empilés (rayon 1, hauteur 1, base à z = 0). Rend (sommets, triangles)."""
+    V, T = [], []
+    n = faces_par_cone
+    ang = np.linspace(0, 2 * np.pi, n, endpoint=False)
+    for z0, z1, rb in cotes:
+        k = len(V)
+        for a in ang:
+            V.append((rb * np.cos(a), rb * np.sin(a), z0))
+        V.append((0.0, 0.0, z1))
+        for i in range(n):
+            T.append((k + i, k + (i + 1) % n, k + n))
+    return np.array(V, np.float64), np.array(T, np.int32)
+
+
+def build_trees(env, coll, cam):
+    """Arbres issus de prep-vegetation (sommets de canopée): conifères simplifiés, détaillés près de la caméra.
+    Avec --cull, seuls ceux de la zone visible. Maillage fusionné (pas d'instances: robuste, mémoire modeste)."""
+    m = env["meta"]
+    vm = m.get("vegetation")
+    path = os.path.join(env["dir"], vm["file"]) if vm else None
+    if not vm or not os.path.exists(path):
+        log("arbres: non préparés (python blatten.py prep-vegetation), scène sans arbres")
+        return None
+    z = np.load(path)
+    X, Y, Z, Hh, R = (z[k].astype(np.float64) for k in ("x", "y", "z", "h", "r"))
+    d = np.hypot(X - cam.x, Y - cam.y)
+    keep = d <= CFG["tree_dist"]
+    if env.get("vis") and 2.0 in env["vis"]:
+        keep &= _vis_at(env["vis"][2.0], m["scene_E0"] + X, m["scene_N0"] + m["flip"] * Y)
+    n0 = len(X)
+    X, Y, Z, Hh, R, d = X[keep], Y[keep], Z[keep], Hh[keep], R[keep], d[keep]
+    if len(X) == 0:
+        log("arbres: aucun dans la zone visible")
+        return None
+    rng = np.random.default_rng(7)
+    var = rng.random(len(X))
+    yaw = rng.uniform(0, 2 * np.pi, len(X))
+    R = R * rng.uniform(0.85, 1.15, len(X))
+    Z = Z - np.clip(0.3 + 0.0005 * d, 0.3, 1.2)           # pied légèrement enterré (le relief lointain est plus grossier)
+    protos = {
+        "pres": _proto_arbre([(0.12, 0.55, 1.0), (0.38, 0.80, 0.78), (0.62, 1.0, 0.52)], 7),
+        "loin": _proto_arbre([(0.12, 1.0, 1.0)], 5),
+    }
+    co_all, tri_all, var_all = [], [], []
+    off = 0
+    for nom, sel in (("pres", d < 500.0), ("loin", d >= 500.0)):
+        if not sel.any():
+            continue
+        PV, PT = protos[nom]
+        c, sn = np.cos(yaw[sel])[:, None], np.sin(yaw[sel])[:, None]
+        px = PV[None, :, 0] * R[sel][:, None]
+        py = PV[None, :, 1] * R[sel][:, None]
+        pz = PV[None, :, 2] * Hh[sel][:, None]
+        co = np.stack([X[sel][:, None] + px * c - py * sn, Y[sel][:, None] + px * sn + py * c, Z[sel][:, None] + pz], -1)
+        k = len(PV)
+        nt = sel.sum()
+        tri = (PT[None, :, :] + (np.arange(nt) * k + off)[:, None, None]).reshape(-1, 3)
+        co_all.append(co.reshape(-1, 3))
+        tri_all.append(tri)
+        var_all.append(np.repeat(var[sel], k))
+        off += nt * k
+    co = np.concatenate(co_all).astype(np.float32)
+    tri = np.concatenate(tri_all).astype(np.int32)
+    va = np.concatenate(var_all).astype(np.float32)
+    me = bpy.data.meshes.new("Arbres")
+    nv, nf = len(co), len(tri)
+    me.vertices.add(nv)
+    me.vertices.foreach_set("co", co.ravel())
+    me.loops.add(nf * 3)
+    me.loops.foreach_set("vertex_index", tri.ravel())
+    me.polygons.add(nf)
+    me.polygons.foreach_set("loop_start", np.arange(0, nf * 3, 3, dtype=np.int32))
+    try:
+        me.polygons.foreach_set("loop_total", np.full(nf, 3, np.int32))
+    except Exception:
+        pass
+    me.update(calc_edges=True)
+    me.attributes.new("var", "FLOAT", "POINT")
+    me.attributes["var"].data.foreach_set("value", va)
+    mt = bpy.data.materials.new("Arbre")
+    mt.use_nodes = True
+    nt_ = mt.node_tree
+    b = nt_.nodes["Principled BSDF"]
+    b.inputs["Roughness"].default_value = 0.9
+    at = nt_.nodes.new("ShaderNodeAttribute")
+    at.attribute_name, at.attribute_type = "var", "GEOMETRY"
+    rp = nt_.nodes.new("ShaderNodeValToRGB")
+    cr = rp.color_ramp
+    cr.elements[0].position, cr.elements[0].color = 0.0, (0.030, 0.050, 0.022, 1)    # épicéa sombre
+    cr.elements[1].position, cr.elements[1].color = 1.0, (0.085, 0.120, 0.040, 1)    # mélèze clair (fin mai)
+    nt_.links.new(at.outputs["Fac"], rp.inputs["Fac"])
+    nt_.links.new(rp.outputs["Color"], b.inputs["Base Color"])
+    me.materials.append(mt)
+    ob = bpy.data.objects.new("Arbres", me)
+    coll.objects.link(ob)
+    log(f"arbres: {len(X):,} sur {n0:,} (visibles, à moins de {CFG['tree_dist']:.0f} m), {nf:,} triangles")
     return ob
 
 
@@ -1328,7 +1430,7 @@ def parse_args():
     ap.add_argument("--bench", action="store_true"); ap.add_argument("--bench-scale", type=float)
     ap.add_argument("--bench-no-warm", action="store_true"); ap.add_argument("--persistent", action="store_true")
     ap.add_argument("--matiere")
-    ap.add_argument("--no-buildings", action="store_true"); ap.add_argument("--env-only", action="store_true"); ap.add_argument("--lite", action="store_true")
+    ap.add_argument("--no-buildings", action="store_true"); ap.add_argument("--no-trees", action="store_true"); ap.add_argument("--tree-dist", type=float); ap.add_argument("--env-only", action="store_true"); ap.add_argument("--lite", action="store_true")
     ap.add_argument("--cull", action="store_true"); ap.add_argument("--no-hires", action="store_true")
     ap.add_argument("--env-dir"); ap.add_argument("--clip", action="store_true")
     ap.add_argument("--clip-seconds", type=float); ap.add_argument("--clip-every", type=int)
@@ -1340,7 +1442,7 @@ def parse_args():
         if k == "mono":
             if v:
                 CFG["stereo"] = False
-        elif k in ("no_env", "camera_confirmed", "accept_lowres", "bench", "bench_no_warm", "persistent", "clip", "clip_no_keys", "clip_no_video", "cull", "no_hires", "env_only", "lite", "no_buildings"):
+        elif k in ("no_env", "camera_confirmed", "accept_lowres", "bench", "bench_no_warm", "persistent", "clip", "clip_no_keys", "clip_no_video", "cull", "no_hires", "env_only", "lite", "no_buildings", "no_trees"):
             if v:
                 CFG[k] = True
         elif v is not None and v is not False:
@@ -1451,6 +1553,8 @@ def main():
         build_env_terrain(env, (cp.x, cp.y), coll, build_terrain_material(env))
         if not CFG["no_buildings"]:
             build_buildings(env, coll)
+        if not CFG["no_trees"]:
+            build_trees(env, coll, scene.camera.location)
     setup_render(scene, out_dir)
     prepare_viewports(center)
     if not bpy.app.background:  # l'interface n'est pas encore prête au démarrage: on recadre un peu après
