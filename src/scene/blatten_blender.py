@@ -95,6 +95,9 @@ CFG = dict(
     no_buildings=False,     # ne place pas les bâtiments 3D (python blatten.py prep-batiments les prépare)
     no_water=False,         # pas de rivière animée (python blatten.py prep-eau la prépare)
     no_trees=False,         # ne place pas les arbres (python blatten.py prep-vegetation les prépare)
+    wind=True,              # léger balancement des arbres proches (--no-wind pour le couper)
+    wind_dist=700.0,        # distance (m) jusqu'à laquelle les arbres bougent (au-delà, imperceptible)
+    tree_ortho=0.5,         # part de la couleur de l'image aérienne dans la couleur des arbres (0 = couleurs d'essence seules)
     tree_dist=4700.0,       # distance maximale des arbres modélisés (m); au-delà l'image aérienne suffit
     no_hires=False,         # ignore le relief 0,5 m et les images locales (comparaison / test mémoire)
     env_dir=None,           # dossier contenant env/ (défaut: celui des particules). Sert au test-clip
@@ -623,7 +626,7 @@ def _arrivee(env, E, N, pas=3.0):
     return out
 
 
-def _objet_triangles(nom, co, tri, mats, mat_index=None, attrs=None):
+def _objet_triangles(nom, co, tri, mats, mat_index=None, attrs=None, lisse=False, scalaires=None):
     me = bpy.data.meshes.new(nom)
     nv, nf = len(co), len(tri)
     me.vertices.add(nv)
@@ -637,7 +640,7 @@ def _objet_triangles(nom, co, tri, mats, mat_index=None, attrs=None):
     except Exception:
         pass
     try:
-        me.polygons.foreach_set("use_smooth", np.zeros(nf, bool))      # facettes plates: les fenêtres lisent la normale de la face
+        me.polygons.foreach_set("use_smooth", np.full(nf, bool(lisse)))      # facettes plates par défaut (les fenêtres lisent la normale de la face); lisse pour la végétation
     except Exception:
         pass
     me.update(calc_edges=True)
@@ -648,7 +651,59 @@ def _objet_triangles(nom, co, tri, mats, mat_index=None, attrs=None):
     for nm, rgb in (attrs or {}).items():     # couleurs par sommet (linéaires)
         ca = me.color_attributes.new(nm, "FLOAT_COLOR", "POINT")
         ca.data.foreach_set("color", np.concatenate([rgb, np.ones((len(rgb), 1), np.float32)], 1).astype(np.float32).ravel())
+    for nm, v in (scalaires or {}).items():
+        fa = me.attributes.new(nm, "FLOAT", "POINT")
+        fa.data.foreach_set("value", np.asarray(v, np.float32).ravel())
     return bpy.data.objects.new(nom, me)
+
+
+def _vent_modifier(ob):
+    """Léger balancement des arbres: décalage horizontal par un bruit 4D (espace + temps), proportionnel à l'attribut "vent"
+    (nul au pied, maximal en cime). Calculé à chaque image par les nœuds de géométrie, donc dans la vidéo."""
+    ng = bpy.data.node_groups.get("Vent")
+    if ng is None:
+        ng = bpy.data.node_groups.new("Vent", "GeometryNodeTree")
+        ng.interface.new_socket("Geometry", in_out="INPUT", socket_type="NodeSocketGeometry")
+        ng.interface.new_socket("Geometry", in_out="OUTPUT", socket_type="NodeSocketGeometry")
+        N, L = ng.nodes, ng.links
+        gi, go = N.new("NodeGroupInput"), N.new("NodeGroupOutput")
+        sp = N.new("GeometryNodeSetPosition")
+        pos = N.new("GeometryNodeInputPosition")
+        tm = N.new("GeometryNodeInputSceneTime")
+        na = N.new("GeometryNodeInputNamedAttribute")
+        na.data_type = "FLOAT"
+        na.inputs["Name"].default_value = "vent"
+        vs = N.new("ShaderNodeVectorMath")
+        vs.operation = "SCALE"
+        vs.inputs["Scale"].default_value = 0.035                 # longueur d'onde ~ 30 m: les voisins bougent ensemble
+        L.new(pos.outputs["Position"], vs.inputs[0])
+        wt = N.new("ShaderNodeMath")
+        wt.operation = "MULTIPLY"
+        wt.inputs[1].default_value = 0.45                        # vitesse de variation du vent
+        L.new(tm.outputs["Seconds"], wt.inputs[0])
+        nz = N.new("ShaderNodeTexNoise")
+        nz.noise_dimensions = "4D"
+        nz.inputs["Scale"].default_value = 1.0
+        nz.inputs["Detail"].default_value = 1.0
+        L.new(vs.outputs["Vector"], nz.inputs["Vector"])
+        L.new(wt.outputs["Value"], nz.inputs["W"])
+        c = N.new("ShaderNodeVectorMath")
+        c.operation = "SUBTRACT"
+        c.inputs[1].default_value = (0.5, 0.5, 0.5)
+        L.new(nz.outputs["Color"], c.inputs[0])
+        z = N.new("ShaderNodeVectorMath")
+        z.operation = "MULTIPLY"
+        z.inputs[1].default_value = (2.0, 2.0, 0.3)
+        L.new(c.outputs["Vector"], z.inputs[0])
+        k = N.new("ShaderNodeVectorMath")
+        k.operation = "SCALE"
+        L.new(z.outputs["Vector"], k.inputs[0])
+        L.new(na.outputs["Attribute"], k.inputs["Scale"])
+        L.new(gi.outputs[0], sp.inputs["Geometry"])
+        L.new(k.outputs["Vector"], sp.inputs["Offset"])
+        L.new(sp.outputs["Geometry"], go.inputs[0])
+    md = ob.modifiers.new("Vent", "NODES")
+    md.node_group = ng
 
 
 def _echantillon_ortho(env, E, N):
@@ -1026,12 +1081,17 @@ def build_trees(env, coll, cam):
     nv_var = 5
     yaw = rng.uniform(0, 2 * np.pi, len(X))
     var = rng.integers(0, nv_var, len(X))
-    taille = rng.uniform(0.9, 1.1, len(X))
-    Hh = Hh * taille
-    R = R * rng.uniform(0.85, 1.15, len(X))
+    R = R * rng.uniform(0.9, 1.1, len(X))      # hauteurs: celles du relevé laser, sans variation
     Z = Z + np.maximum(0.0, R * pente * 0.9 - 0.12 * Hh) - 0.10     # sur forte pente, la couronne amont ne rentre pas dans le sol
     lod = np.where(d < 120.0, 0, np.where(d < 500.0, 1, 2))
-    tone = rng.uniform(0.82, 1.18, len(X))
+    tone = rng.uniform(0.85, 1.15, len(X))
+    # couleur de la cime lue dans l'image aérienne (ombres et teintes locales comprises): les arbres s'accordent ainsi au reste
+    oc = _echantillon_ortho(env, E, N)
+    ok_oc = np.isfinite(oc[:, 0])
+    oc = np.where(ok_oc[:, None], oc, 0.0).astype(np.float64)
+    oc = np.where(oc <= 0.04045, oc / 12.92, ((oc + 0.055) / 1.055) ** 2.4)                 # sRGB -> linéaire
+    w_oc = np.where(ok_oc, CFG["tree_ortho"], 0.0)
+    near = d < CFG["wind_dist"]
     protos = {(e, l, v): _proto_arbre(e, l, np.random.default_rng(1000 * e + 100 * l + v)) for e in range(5) for l in range(3) for v in range(nv_var)}
     mt = bpy.data.materials.new("Arbre")
     mt.use_nodes = True
@@ -1043,9 +1103,12 @@ def build_trees(env, coll, cam):
     nt_.links.new(at.outputs["Color"], b.inputs["Base Color"])
     ta = _arrivee(env, E, N)
     ob0, nf, nsw = None, 0, 0
-    for g in np.unique(ta):
-        gsel = ta == g
-        co_all, tri_all, col_all = [], [], []
+    groupes = [(g, zn) for g in np.unique(ta) for zn in ((0, 1) if CFG["wind"] else (0,))]
+    for g, zn in groupes:
+        gsel = (ta == g) & (near == bool(zn))
+        if not gsel.any():
+            continue
+        co_all, tri_all, col_all, vent_all = [], [], [], []
         off = 0
         for (e, l, v), (PV, PT, ntr) in protos.items():
             sel = (sp == e) & (lod == l) & (var == v) & gsel
@@ -1061,9 +1124,14 @@ def build_trees(env, coll, cam):
             tri = (PT[None, :, :] + (np.arange(nt) * k + off)[:, None, None]).reshape(-1, 3)
             gg = np.clip(PV[:, 2], 0, 1)
             shade = (0.55 + 0.45 * gg)[None, :, None]                     # bas de la couronne plus sombre
-            base = np.broadcast_to(COULEURS_ARBRES[e][None, None, :], (nt, k, 3)) * shade * tone[sel][:, None, None]
-            base = base.copy()
+            esp = np.broadcast_to(COULEURS_ARBRES[e][None, None, :], (nt, k, 3)) * shade * tone[sel][:, None, None]
+            cim = oc[sel][:, None, :] * (0.55 + 0.45 * gg)[None, :, None] * tone[sel][:, None, None]
+            wc = w_oc[sel][:, None, None]
+            base = ((1.0 - wc) * esp + wc * cim).copy()
             base[:, ntr:, :] = COULEUR_TRONC[None, None, :]
+            vent = (0.022 * Hh[sel][:, None]) * (gg ** 2)[None, :]                     # amplitude du balancement (m) en cime
+            vent[:, ntr:] = 0.0
+            vent_all.append(vent.reshape(-1))
             co_all.append(co.reshape(-1, 3))
             tri_all.append(tri)
             col_all.append(base.reshape(-1, 3))
@@ -1071,14 +1139,17 @@ def build_trees(env, coll, cam):
         co = np.concatenate(co_all).astype(np.float32)
         tri = np.concatenate(tri_all).astype(np.int32)
         col = np.concatenate(col_all).astype(np.float32)
-        ob = _objet_triangles("Arbres" if not np.isfinite(g) else f"Arbres_t{g:g}", co, tri, [mt])
+        ob = _objet_triangles(("Arbres" if not np.isfinite(g) else f"Arbres_t{g:g}") + ("_v" if zn else ""), co, tri, [mt], lisse=True,
+                              scalaires={"vent": np.concatenate(vent_all)} if zn else None)
+        if zn:
+            _vent_modifier(ob)
         ca = ob.data.color_attributes.new("col", "FLOAT_COLOR", "POINT")
         ca.data.foreach_set("color", np.concatenate([col, np.ones((len(co), 1), np.float32)], 1).ravel())
         coll.objects.link(ob)
         if np.isfinite(g):
             ENSEV.append((float(g), ob))
             nsw += int(gsel.sum())
-        elif ob0 is None:
+        elif ob0 is None or not zn:
             ob0 = ob
         ob0 = ob0 or ob
         nf += len(tri)
@@ -1467,21 +1538,23 @@ def build_terrain_material(env=None):
         L.new(cmp_.outputs["Vector"], ct.inputs["Vector"])
         csep = N.new("ShaderNodeSeparateColor")
         L.new(ct.outputs["Color"], csep.inputs["Color"])
-        under = mrange(csep.outputs["Red"], 0.25, 0.75, 0.0, 0.9)
-        sol = mix(n_mid, (0.020, 0.024, 0.013, 1), (0.040, 0.040, 0.024, 1))      # litière d'aiguilles, mousses
-        col = mix(under, col, sol)
-    # pentes raides: l'image projetée à la verticale s'étire en stries; on la fond vers une roche striée, teintée par l'image
-    w_steep = mrange(nor.outputs["Z"], 0.62, 0.38, 0.0, 0.85)
-    half = math("ADD", 0.0, 0.5)
-    rock_t = mix(half, rock, col)
-    st_f = math("ADD", 0.65, math("MULTIPLY", strata.outputs["Fac"], 0.7))
+        under = mrange(csep.outputs["Red"], 0.25, 0.75, 0.0, 0.35)
+        sol = N.new("ShaderNodeMix")
+        sol.data_type, sol.blend_type = "RGBA", "MULTIPLY"
+        sol.inputs[0].default_value = 1.0
+        L.new(col, sol.inputs[6])
+        sol.inputs[7].default_value = (0.62, 0.64, 0.58, 1)      # assombrit sans changer la teinte
+        col = mix(under, col, sol.outputs[2])
+    # pentes raides: l'image projetée à la verticale s'étire en stries; on y ajoute des strates (multiplicatives) qui gardent les couleurs de l'image
+    w_steep = mrange(nor.outputs["Z"], 0.62, 0.38, 0.0, 0.6)
+    st_f = math("ADD", 0.75, math("MULTIPLY", strata.outputs["Fac"], 0.5))
     st_c = N.new("ShaderNodeCombineColor")
     for ch in ("Red", "Green", "Blue"):
         L.new(st_f, st_c.inputs[ch])
     st_m = N.new("ShaderNodeMix")
     st_m.data_type, st_m.blend_type = "RGBA", "MULTIPLY"
     st_m.inputs[0].default_value = 1.0
-    L.new(rock_t, st_m.inputs[6])
+    L.new(col, st_m.inputs[6])
     L.new(st_c.outputs["Color"], st_m.inputs[7])
     col = mix(w_steep, col, st_m.outputs[2])
     if D > 0:  # détail ajouté à l'image de 2 m, estompé avec la distance (invisible au-delà de quelques km)
@@ -1987,7 +2060,7 @@ def parse_args():
     ap.add_argument("--bench", action="store_true"); ap.add_argument("--bench-scale", type=float)
     ap.add_argument("--bench-no-warm", action="store_true"); ap.add_argument("--persistent", action="store_true")
     ap.add_argument("--matiere")
-    ap.add_argument("--no-buildings", action="store_true"); ap.add_argument("--no-trees", action="store_true"); ap.add_argument("--no-water", action="store_true"); ap.add_argument("--tree-dist", type=float); ap.add_argument("--env-only", action="store_true"); ap.add_argument("--lite", action="store_true")
+    ap.add_argument("--no-buildings", action="store_true"); ap.add_argument("--no-trees", action="store_true"); ap.add_argument("--no-water", action="store_true"); ap.add_argument("--no-wind", action="store_true"); ap.add_argument("--tree-ortho", type=float); ap.add_argument("--tree-dist", type=float); ap.add_argument("--env-only", action="store_true"); ap.add_argument("--lite", action="store_true")
     ap.add_argument("--cull", action="store_true"); ap.add_argument("--no-hires", action="store_true")
     ap.add_argument("--env-dir"); ap.add_argument("--clip", action="store_true")
     ap.add_argument("--clip-seconds", type=float); ap.add_argument("--clip-every", type=int)
@@ -1999,6 +2072,9 @@ def parse_args():
         if k == "mono":
             if v:
                 CFG["stereo"] = False
+        elif k == "no_wind":
+            if v:
+                CFG["wind"] = False
         elif k in ("no_env", "camera_confirmed", "accept_lowres", "bench", "bench_no_warm", "persistent", "clip", "clip_no_keys", "clip_no_video", "cull", "no_hires", "env_only", "lite", "no_buildings", "no_trees", "no_water"):
             if v:
                 CFG[k] = True

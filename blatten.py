@@ -305,9 +305,17 @@ def _stac_tuiles(coll, bbox, max_year, cle_res):
             y, k = int(m.group(1)), m.group(2)
             if y > max_year:
                 continue
-            for nom, a in (it.get("assets") or {}).items():
+            ass = it.get("assets") or {}
+            trouve = False
+            for nom, a in ass.items():
                 if cle_res in nom and nom.endswith(".tif") and (k not in best or y > best[k][1]):
                     best[k] = (a["href"], y)
+                    trouve = True
+            if not trouve and cle_res != "_0.5_":
+                # la résolution demandée n'est pas listée: même dalle, nom déduit de la version 0,5 m (même dossier swisstopo)
+                for nom, a in ass.items():
+                    if "_0.5_" in nom and nom.endswith(".tif") and (k not in best or y > best[k][1]):
+                        best[k] = (a["href"].replace("_0.5_", cle_res), y)
         url = next((l["href"] for l in data.get("links", []) if l.get("rel") == "next"), None)
     return best
 
@@ -351,6 +359,8 @@ def _download_canopee(cfg, paths, max_year, dry, workers):
         todo2 = [(u, os.path.join(dest2, os.path.basename(u))) for u, _y in sorted(t2.values())]
         todo2 = [(u, f) for u, f in todo2 if not os.path.exists(f)]
         print(f"=== modèle de surface 2 m (arbres lointains, rayon {ray:.0f} m): {len(t2)} dalles, {len(t2) - len(todo2)} déjà présentes, {len(todo2)} à télécharger ===")
+        if not t2:
+            print("!! le catalogue ne renvoie aucune dalle 2 m: les arbres lointains manqueront (relancer; sinon prévenir).")
         todo += todo2
     except Exception as e:
         print(f"!! dalles 2 m non récupérées ({e}); les arbres resteront limités à l'emprise 0,5 m.")

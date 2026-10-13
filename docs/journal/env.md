@@ -27,3 +27,10 @@
 - `visible` calcule le masque sur chaque niveau (0,5 / 2 / 8 m), depuis une caméra relevée de 4 m (`--leve`), avec tolérance verticale 5 m (`--tol`) et marge 12 m.
 - Test cloud: `--no-hires --cull` donne la même image que sans coupe (0 pixel de différence). Le masque doit être calculé avec les mêmes niveaux que la scène (`visible --no-hires` si la scène est lancée avec `--no-hires`).
 - Non validé: cas haute résolution (le test cloud dépasse 8 Go de mémoire). À vérifier sur le PC d'Ilyas: image `--cull` identique à l'image sans `--cull`.
+
+## 2026-10-13 (soir) retour visuel d'Ilyas sur la végétation
+- Constat: dalles 2 m absentes sur le PC (dossier vide) donc aucun arbre hors de l'emprise 0,5 m = effet de vide. Le téléchargement déduit maintenant le nom 2 m depuis la dalle 0,5 m si le catalogue ne la liste pas, et signale l'absence.
+- Retiré: amincissement et agrandissement des couronnes avec la distance (tout à taille réelle). Hauteurs = relevé laser sans variation aléatoire.
+- Terrain: plus de fonte vers une roche grise sur les pentes (strates multiplicatives qui gardent l'ortho); sous canopée, simple assombrissement (x0,62) sans changer la teinte, effet plafonné à 0,35.
+- Arbres: ombrage lisse, couleur = 50 % essence + 50 % cime lue dans l'ortho (`tree_ortho`), balancement léger par nœuds de géométrie (`wind`, `wind_dist` 700 m, ~0,3 m en cime, `--no-wind`).
+- Reste: modèles d'arbres plus réalistes (décision à prendre), ombres visibles seulement en vue Rendu, empreinte du dépôt sur la série complète.

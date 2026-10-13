@@ -6,8 +6,8 @@ Hauteur de canopée = surface - relief 0,5 m. Les bâtiments (prep-batiments) so
 par un critère de peuplement (un arbre isolé doit dépasser 7 m). L'essence vient du taux de mélange des forêts de l'OFEV
 (swisstopo/waldmischungsgrad, 10 m: part de feuillus) et de l'altitude (épicéa, mélèze, pin cembro).
 Au-delà de l'emprise 0,5 m, jusqu'à --rayon (4600 m) autour de la caméra, les arbres viennent du modèle de surface à 2 m
-(swisstopo/swisssurface3d_raster_2m, menu 21), moins précis (peuplements plutôt qu'arbres isolés), puis amincis avec la distance
-(couronnes agrandies pour garder la couverture) afin de rester dans le budget de la carte graphique.
+(swisstopo/swisssurface3d_raster_2m, menu 21), moins précis (peuplements plutôt qu'arbres isolés).
+Tous les arbres gardent leur taille réelle, quelle que soit la distance (seul le détail du maillage baisse, côté scène).
 Écrit <cache>/env/vegetation.npz et l'entrée "vegetation" de env_meta.json.
 
 Utilisation (via blatten.py):  python blatten.py prep-vegetation [--hmin 3]
@@ -363,28 +363,19 @@ def main():
         log("pas de zone lointaine (modèle de surface 2 m absent: menu 21, ou --rayon 0)")
 
     E, N, h, zg, pente, pf = [np.concatenate([z[k] for z in zones]) for k in range(6)]
-    # amincissement avec la distance (budget): on garde une part des arbres et on agrandit les couronnes restantes
+    # toutes les couronnes gardent leur taille réelle (pas d'amincissement ni d'agrandissement avec la distance)
     rng = np.random.default_rng(11)
-    d = np.hypot(E - Ec, N - Nc)
-    garde = np.interp(d, [1500.0, 3000.0, max(a.rayon, 3001.0)], [1.0, 0.5, 0.3])
-    ok = rng.random(len(h)) < garde
-    agr = (1.0 / np.sqrt(garde)).astype(np.float32)
-    E, N, h, zg, pente, pf, agr = E[ok], N[ok], h[ok], zg[ok], pente[ok], pf[ok], agr[ok]
-    log(f"amincissement avec la distance: {ok.sum():,} arbres gardés sur {len(ok):,}")
     defaut = np.interp(zg, [1500, 1800], [0.20, 0.04])
     pf = np.where(pf >= 0, pf, defaut)
     sp = choisir_essences(zg, h, pf, rng)
     coef = np.array([[0.15, 0.5, 4.5], [0.18, 0.7, 4.5], [0.24, 0.8, 5.0], [0.28, 1.0, 6.0]], np.float32)   # a*h + b, plafond
-    r = (np.minimum(coef[sp, 0] * h + coef[sp, 1], coef[sp, 2]) * agr).astype(np.float32)
+    r = np.minimum(coef[sp, 0] * h + coef[sp, 1], coef[sp, 2]).astype(np.float32)
     if arb is not None and len(arb[0]):
         Es, Ns, hs, zs, ps = arb
-        gs = np.interp(np.hypot(Es - Ec, Ns - Nc), [1000.0, 2500.0], [1.0, 0.3])      # arbustes: seulement l'avant-plan, amincis ensuite
-        oks = rng.random(len(hs)) < gs
-        if oks.sum() > 400000:                                                             # plafond du budget
-            gs = gs * 400000.0 / oks.sum()
-            oks = rng.random(len(hs)) < gs
-        Es, Ns, hs, zs, ps, gs = Es[oks], Ns[oks], hs[oks], zs[oks], ps[oks], gs[oks]
-        rs = np.minimum(0.55 * hs + 0.5, 2.2).astype(np.float32) / np.sqrt(gs).astype(np.float32)
+        if len(hs) > 600000:                                                               # plafond du budget: tirage au hasard, rayons inchangés
+            oks = rng.random(len(hs)) < 600000.0 / len(hs)
+            Es, Ns, hs, zs, ps = Es[oks], Ns[oks], hs[oks], zs[oks], ps[oks]
+        rs = np.minimum(0.55 * hs + 0.5, 2.2).astype(np.float32)
         E, N, h, zg, pente = (np.concatenate([u, v]) for u, v in ((E, Es), (N, Ns), (h, hs), (zg, zs), (pente, ps)))
         sp = np.concatenate([sp, np.full(len(hs), 4, np.int8)])
         r = np.concatenate([r, rs])
