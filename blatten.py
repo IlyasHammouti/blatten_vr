@@ -475,6 +475,40 @@ def cmd_lite(cfg, paths, extra):
     return rc
 
 
+def cmd_env_complet(cfg, paths, extra):
+    """UN SEUL CLIC: canopée, arbres, image test de l'environnement seul, puis ouverture dans la visionneuse 360.
+    Une étape qui échoue n'arrête pas les suivantes (le bilan final dit ce qui a marché)."""
+    etapes = [
+        ("Télécharger la canopée", lambda: cmd_download(cfg, paths, ["--jeux", "canopee"])),
+        ("Préparer les arbres", lambda: cmd_prep_vegetation(cfg, paths, [])),
+        ("Image test de l'environnement seul", lambda: cmd_test360(cfg, paths, ["--mono", "--env-only", "--cull", "--out", "render/env_seul"])),
+    ]
+    bilan = []
+    for i, (nom, f) in enumerate(etapes, 1):
+        print(f"\n==================== {i}/{len(etapes)} : {nom} ====================", flush=True)
+        try:
+            rc = f()
+            ok = not rc
+        except SystemExit as e:
+            print(f"!! {e}")
+            ok = False
+        except Exception:
+            traceback.print_exc()
+            ok = False
+        bilan.append((nom, ok))
+    print("\n==================== BILAN ====================")
+    for nom, ok in bilan:
+        print(("  OK      " if ok else "  ECHEC   ") + nom)
+    if not all(ok for _n, ok in bilan):
+        print("\nCopie-moi les lignes marquées '!!' ou l'erreur au-dessus de l'étape en échec.")
+    try:
+        print("\nOuverture de l'image dans la visionneuse 360 ...")
+        cmd_voir360(cfg, paths, ["render/env_seul/frame_0001.png"])
+    except Exception:
+        pass
+    return 0
+
+
 def cmd_open(cfg, paths, extra):
     return run_blender(cfg, SCRIPTS["scene"], scene_args(cfg, paths) + ["--save"] + extra, background=False)
 
@@ -657,6 +691,7 @@ MENU = [
     ("test360", "Image test de l'ENVIRONNEMENT SEUL (sans aléa, avec bâtiments), mono", ["--mono", "--env-only", "--cull", "--out", "render/env_seul"]),
     ("download", "Télécharger la CANOPEE (hauteur de la végétation, pour les arbres)", ["--jeux", "canopee"]),
     ("prep-vegetation", "Préparer les ARBRES (après le téléchargement de la canopée)", []),
+    ("env-complet", "UN SEUL CLIC: canopée + arbres + image test de l'environnement seul, puis visionneuse", []),
     ("test-clip", "Test grandeur nature: 3 s de l'événement dans l'environnement (plusieurs heures)", []),
 ]
 
@@ -692,7 +727,7 @@ def cmd_menu(cfg, paths, extra):
 
 
 COMMANDS = {
-    "status": cmd_status, "setup": cmd_setup, "download": cmd_download, "prep-env": cmd_prep_env, "prep-batiments": cmd_prep_batiments, "prep-vegetation": cmd_prep_vegetation, "visible": cmd_visible,
+    "status": cmd_status, "setup": cmd_setup, "download": cmd_download, "prep-env": cmd_prep_env, "prep-batiments": cmd_prep_batiments, "prep-vegetation": cmd_prep_vegetation, "env-complet": cmd_env_complet, "visible": cmd_visible,
     "prep-particules": cmd_prep_particules, "terrain": cmd_terrain, "views": cmd_views, "test360": cmd_test360,
     "valider-env": cmd_valider_env, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
 }
