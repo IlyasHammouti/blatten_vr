@@ -677,24 +677,13 @@ def _echantillon_ortho(env, E, N):
     return out
 
 
-def _materiau_mur():
-    """Façade: couleur par bâtiment (attribut 'mur') et fenêtres sombres en grille (étages ~2,9 m, travées ~3,2 m) calculées sur la position."""
-    mt = bpy.data.materials.new("Mur")
-    mt.use_nodes = True
-    nt = mt.node_tree
-    b = nt.nodes["Principled BSDF"]
-    b.inputs["Roughness"].default_value = 0.85
-    N_ = nt.nodes
-    L = nt.links
-
-    def nod(tp, **kw):
-        n = N_.new(tp)
-        for k, v in kw.items():
-            setattr(n, k, v)
-        return n
+def _noeuds_outils(nt):
+    """Petits constructeurs de noeuds (maths, choix par classe) pour les matériaux procéduraux."""
+    N_, L = nt.nodes, nt.links
 
     def mth(op, a=None, b_=None, clamp=False):
-        n = nod("ShaderNodeMath", operation=op)
+        n = N_.new("ShaderNodeMath")
+        n.operation = op
         n.use_clamp = clamp
         for idx, v in ((0, a), (1, b_)):
             if v is None:
@@ -704,36 +693,118 @@ def _materiau_mur():
             else:
                 L.new(v, n.inputs[idx])
         return n.outputs[0]
-    geo = nod("ShaderNodeNewGeometry")
-    sep_p = nod("ShaderNodeSeparateXYZ"); L.new(geo.outputs["Position"], sep_p.inputs[0])
-    sep_n = nod("ShaderNodeSeparateXYZ"); L.new(geo.outputs["Normal"], sep_n.inputs[0])
+
+    def choix(cls, valeurs):
+        """valeurs[i] quand cls == i (cls: sortie de noeud, valeurs: nombres)."""
+        tot = None
+        for i, v in enumerate(valeurs):
+            near = mth("LESS_THAN", mth("ABSOLUTE", mth("SUBTRACT", cls, float(i))), 0.5)
+            t = mth("MULTIPLY", near, float(v))
+            tot = t if tot is None else mth("ADD", tot, t)
+        return tot
+    return N_, L, mth, choix
+
+
+def _brique(N_, L, vec, largeur, hauteur, mortier, c1, c2, cm, decal=0.5, echelle=1.0):
+    """Noeud Brick (motif de dalles, planches, rondins...) piloté par des sorties de noeuds ou des nombres. Rend la sortie Couleur."""
+    br = N_.new("ShaderNodeTexBrick")
+    br.offset = decal
+    br.offset_frequency = 2
+    br.squash = 1.0
+    br.inputs["Color1"].default_value = c1
+    br.inputs["Color2"].default_value = c2
+    br.inputs["Mortar"].default_value = cm
+    br.inputs["Scale"].default_value = echelle
+    br.inputs["Mortar Smooth"].default_value = 0.1
+    L.new(vec, br.inputs["Vector"])
+    for nom, v in (("Brick Width", largeur), ("Row Height", hauteur), ("Mortar Size", mortier)):
+        if isinstance(v, (int, float)):
+            br.inputs[nom].default_value = v
+        else:
+            L.new(v, br.inputs[nom])
+    return br.outputs["Color"]
+
+
+def _materiau_mur():
+    """Façade procédurale. Attributs par sommet: 'mur' = couleur de base du bâtiment, 'cls' (R) = type: 0 rondins de mélèze (chalet),
+    1 planches verticales (grange), 2 crépi, 3 pierre; (B) = 1 si fenêtres. Fenêtres sombres en grille (étage ~2,9 m, travée ~3,2 m)."""
+    mt = bpy.data.materials.new("Mur")
+    mt.use_nodes = True
+    nt = mt.node_tree
+    b = nt.nodes["Principled BSDF"]
+    b.inputs["Roughness"].default_value = 0.85
+    N_, L, mth, choix = _noeuds_outils(nt)
+    geo = N_.new("ShaderNodeNewGeometry")
+    sp_ = N_.new("ShaderNodeSeparateXYZ"); L.new(geo.outputs["Position"], sp_.inputs[0])
+    sn_ = N_.new("ShaderNodeSeparateXYZ"); L.new(geo.outputs["Normal"], sn_.inputs[0])
+    at_c = N_.new("ShaderNodeAttribute"); at_c.attribute_name, at_c.attribute_type = "cls", "GEOMETRY"
+    cs = N_.new("ShaderNodeSeparateColor"); L.new(at_c.outputs["Color"], cs.inputs[0])
+    wall = cs.outputs["Red"]
     # coordonnée le long de la façade: Position . (-ny, nx, 0)
-    u = mth("ADD", mth("MULTIPLY", sep_p.outputs[0], mth("MULTIPLY", sep_n.outputs[1], -1.0)), mth("MULTIPLY", sep_p.outputs[1], sep_n.outputs[0]))
+    u = mth("ADD", mth("MULTIPLY", sp_.outputs[0], mth("MULTIPLY", sn_.outputs[1], -1.0)), mth("MULTIPLY", sp_.outputs[1], sn_.outputs[0]))
+    z = sp_.outputs[2]
+    vec = N_.new("ShaderNodeCombineXYZ")
+    L.new(u, vec.inputs["X"]); L.new(z, vec.inputs["Y"])
+    # motif: rondins 7 m x 0,19 m, planches 0,24 x 6 m, crépi (uni), pierre 0,5 x 0,3 m
+    gris = (1, 1, 1, 1)
+    pat = _brique(N_, L, vec.outputs["Vector"],
+                  choix(wall, [7.0, 0.24, 6.0, 0.55]), choix(wall, [0.19, 6.0, 6.0, 0.30]), choix(wall, [0.012, 0.010, 0.0, 0.035]),
+                  gris, (0.72, 0.72, 0.72, 1), (0.25, 0.25, 0.25, 1))
+    base = N_.new("ShaderNodeAttribute"); base.attribute_name, base.attribute_type = "mur", "GEOMETRY"
+    mm = N_.new("ShaderNodeMix"); mm.data_type, mm.blend_type = "RGBA", "MULTIPLY"
+    mm.inputs[0].default_value = 1.0
+    L.new(base.outputs["Color"], mm.inputs[6]); L.new(pat, mm.inputs[7])
+    # grain du crépi
+    nz = N_.new("ShaderNodeTexNoise"); nz.inputs["Scale"].default_value = 6.0; nz.inputs["Detail"].default_value = 5.0
+    L.new(geo.outputs["Position"], nz.inputs["Vector"])
+    gm = N_.new("ShaderNodeMix"); gm.data_type, gm.blend_type = "RGBA", "MULTIPLY"
+    gm.inputs[0].default_value = 0.35
+    L.new(mm.outputs[2], gm.inputs[6]); L.new(nz.outputs["Color"], gm.inputs[7])
+    # fenêtres
     fu = mth("FRACT", mth("DIVIDE", u, 3.2))
-    fz = mth("FRACT", mth("DIVIDE", sep_p.outputs[2], 2.9))
-    win = mth("MULTIPLY",
-              mth("MULTIPLY", mth("GREATER_THAN", fu, 0.30), mth("LESS_THAN", fu, 0.62)),
+    fz = mth("FRACT", mth("DIVIDE", z, 2.9))
+    win = mth("MULTIPLY", mth("MULTIPLY", mth("GREATER_THAN", fu, 0.30), mth("LESS_THAN", fu, 0.62)),
               mth("MULTIPLY", mth("GREATER_THAN", fz, 0.40), mth("LESS_THAN", fz, 0.78)))
-    vert = mth("LESS_THAN", mth("ABSOLUTE", sep_n.outputs[2]), 0.4)           # seulement sur les façades verticales
-    win = mth("MULTIPLY", win, vert)
-    at = nod("ShaderNodeAttribute", attribute_name="mur", attribute_type="GEOMETRY")
-    mix = nod("ShaderNodeMix", data_type="RGBA")
-    L.new(win, mix.inputs[0])
-    L.new(at.outputs["Color"], mix.inputs[6])
-    mix.inputs[7].default_value = (0.012, 0.016, 0.022, 1.0)
-    L.new(mix.outputs[2], b.inputs["Base Color"])
+    win = mth("MULTIPLY", win, mth("LESS_THAN", mth("ABSOLUTE", sn_.outputs[2]), 0.4))
+    win = mth("MULTIPLY", win, cs.outputs["Blue"])
+    fm = N_.new("ShaderNodeMix"); fm.data_type = "RGBA"
+    L.new(win, fm.inputs[0]); L.new(gm.outputs[2], fm.inputs[6])
+    fm.inputs[7].default_value = (0.012, 0.016, 0.022, 1.0)
+    L.new(fm.outputs[2], b.inputs["Base Color"])
     return mt
 
 
 def _materiau_toit():
+    """Toit: 'toit' = couleur de base, 'cls' (G) = type: 0 dalles de pierre/ardoise, 1 bardeaux de mélèze, 2 tuiles, 3 tôle à joints debout.
+    Le motif suit la pente: lignes parallèles au faîtage, coordonnée le long de la pente corrigée par la pente."""
     mt = bpy.data.materials.new("Toit")
     mt.use_nodes = True
     nt = mt.node_tree
     b = nt.nodes["Principled BSDF"]
     b.inputs["Roughness"].default_value = 0.8
-    at = nt.nodes.new("ShaderNodeAttribute")
-    at.attribute_name, at.attribute_type = "toit", "GEOMETRY"
-    nt.links.new(at.outputs["Color"], b.inputs["Base Color"])
+    N_, L, mth, choix = _noeuds_outils(nt)
+    geo = N_.new("ShaderNodeNewGeometry")
+    sp_ = N_.new("ShaderNodeSeparateXYZ"); L.new(geo.outputs["Position"], sp_.inputs[0])
+    sn_ = N_.new("ShaderNodeSeparateXYZ"); L.new(geo.outputs["Normal"], sn_.inputs[0])
+    at_c = N_.new("ShaderNodeAttribute"); at_c.attribute_name, at_c.attribute_type = "cls", "GEOMETRY"
+    cs = N_.new("ShaderNodeSeparateColor"); L.new(at_c.outputs["Color"], cs.inputs[0])
+    roof = cs.outputs["Green"]
+    nh = mth("MAXIMUM", mth("SQRT", mth("ADD", mth("MULTIPLY", sn_.outputs[0], sn_.outputs[0]), mth("MULTIPLY", sn_.outputs[1], sn_.outputs[1]))), 0.05)
+    nx_, ny_ = mth("DIVIDE", sn_.outputs[0], nh), mth("DIVIDE", sn_.outputs[1], nh)
+    run = mth("ADD", mth("MULTIPLY", sp_.outputs[0], nx_), mth("MULTIPLY", sp_.outputs[1], ny_))
+    v = mth("DIVIDE", run, mth("MAXIMUM", sn_.outputs[2], 0.35))                       # le long de la pente
+    u = mth("ADD", mth("MULTIPLY", sp_.outputs[0], mth("MULTIPLY", ny_, -1.0)), mth("MULTIPLY", sp_.outputs[1], nx_))   # le long du faîtage
+    vec = N_.new("ShaderNodeCombineXYZ")
+    L.new(u, vec.inputs["X"]); L.new(v, vec.inputs["Y"])
+    # motif: dalles 0,55 x 0,32 m, bardeaux 0,16 x 0,45 m, tuiles 0,25 x 0,40 m, tôle 0,6 m x 40 m (joints parallèles à la pente)
+    pat = _brique(N_, L, vec.outputs["Vector"],
+                  choix(roof, [0.55, 0.16, 0.25, 0.60]), choix(roof, [0.32, 0.45, 0.40, 40.0]), choix(roof, [0.025, 0.012, 0.018, 0.012]),
+                  (1, 1, 1, 1), (0.66, 0.66, 0.66, 1), (0.22, 0.22, 0.22, 1))
+    base = N_.new("ShaderNodeAttribute"); base.attribute_name, base.attribute_type = "toit", "GEOMETRY"
+    mm = N_.new("ShaderNodeMix"); mm.data_type, mm.blend_type = "RGBA", "MULTIPLY"
+    mm.inputs[0].default_value = 1.0
+    L.new(base.outputs["Color"], mm.inputs[6]); L.new(pat, mm.inputs[7])
+    L.new(mm.outputs[2], b.inputs["Base Color"])
     return mt
 
 
@@ -773,6 +844,8 @@ def build_buildings(env, coll):
         vb = np.zeros(len(co), np.int64)
         vb[tri.ravel()] = np.repeat(bid, 3)
         ub, ib = np.unique(vb, return_inverse=True)
+        ub_b = ub
+        rng_b0 = np.random.default_rng(5)
         Ev, Nv = m["scene_E0"] + co[:, 0], m["scene_N0"] + m["flip"] * co[:, 1]
         smp = _echantillon_ortho(env, Ev, Nv)
         roofv = np.zeros(len(co), bool)
@@ -783,12 +856,28 @@ def build_buildings(env, coll):
             if sel_v.any():
                 rc[q] = np.median(smp[sel_v], axis=0)
         rc = np.clip(rc, 0.04, 0.85) ** 2.2                                   # sRGB -> linéaire
-        rng_b = np.random.default_rng(5)
-        pal = np.array([[0.050, 0.030, 0.020], [0.075, 0.045, 0.028], [0.50, 0.46, 0.40], [0.36, 0.32, 0.27], [0.20, 0.19, 0.18]], np.float32)   # bois sombre, bois, crépi clair, beige, pierre
-        pick = rng_b.choice(len(pal), size=len(ub), p=[0.30, 0.25, 0.20, 0.15, 0.10])
-        mc = pal[pick] * rng_b.uniform(0.85, 1.15, (len(ub), 1)).astype(np.float32)
+        # type de toit d'après la couleur vue d'en haut (la classe suffit, pas besoin de recaler l'image): 0 dalles, 1 bardeaux, 2 tuiles, 3 tôle
+        lum = np.sum(rc ** (1 / 2.2) * np.array([0.3, 0.59, 0.11], np.float32), axis=1) if len(rc) else np.zeros(0)
+        rcs = rc ** (1 / 2.2)
+        rouge = (rcs[:, 0] > 1.25 * rcs[:, 1]) & (rcs[:, 0] > 1.3 * rcs[:, 2]) & (lum > 0.22)
+        chaud = (rcs[:, 0] > 1.08 * rcs[:, 2]) & (lum < 0.40)
+        cr = np.where(rouge, 2, np.where(lum > 0.52, 3, np.where(chaud, 1, 0))).astype(np.int64)
+        palt = np.array([[0.050, 0.050, 0.055], [0.075, 0.048, 0.030], [0.30, 0.095, 0.060], [0.24, 0.25, 0.27]], np.float32)
+        tc = palt[cr] * rng_b0.uniform(0.8, 1.2, (len(ub), 1)).astype(np.float32)
+        # façade selon le type de bâtiment (calque swisstopo): 0 rondins, 1 planches, 2 crépi, 3 pierre
+        cal = z["calque"][ub_b] if len(ub_b) else np.zeros(0, int)
+        cw = np.zeros(len(ub), np.int64)
+        u01 = rng_b0.random(len(ub))
+        cw[:] = np.where(u01 < 0.50, 0, np.where(u01 < 0.65, 1, np.where(u01 < 0.90, 2, 3)))
+        cw[cal == 1] = 1                                           # bâtiment ouvert (grange, stadel): planches
+        cw[np.isin(cal, [2, 4, 7, 6])] = 2                         # chapelle, sacré, tour, serre: crépi
+        cw[cal == 5] = 3                                           # grand mur: pierre
+        fen = np.where(np.isin(cal, [1, 5, 6]), 0.0, 1.0)         # pas de fenêtres sur granges, murs, serres
+        palw = np.array([[0.045, 0.028, 0.018], [0.080, 0.050, 0.030], [0.52, 0.48, 0.42], [0.20, 0.19, 0.18]], np.float32)
+        mc = palw[cw] * rng_b0.uniform(0.85, 1.15, (len(ub), 1)).astype(np.float32)
+        cl = np.stack([cw.astype(np.float32), cr.astype(np.float32), fen.astype(np.float32)], 1)
         ob = _objet_triangles("Batiments" if not np.isfinite(g) else f"Batiments_t{g:g}", co, tri, mats, toit,
-                              attrs={"toit": rc[ib], "mur": mc[ib]})
+                              attrs={"toit": tc[ib], "mur": mc[ib], "cls": cl[ib]})
         coll.objects.link(ob)
         if np.isfinite(g):
             ENSEV.append((float(g), ob))
