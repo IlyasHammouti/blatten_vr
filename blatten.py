@@ -353,14 +353,13 @@ def _download_canopee(cfg, paths, max_year, dry, workers):
         Ec, Nc = m_["scene_E0"] + cam[0], m_["scene_N0"] + m_["flip"] * cam[1]
         la0, lo0 = _lv95_to_wgs84(Ec - ray, Nc - ray)
         la1, lo1 = _lv95_to_wgs84(Ec + ray, Nc + ray)
-        dest2 = os.path.join(paths.swisstopo, "swisssurface3d_raster_2m")
-        os.makedirs(dest2, exist_ok=True)
-        t2 = _stac_tuiles("ch.swisstopo.swisssurface3d-raster", (lo0, la0, lo1, la1), max_year, "_2_")
-        todo2 = [(u, os.path.join(dest2, os.path.basename(u))) for u, _y in sorted(t2.values())]
-        todo2 = [(u, f) for u, f in todo2 if not os.path.exists(f)]
-        print(f"=== modèle de surface 2 m (arbres lointains, rayon {ray:.0f} m): {len(t2)} dalles, {len(t2) - len(todo2)} déjà présentes, {len(todo2)} à télécharger ===")
+        # swisstopo ne publie plus le modèle de surface qu'à 0,5 m (les dalles 2 m renvoient 404): on prend le 0,5 m, réduit à 2 m à la lecture
+        t2 = _stac_tuiles("ch.swisstopo.swisssurface3d-raster", (lo0, la0, lo1, la1), max_year, "_0.5_")
+        todo2 = [(u, os.path.join(dest, os.path.basename(u))) for u, _y in sorted(t2.values())]
+        todo2 = [(u, f) for u, f in todo2 if not os.path.exists(f) and (u, f) not in todo]
+        print(f"=== modèle de surface pour les arbres lointains (rayon {ray:.0f} m): {len(t2)} dalles 0,5 m en tout, {len(todo2)} à télécharger en plus (plusieurs Go) ===")
         if not t2:
-            print("!! le catalogue ne renvoie aucune dalle 2 m: les arbres lointains manqueront (relancer; sinon prévenir).")
+            print("!! le catalogue ne renvoie aucune dalle: les arbres lointains manqueront (relancer; sinon prévenir).")
         todo += todo2
     except Exception as e:
         print(f"!! dalles 2 m non récupérées ({e}); les arbres resteront limités à l'emprise 0,5 m.")

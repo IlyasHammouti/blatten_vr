@@ -169,8 +169,18 @@ def mosaique(dossier, x0, y1, W, H, step, max_year, motif_res=None):
             continue
         t, tx0, ty1, ts = lire_dalle(p)
         if abs(ts - step) > 1e-6:
-            log(f"{os.path.basename(p)}: pas {ts} m au lieu de {step} m, ignorée")
-            continue
+            f = step / ts
+            if f < 1.0 or abs(f - round(f)) > 1e-6:
+                log(f"{os.path.basename(p)}: pas {ts} m au lieu de {step} m, ignorée")
+                continue
+            f = int(round(f))
+            # tuile hors de la fenêtre: inutile de la réduire
+            if tx0 + t.shape[1] * ts <= x0 or tx0 >= x0 + W * step or ty1 - t.shape[0] * ts >= y1 or ty1 <= y1 - H * step:
+                continue
+            h_, w_ = t.shape[0] // f * f, t.shape[1] // f * f
+            with np.errstate(all="ignore"):
+                t = np.nanmean(t[:h_, :w_].reshape(h_ // f, f, w_ // f, f), axis=(1, 3)).astype(np.float32)
+            ts = step
         j, i = int(round((tx0 - x0) / step)), int(round((y1 - ty1) / step))
         i0, j0 = max(i, 0), max(j, 0)
         i1, j1 = min(i + t.shape[0], H), min(j + t.shape[1], W)
@@ -329,6 +339,8 @@ def main():
     # ---- zone lointaine 2 m
     d2 = meta.get("dem2")
     dossier2 = os.path.join(a.swisstopo, "swisssurface3d_raster_2m")
+    if not glob.glob(os.path.join(dossier2, "*.tif*")):
+        dossier2 = os.path.join(a.swisstopo, "swisssurface3d_raster_05m")      # dalles 0,5 m réduites à 2 m à la lecture
     if a.rayon > 0 and d2 and glob.glob(os.path.join(dossier2, "*.tif*")):
         s2 = d2["step"]
         gx0, gy1 = d2["x0"], d2["y1"]
