@@ -201,6 +201,8 @@ Toutes ces étapes se lancent depuis le menu (`python blatten.py`). Les données
 | 19 | Préparer les bâtiments 3D (une fois, après le téléchargement HD) |
 | 20 | Image test de l'environnement seul (sans aléa, avec bâtiments et arbres), à regarder avec le 11 |
 | 21 | Télécharger la canopée (hauteur de la végétation), puis |
-| 22 | Préparer les arbres: emprise 0,5 m puis jusqu à 4,6 km avec le modèle de surface 2 m (amincis avec la distance) |
+| 22 | Préparer les arbres: emprise 0,5 m puis jusqu à 4,6 km avec le modèle de surface 2 m (amincis avec la distance), et arbustes en avant-plan |
+| 23 | UN SEUL CLIC: télécharge la canopée, prépare les arbres, calcule l'empreinte de l'aléa (si les particules sont prêtes), recalcule la zone visible avec le couloir protégé, rend l'image test |
+| 25 | Empreinte de l'aléa seule: où passe la matière. Protège ce couloir de la coupe et masque bâtiments et arbres au passage de la matière |
 
 Options de la scène: `--env-only` (sans particules), `--no-buildings`, `--no-trees`, `--tree-dist 2500`.

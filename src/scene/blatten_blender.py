@@ -169,6 +169,16 @@ def to_blender(a):
 
 
 STATE = dict(seq=None, mesh=None, last_t=None)
+ENSEV = []   # (instant d'arrivée de la matière en s de simulation, objet): bâtiments et arbres balayés, masqués ensuite
+
+
+def maj_ensevelis(t):
+    """Masque (rendu et vue) les bâtiments et arbres que la matière a atteints à l'instant t."""
+    for ta, ob in ENSEV:
+        h = bool(t >= ta)
+        if ob.hide_render != h:
+            ob.hide_render = h
+            ob.hide_viewport = h
 
 
 def apply_time(t):
@@ -213,6 +223,7 @@ def load_matiere(root):
 @persistent
 def on_frame(scene, *args):
     t = frame_to_time(scene, scene.frame_current)
+    maj_ensevelis(t)
     if MATIERE["mod"] is not None:
         MATIERE["mod"].update(scene, t, STATE["seq"])
     else:
@@ -593,8 +604,48 @@ def build_env_terrain(env, center, coll, mat):
     return objs
 
 
+def _arrivee(env, E, N, pas=3.0):
+    """Instant (s de simulation) où la matière atteint chaque point (E, N), arrondi par `pas` (regroupement); inf si jamais.
+    Lit alea_empreinte.npz (python blatten.py empreinte-alea). Rend toujours un tableau inf si absent."""
+    out = np.full(len(E), np.inf)
+    f = os.path.join(env["dir"], "alea_empreinte.npz")
+    if not os.path.exists(f) or CFG.get("no_ensevelis"):
+        return out
+    z = np.load(f)
+    tarr, x0, y1, s = z["tarr"], float(z["x0"]), float(z["y1"]), float(z["step"])
+    i = np.floor((E - x0) / s).astype(np.int64)
+    j = np.floor((y1 - N) / s).astype(np.int64)
+    ok = (i >= 0) & (i < tarr.shape[1]) & (j >= 0) & (j < tarr.shape[0])
+    v = np.where(ok, tarr[np.clip(j, 0, tarr.shape[0] - 1), np.clip(i, 0, tarr.shape[1] - 1)], np.nan)
+    good = np.isfinite(v)
+    out[good] = np.floor(np.maximum(v[good] - 0.5, 0.0) / pas) * pas
+    return out
+
+
+def _objet_triangles(nom, co, tri, mats, mat_index=None):
+    me = bpy.data.meshes.new(nom)
+    nv, nf = len(co), len(tri)
+    me.vertices.add(nv)
+    me.vertices.foreach_set("co", co.astype(np.float32).ravel())
+    me.loops.add(nf * 3)
+    me.loops.foreach_set("vertex_index", tri.astype(np.int32).ravel())
+    me.polygons.add(nf)
+    me.polygons.foreach_set("loop_start", np.arange(0, nf * 3, 3, dtype=np.int32))
+    try:
+        me.polygons.foreach_set("loop_total", np.full(nf, 3, np.int32))
+    except Exception:
+        pass
+    me.update(calc_edges=True)
+    for mt in mats:
+        me.materials.append(mt)
+    if mat_index is not None:
+        me.polygons.foreach_set("material_index", mat_index)
+    return bpy.data.objects.new(nom, me)
+
+
 def build_buildings(env, coll):
-    """Bâtiments swissBUILDINGS3D (avant l'événement) préparés par prep-batiments. Avec --cull, seuls ceux de la zone visible."""
+    """Bâtiments swissBUILDINGS3D (avant l'événement) préparés par prep-batiments. Avec --cull, seuls ceux de la zone visible.
+    Ceux que la matière atteindra (empreinte de l'aléa) sont regroupés par instant d'arrivée et masqués à ce moment."""
     m = env["meta"]
     bm = m.get("batiments")
     path = os.path.join(env["dir"], bm["file"]) if bm else None
@@ -603,33 +654,15 @@ def build_buildings(env, coll):
         return None
     z = np.load(path)
     V, T, nt, ctr = z["v"].astype(np.float64), z["t"], z["ntri"], z["centre"].astype(np.float64)
+    Ec_, Nc_ = m["scene_E0"] + ctr[:, 0], m["scene_N0"] + m["flip"] * ctr[:, 1]
     keep = np.ones(len(nt), bool)
     if env.get("vis") and 2.0 in env["vis"]:
-        keep = _vis_at(env["vis"][2.0], m["scene_E0"] + ctr[:, 0], m["scene_N0"] + m["flip"] * ctr[:, 1])
-    ts = np.concatenate([[0], np.cumsum(nt)])
-    sel = np.concatenate([np.arange(ts[k], ts[k + 1]) for k in np.nonzero(keep)[0]]) if keep.any() else np.zeros(0, np.int64)
-    if len(sel) == 0:
+        keep = _vis_at(env["vis"][2.0], Ec_, Nc_)
+    if not keep.any():
         log("bâtiments 3D: aucun dans la zone visible")
         return None
-    tri = T[sel]
-    used, inv = np.unique(tri.ravel(), return_inverse=True)
-    co, tri = V[used], inv.reshape(-1, 3).astype(np.int32)
-    n = np.cross(co[tri[:, 1]] - co[tri[:, 0]], co[tri[:, 2]] - co[tri[:, 0]])
-    n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-9)
-    toit = (np.abs(n[:, 2]) > 0.35).astype(np.int32)     # faces peu verticales = toit
-    me = bpy.data.meshes.new("Batiments")
-    nv, nf = len(co), len(tri)
-    me.vertices.add(nv)
-    me.vertices.foreach_set("co", co.astype(np.float32).ravel())
-    me.loops.add(nf * 3)
-    me.loops.foreach_set("vertex_index", tri.ravel())
-    me.polygons.add(nf)
-    me.polygons.foreach_set("loop_start", np.arange(0, nf * 3, 3, dtype=np.int32))
-    try:
-        me.polygons.foreach_set("loop_total", np.full(nf, 3, np.int32))
-    except Exception:
-        pass
-    me.update(calc_edges=True)
+    ta = _arrivee(env, Ec_, Nc_)
+    ts = np.concatenate([[0], np.cumsum(nt)])
     mats = []
     for nom, col in (("Mur", (0.55, 0.50, 0.43, 1)), ("Toit", (0.20, 0.18, 0.17, 1))):
         mt = bpy.data.materials.new(nom)
@@ -637,16 +670,31 @@ def build_buildings(env, coll):
         b = mt.node_tree.nodes["Principled BSDF"]
         b.inputs["Base Color"].default_value = col
         b.inputs["Roughness"].default_value = 0.85
-        me.materials.append(mt)
-    me.polygons.foreach_set("material_index", toit)
-    ob = bpy.data.objects.new("Batiments", me)
-    coll.objects.link(ob)
-    log(f"bâtiments 3D: {int(keep.sum())} sur {len(nt)} (zone visible), {nf:,} triangles")
-    return ob
+        mats.append(mt)
+    nf_tot, objs, nsw = 0, [], 0
+    for g in np.unique(ta[keep]):
+        kg = keep & (ta == g)
+        sel = np.concatenate([np.arange(ts[k], ts[k + 1]) for k in np.nonzero(kg)[0]])
+        tri = T[sel]
+        used, inv = np.unique(tri.ravel(), return_inverse=True)
+        co, tri = V[used], inv.reshape(-1, 3).astype(np.int32)
+        n = np.cross(co[tri[:, 1]] - co[tri[:, 0]], co[tri[:, 2]] - co[tri[:, 0]])
+        n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-9)
+        toit = (np.abs(n[:, 2]) > 0.35).astype(np.int32)     # faces peu verticales = toit
+        ob = _objet_triangles("Batiments" if not np.isfinite(g) else f"Batiments_t{g:g}", co, tri, mats, toit)
+        coll.objects.link(ob)
+        if np.isfinite(g):
+            ENSEV.append((float(g), ob))
+            nsw += int(kg.sum())
+        nf_tot += len(tri)
+        objs.append(ob)
+    log(f"bâtiments 3D: {int(keep.sum())} sur {len(nt)} (zone visible), {nf_tot:,} triangles"
+        + (f", dont {nsw} sur le passage de la matière (masqués à son arrivée)" if nsw else ""))
+    return objs[0]
 
 
 # couleurs (linéaires) par essence: 0 épicéa, 1 mélèze, 2 pin cembro, 3 feuillus; tronc
-COULEURS_ARBRES = np.array([[0.020, 0.038, 0.020], [0.070, 0.105, 0.028], [0.030, 0.052, 0.024], [0.085, 0.135, 0.034]], np.float32)
+COULEURS_ARBRES = np.array([[0.020, 0.038, 0.020], [0.070, 0.105, 0.028], [0.030, 0.052, 0.024], [0.085, 0.135, 0.034], [0.050, 0.092, 0.030]], np.float32)
 COULEUR_TRONC = np.array([0.050, 0.034, 0.024], np.float32)
 
 
@@ -713,6 +761,9 @@ def _proto_arbre(espece, lod, rng):
             zt = z0 + (1 - z0) * min(1.0, (k + 1.6) / T_)
             rb = ((1 - zb) ** expo) * (1.0 if espece == 0 else 0.92)
             parts.append(_bipyramide(zb, zt, rb, n, 0.18 if lod == 0 else 0.1, rng, zlow, rng.random() * 6.28))
+    elif espece == 4:                         # arbuste (aulne vert): dôme bas, sans tronc
+        V, T = _ellipsoide(0.0, 1.0, (8, 6, 5)[lod], (4, 3, 2)[lod], 0.30, rng, 1.0, 0.40)
+        return V, T, len(V)
     else:                                     # pin cembro (couronne ovoïde, plus haute) et feuillus (couronne arrondie)
         zc0, zc1 = (0.22, 1.0) if espece == 2 else (0.30, 1.0)
         rings = (5, 3, 2)[lod]
@@ -784,48 +835,7 @@ def build_trees(env, coll, cam):
     Z = Z + np.maximum(0.0, R * pente * 0.9 - 0.12 * Hh) - 0.10     # sur forte pente, la couronne amont ne rentre pas dans le sol
     lod = np.where(d < 120.0, 0, np.where(d < 500.0, 1, 2))
     tone = rng.uniform(0.82, 1.18, len(X))
-    protos = {(e, l, v): _proto_arbre(e, l, np.random.default_rng(1000 * e + 100 * l + v)) for e in range(4) for l in range(3) for v in range(nv_var)}
-    co_all, tri_all, col_all = [], [], []
-    off = 0
-    for (e, l, v), (PV, PT, ntr) in protos.items():
-        sel = (sp == e) & (lod == l) & (var == v)
-        if not sel.any():
-            continue
-        nt = int(sel.sum())
-        c, sn = np.cos(yaw[sel])[:, None], np.sin(yaw[sel])[:, None]
-        px = PV[None, :, 0] * R[sel][:, None]
-        py = PV[None, :, 1] * R[sel][:, None]
-        pz = PV[None, :, 2] * Hh[sel][:, None]
-        co = np.stack([X[sel][:, None] + px * c - py * sn, Y[sel][:, None] + px * sn + py * c, Z[sel][:, None] + pz], -1)
-        k = len(PV)
-        tri = (PT[None, :, :] + (np.arange(nt) * k + off)[:, None, None]).reshape(-1, 3)
-        g = np.clip(PV[:, 2], 0, 1)
-        shade = (0.55 + 0.45 * g)[None, :, None]                     # bas de la couronne plus sombre
-        base = np.broadcast_to(COULEURS_ARBRES[e][None, None, :], (nt, k, 3)) * shade * tone[sel][:, None, None]
-        base = base.copy()
-        base[:, ntr:, :] = COULEUR_TRONC[None, None, :]
-        co_all.append(co.reshape(-1, 3))
-        tri_all.append(tri)
-        col_all.append(base.reshape(-1, 3))
-        off += nt * k
-    co = np.concatenate(co_all).astype(np.float32)
-    tri = np.concatenate(tri_all).astype(np.int32)
-    col = np.concatenate(col_all).astype(np.float32)
-    me = bpy.data.meshes.new("Arbres")
-    nv, nf = len(co), len(tri)
-    me.vertices.add(nv)
-    me.vertices.foreach_set("co", co.ravel())
-    me.loops.add(nf * 3)
-    me.loops.foreach_set("vertex_index", tri.ravel())
-    me.polygons.add(nf)
-    me.polygons.foreach_set("loop_start", np.arange(0, nf * 3, 3, dtype=np.int32))
-    try:
-        me.polygons.foreach_set("loop_total", np.full(nf, 3, np.int32))
-    except Exception:
-        pass
-    me.update(calc_edges=True)
-    ca = me.color_attributes.new("col", "FLOAT_COLOR", "POINT")
-    ca.data.foreach_set("color", np.concatenate([col, np.ones((nv, 1), np.float32)], 1).ravel())
+    protos = {(e, l, v): _proto_arbre(e, l, np.random.default_rng(1000 * e + 100 * l + v)) for e in range(5) for l in range(3) for v in range(nv_var)}
     mt = bpy.data.materials.new("Arbre")
     mt.use_nodes = True
     nt_ = mt.node_tree
@@ -834,15 +844,54 @@ def build_trees(env, coll, cam):
     at = nt_.nodes.new("ShaderNodeAttribute")
     at.attribute_name, at.attribute_type = "col", "GEOMETRY"
     nt_.links.new(at.outputs["Color"], b.inputs["Base Color"])
-    me.materials.append(mt)
-    ob = bpy.data.objects.new("Arbres", me)
-    coll.objects.link(ob)
+    ta = _arrivee(env, E, N)
+    ob0, nf, nsw = None, 0, 0
+    for g in np.unique(ta):
+        gsel = ta == g
+        co_all, tri_all, col_all = [], [], []
+        off = 0
+        for (e, l, v), (PV, PT, ntr) in protos.items():
+            sel = (sp == e) & (lod == l) & (var == v) & gsel
+            if not sel.any():
+                continue
+            nt = int(sel.sum())
+            c, sn = np.cos(yaw[sel])[:, None], np.sin(yaw[sel])[:, None]
+            px = PV[None, :, 0] * R[sel][:, None]
+            py = PV[None, :, 1] * R[sel][:, None]
+            pz = PV[None, :, 2] * Hh[sel][:, None]
+            co = np.stack([X[sel][:, None] + px * c - py * sn, Y[sel][:, None] + px * sn + py * c, Z[sel][:, None] + pz], -1)
+            k = len(PV)
+            tri = (PT[None, :, :] + (np.arange(nt) * k + off)[:, None, None]).reshape(-1, 3)
+            gg = np.clip(PV[:, 2], 0, 1)
+            shade = (0.55 + 0.45 * gg)[None, :, None]                     # bas de la couronne plus sombre
+            base = np.broadcast_to(COULEURS_ARBRES[e][None, None, :], (nt, k, 3)) * shade * tone[sel][:, None, None]
+            base = base.copy()
+            base[:, ntr:, :] = COULEUR_TRONC[None, None, :]
+            co_all.append(co.reshape(-1, 3))
+            tri_all.append(tri)
+            col_all.append(base.reshape(-1, 3))
+            off += nt * k
+        co = np.concatenate(co_all).astype(np.float32)
+        tri = np.concatenate(tri_all).astype(np.int32)
+        col = np.concatenate(col_all).astype(np.float32)
+        ob = _objet_triangles("Arbres" if not np.isfinite(g) else f"Arbres_t{g:g}", co, tri, [mt])
+        ca = ob.data.color_attributes.new("col", "FLOAT_COLOR", "POINT")
+        ca.data.foreach_set("color", np.concatenate([col, np.ones((len(co), 1), np.float32)], 1).ravel())
+        coll.objects.link(ob)
+        if np.isfinite(g):
+            ENSEV.append((float(g), ob))
+            nsw += int(gsel.sum())
+        elif ob0 is None:
+            ob0 = ob
+        ob0 = ob0 or ob
+        nf += len(tri)
     nl = [int((lod == i).sum()) for i in range(3)]
     log(f"arbres: {len(X):,} sur {n0:,} (visibles, à moins de {CFG['tree_dist']:.0f} m), {nf:,} triangles "
-        f"(détaillés {nl[0]:,}, moyens {nl[1]:,}, lointains {nl[2]:,})")
+        f"(détaillés {nl[0]:,}, moyens {nl[1]:,}, lointains {nl[2]:,})"
+        + (f", dont {nsw:,} sur le passage de la matière (masqués à son arrivée)" if nsw else ""))
     if nf > 15_000_000:
         log(f"!! {nf:,} triangles d'arbres: risque de dépasser les 6 Go de la carte graphique. Réduire avec --tree-dist 3500 ou relancer prep-vegetation --rayon 3500.")
-    return ob
+    return ob0
 
 
 def lv95_to_wgs84(E, N):

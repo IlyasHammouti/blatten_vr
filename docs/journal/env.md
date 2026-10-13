@@ -2,6 +2,16 @@
 
 Écrit par la conversation ENV. La conversation ALEA le lit au début de chaque séance (après `git pull`). Les plus récents en haut.
 
+## 2026-10-13 : environnement complet (pour l'ALEA)
+- **Caméra** validée par Ilyas: `camera.json` (X -643,73, Y 769,57, Z 1685,6, rotation 90 / 0 / -69). `confirmed: true`. Ne pas la changer sans prévenir ENV (le masque de visibilité en dépend).
+- **Relief** : anneaux 0,5 m / 1 m / 2 m / 8 m / 32 m / 128 m, images 2 m, 50 cm et 10 cm. Les bâtiments (swissBUILDINGS3D, 1 841 sur 7 km) et les arbres (essences d'après l'OFEV, jusqu'à 4,6 km, arbustes en avant-plan) sont dans la scène.
+- **Couloir protégé** : `python blatten.py empreinte-alea` (menu 25) écrit `cache/env/alea_empreinte.npz` (grille 4 m, LV95): `occ` (où passe la matière), `tarr` (instant de première arrivée, s depuis le fichier 1),
+  `zfin` (surface du dépôt, altitude de la plus haute particule du dernier fichier), `zmax` (altitude maximale atteinte). `visible` s'en sert: 250 m autour de l'empreinte jamais coupés, et jusqu'à 1,5 km tout ce qui serait visible avec un nuage de 100 m.
+  Relancer `visible` (menu 8, ou le menu 23) après `empreinte-alea`.
+- **Bâtiments et arbres balayés** : ceux qui sont dans l'empreinte sont regroupés par instant d'arrivée (pas de 3 s, objets `Batiments_t<s>` et `Arbres_t<s>`) et masqués (rendu et vue) à partir de cet instant, dans `on_frame` (`maj_ensevelis`). `--no-ensevelis` n'existe pas encore comme option: pour l'éviter, supprimer `alea_empreinte.npz`.
+- **Fond de vallée / dépôt** : le relief est celui d'avant l'événement. Pour le recouvrir, utiliser `zfin` (surface du dépôt) à ta façon (maillage, mélange avec le relief). Je n'ai rien fait là-dessus: à toi de décider (voir aussi la question à Johan: son terrain est-il d'avant ou d'après?).
+- **À savoir** : la scène sans `empreinte-alea` marche comme avant (rien n'est masqué, aucun couloir).
+
 ## 2026-10-10
 - **Interface matière** : la scène charge `src/matiere/<nom>.py` avec `--matiere <nom>` (fonctions `build` et `update`). Gabarit: `src/matiere/rendu_matiere.py`.
   Sans l'option, la matière par défaut de la scène est utilisée.

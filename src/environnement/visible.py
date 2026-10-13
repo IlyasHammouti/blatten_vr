@@ -18,6 +18,10 @@ Utilisation (via blatten.py, qui lance Blender pour disposer de numpy):
   python blatten.py visible --eye 1.7 --ecrire-camera   idem, et écrit ce Z dans camera.json
   python blatten.py visible --marge 20            marge autour de la zone visible (m, défaut 12)
 
+Couloir protégé de l'aléa: si empreinte-alea a été lancé (alea_empreinte.npz), tout ce qui est à moins de --couloir-marge (250 m)
+de l'empreinte de la matière reste visible, et, jusqu'à --couloir-nuage (1500 m), tout ce qui serait visible si le sol était
+surélevé de --hnuage (100 m): un nuage de poussière passe au-dessus des crêtes qui cachent le sol.
+
 La scène n'utilise ces masques que si on l'y invite (option --cull), pour pouvoir comparer et revenir.
 Limite connue: la végétation et les bâtiments ne sont pas des obstacles ici (c'est le relief nu), donc la
 zone visible est un peu SURESTIMÉE: on ne retire jamais ce qui pourrait se voir.
@@ -154,6 +158,10 @@ def main():
     ap.add_argument("--tol", type=float, default=5.0, help="tolérance verticale (m) sous la ligne d'horizon: une cellule à moins de tol sous elle reste visible")
     ap.add_argument("--no-hires", action="store_true", help="ignorer le relief 0,5 m (à utiliser avec la scène --no-hires)")
     ap.add_argument("--rmax", type=float, help="distance maximale (m); défaut: aucune, jusqu'au bord des données")
+    ap.add_argument("--no-couloir", action="store_true", help="ignorer l'empreinte de l'aléa (alea_empreinte.npz)")
+    ap.add_argument("--couloir-marge", type=float, default=250.0, help="marge (m) toujours gardée autour de l'empreinte de la matière")
+    ap.add_argument("--couloir-nuage", type=float, default=1500.0, help="distance (m) autour de l'empreinte où l'on tient compte de la hauteur du nuage")
+    ap.add_argument("--hnuage", type=float, default=100.0, help="hauteur (m) du nuage de poussière pour la visibilité autour de l'empreinte")
     a = ap.parse_args(argv)
 
     env = os.path.join(a.data, "env")
@@ -200,6 +208,32 @@ def main():
     vs = viewshed_multi(levels, Ec, Nc, zeye + a.leve, a.rmax, a.tol)
     for L, v in zip(levels, vs):
         log(f"  {L['name']}: {v.mean() * 100:.1f} % de sa grille visible ({time.time() - t0:.0f} s)")
+
+    emp = os.path.join(env, "alea_empreinte.npz")
+    if os.path.exists(emp) and not a.no_couloir:
+        z = np.load(emp)
+        occ, gx0, gy1, gs = z["occ"], float(z["x0"]), float(z["y1"]), float(z["step"])
+        t1 = time.time()
+        c_marge = _dilate(occ, max(1, int(round(a.couloir_marge / gs))))
+        c_nuage = _dilate(c_marge, max(1, int(round((a.couloir_nuage - a.couloir_marge) / gs))))
+        log(f"couloir de l'aléa: empreinte {occ.sum() * gs * gs / 1e6:.2f} km2, avec marge {c_marge.sum() * gs * gs / 1e6:.2f} km2, "
+            f"zone nuage {c_nuage.sum() * gs * gs / 1e6:.2f} km2")
+        vn = viewshed_multi(levels, Ec, Nc, zeye + a.leve, a.rmax, max(a.tol, a.hnuage)) if a.hnuage > a.tol else None
+
+        for k, L in enumerate(levels):
+            Hl, Wl = L["D"].shape
+            ii = np.floor((L["x0"] + (np.arange(Wl) + 0.5) * L["step"] - gx0) / gs).astype(np.int64)
+            jj = np.floor((gy1 - (L["y1"] - (np.arange(Hl) + 0.5) * L["step"])) / gs).astype(np.int64)
+            oki, okj = (ii >= 0) & (ii < occ.shape[1]), (jj >= 0) & (jj < occ.shape[0])
+            ii, jj = np.clip(ii, 0, occ.shape[1] - 1), np.clip(jj, 0, occ.shape[0] - 1)
+            m1 = c_marge[np.ix_(jj, ii)] & okj[:, None] & oki[None, :]
+            add = m1
+            if vn is not None:
+                m2 = c_nuage[np.ix_(jj, ii)] & okj[:, None] & oki[None, :]
+                add = add | (m2 & vn[k])
+            nouv = int((add & ~vs[k]).sum())
+            vs[k] = vs[k] | add
+            log(f"  couloir, niveau {L['name']}: {nouv:,} cellules ajoutées sur {int(add.sum()):,} ({time.time() - t1:.0f} s)")
 
     def fill_from(fine, ffine, coarse, cc):
         """Dans la zone couverte par le niveau fin, le masque grossier est le 'ou' des cellules fines qu'il contient."""

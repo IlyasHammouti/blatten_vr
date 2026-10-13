@@ -59,6 +59,14 @@ la signature `build`/`update`, les noms de réglages de `CFG` (scène), `config.
 - Environnement : relief swisstopo en anneaux, image aérienne, ciel couvert, brume, soleil réel si `--sky clair`.
   Il est calé sur la simulation (écart médian 0,69 m). Tu n'as pas à t'en occuper, mais il faut tester la matière **dedans** : une matière jolie sans le terrain ne dit rien.
 
+### Environnement figé (état du 13 octobre 2026)
+
+Caméra confirmée (`camera.json`), relief HD, bâtiments 3D, arbres (jusqu'à 4,6 km) et zone visible sont terminés côté ENV. Ce que ça change pour toi:
+- La scène masque bâtiments et arbres à l'instant où la matière les atteint (`alea_empreinte.npz`, menu 25). Rien à faire de ton côté.
+- `cache/env/alea_empreinte.npz` te donne la surface du dépôt (`zfin`), l'instant d'arrivée (`tarr`) et l'altitude maximale (`zmax`) sur une grille de 4 m (LV95): matière première pour remodeler le fond de vallée (le relief swisstopo est d'avant l'événement).
+- Le relief hors du couloir est coupé s'il n'est pas visible depuis la caméra: ne compte pas dessus pour de la lumière rasante ou des ombres venant de l'arrière-plan caché.
+- Détails dans `docs/journal/env.md` (entrée du 2026-10-13).
+
 ## 5. Faits techniques à connaître
 
 **Repère.** Johan est en Y vertical, Blender en Z vertical : `(x, y, z) -> (x - Ox, -(z - Oz), y - Oy)`, origine

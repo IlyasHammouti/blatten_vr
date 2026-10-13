@@ -197,6 +197,27 @@ def detecter(nd, step, hmin, fin):
     return ii, jj, ns[ii, jj].astype(np.float32), int(cand.sum())
 
 
+def part_verte(meta, env, E, N):
+    """Part de vert G/(R+G+B) de l'image aérienne aux points (E, N): image 0,5 m là où elle existe, sinon image 2 m."""
+    out = np.full(len(E), np.nan, np.float32)
+    srcs = [o for o in (meta.get("ortho_patches") or []) if abs(o["step"] - 0.5) < 1e-6] + ([meta["ortho"]] if meta.get("ortho") else [])
+    for o in srcs:
+        f = os.path.join(env, o["file"])
+        if not os.path.exists(f):
+            continue
+        H_, W_ = o["shape"]
+        j = np.floor((E - o["x0"]) / o["step"]).astype(np.int64)
+        i = np.floor((o["y1"] - N) / o["step"]).astype(np.int64)
+        ok = np.isnan(out) & (j >= 0) & (j < W_) & (i >= 0) & (i < H_)
+        if not ok.any():
+            continue
+        img = imagecodecs.jpeg8_decode(open(f, "rb").read())
+        px = img[i[ok], j[ok], :3].astype(np.float32)
+        out[ok] = px[:, 1] / np.maximum(px.sum(1), 1.0)
+        del img
+    return out
+
+
 def pente_sol(dem, ii, jj, step, demi=8.0):
     H, W = dem.shape
     d = max(int(round(demi / 2 / step)), 1)
@@ -227,6 +248,7 @@ def main():
     ap.add_argument("--max-year", type=int, default=2024, help="année maximale du modèle de surface (événement: 2025)")
     ap.add_argument("--hmin", type=float, default=3.0, help="hauteur minimale d'un arbre (m)")
     ap.add_argument("--rayon", type=float, default=4600.0, help="rayon (m) autour de la caméra des arbres lointains (modèle à 2 m); 0 = emprise 0,5 m seulement")
+    ap.add_argument("--arbustes", type=float, default=0.37, help="arbustes (aulne vert, 0,8 à 3 m) sur la zone 0,5 m: part de vert minimale de l'image aérienne (évite les blocs de roche); 0 = pas d'arbustes")
     ap.add_argument("--vert", type=float, default=0.0, help="part de vert minimale de l'image aérienne; 0 = pas de filtre (défaut: les pentes à l'ombre seraient écartées)")
     a = ap.parse_args(sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else sys.argv[1:])
     if tifffile is None:
@@ -261,7 +283,6 @@ def main():
     nd[masque_batiments(env, meta, nd.shape, x0, y1, step)] = 0
     del dsm
     ii, jj, h, nc = detecter(nd, step, a.hmin, True)
-    del nd
     log(f"  {nc:,} sommets >= {a.hmin:g} m, {len(h):,} gardés (peuplement)")
     E = x0 + (jj + 0.5) * step
     N = y1 - (ii + 0.5) * step
@@ -278,6 +299,26 @@ def main():
     zones.append((E, N, h, dem[ii, jj].astype(np.float32) + dz, pente_sol(dem, ii, jj, step), melange(fm, E, N, x0, y1 - H * step, x0 + W * step, y1)))
     n_fin = len(h)
     ext = (x0, y1 - H * step, x0 + W * step, y1)
+    arb = None
+    if a.arbustes > 0 and imagecodecs is not None:
+        ns = flou(nd)
+        bas = (ns >= 0.8) & (ns < 3.5)
+        cand = maxima_locaux(ns, 3) & bas
+        dens = np.pad(bas.astype(np.int32), ((7, 6), (7, 6))).cumsum(0, dtype=np.int32).cumsum(1, dtype=np.int32)
+        k = 13
+        dens = (dens[k:, k:] - dens[:-k, k:] - dens[k:, :-k] + dens[:-k, :-k])[:H, :W] / float(k * k)
+        ii_, jj_ = np.nonzero(cand & (dens >= 0.5))
+        Es, Ns = x0 + (jj_ + 0.5) * step, y1 - (ii_ + 0.5) * step
+        vv = part_verte(meta, env, Es, Ns)
+        ok = np.nan_to_num(vv, nan=0.0) >= a.arbustes
+        pe = pente_sol(dem, ii_, jj_, step)
+        zs = dem[ii_, jj_].astype(np.float32) + dz
+        ok &= (pe < 0.75) & (zs > 1500) & (zs < 2350)
+        arb = (Es[ok], Ns[ok], ns[ii_, jj_][ok].astype(np.float32), zs[ok], pe[ok])
+        log(f"  arbustes: {len(arb[0]):,} (sur {len(ii_):,} bosquets bas; vert >= {a.arbustes:g}, pente < 37 degrés)")
+    elif a.arbustes > 0:
+        log("  arbustes ignorés (imagecodecs absent)")
+    del nd
     del dem
 
     # ---- zone lointaine 2 m
@@ -324,6 +365,19 @@ def main():
     sp = choisir_essences(zg, h, pf, rng)
     coef = np.array([[0.15, 0.5, 4.5], [0.18, 0.7, 4.5], [0.24, 0.8, 5.0], [0.28, 1.0, 6.0]], np.float32)   # a*h + b, plafond
     r = (np.minimum(coef[sp, 0] * h + coef[sp, 1], coef[sp, 2]) * agr).astype(np.float32)
+    if arb is not None and len(arb[0]):
+        Es, Ns, hs, zs, ps = arb
+        gs = np.interp(np.hypot(Es - Ec, Ns - Nc), [1000.0, 2500.0], [1.0, 0.3])      # arbustes: seulement l'avant-plan, amincis ensuite
+        oks = rng.random(len(hs)) < gs
+        if oks.sum() > 400000:                                                             # plafond du budget
+            gs = gs * 400000.0 / oks.sum()
+            oks = rng.random(len(hs)) < gs
+        Es, Ns, hs, zs, ps, gs = Es[oks], Ns[oks], hs[oks], zs[oks], ps[oks], gs[oks]
+        rs = np.minimum(0.55 * hs + 0.5, 2.2).astype(np.float32) / np.sqrt(gs).astype(np.float32)
+        E, N, h, zg, pente = (np.concatenate([u, v]) for u, v in ((E, Es), (N, Ns), (h, hs), (zg, zs), (pente, ps)))
+        sp = np.concatenate([sp, np.full(len(hs), 4, np.int8)])
+        r = np.concatenate([r, rs])
+        log(f"  {len(hs):,} arbustes gardés")
     X = (E - meta["scene_E0"]).astype(np.float32)
     Y = (meta["flip"] * (N - meta["scene_N0"])).astype(np.float32)
     np.savez_compressed(os.path.join(env, "vegetation.npz"), x=X, y=Y, z=zg.astype(np.float32), h=h, r=r, pente=pente, sp=sp)
@@ -331,7 +385,7 @@ def main():
                               rayon=a.rayon, max_year=a.max_year, created=time.strftime("%Y-%m-%d %H:%M"))
     json.dump(meta, open(mp, "w"), indent=1)
     log(f"{len(h):,} arbres, hauteur médiane {np.median(h):.1f} m, max {h.max():.1f} m")
-    log("essences: " + ", ".join(f"{nom} {int((sp == i).sum()):,}" for i, nom in enumerate(("épicéa", "mélèze", "pin cembro", "feuillus"))))
+    log("essences: " + ", ".join(f"{nom} {int((sp == i).sum()):,}" for i, nom in enumerate(("épicéa", "mélèze", "pin cembro", "feuillus", "arbustes"))))
     log(f"écrit vegetation.npz ({time.time() - t0:.0f} s)")
 
 
