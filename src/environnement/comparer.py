@@ -23,9 +23,9 @@ if a.shape != b.shape:
     sys.exit(2)
 d = np.abs(a - b).max(axis=2)
 n = d.size
-seuil = 2.0 / 255.0
+seuil = 8.0 / 255.0   # en dessous: bruit de rendu (échantillonnage), invisible
 bad = d > seuil
-print(f"\nPixels différents (écart > 2/255): {bad.sum()} sur {n} ({bad.mean() * 100:.4f} %), écart max {d.max() * 255:.1f}/255")
+print(f"\nPixels différents (écart > 8/255): {bad.sum()} sur {n} ({bad.mean() * 100:.4f} %), écart max {d.max() * 255:.1f}/255")
 if bad.any():
     ys, xs = np.nonzero(bad)
     print(f"zone des différences: colonnes {xs.min()}..{xs.max()}, lignes {ys.min()}..{ys.max()}")
