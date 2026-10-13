@@ -94,7 +94,7 @@ CFG = dict(
     cull=False,             # ne construit que le relief VISIBLE depuis la caméra (masques de "python blatten.py visible")
     no_buildings=False,     # ne place pas les bâtiments 3D (python blatten.py prep-batiments les prépare)
     no_trees=False,         # ne place pas les arbres (python blatten.py prep-vegetation les prépare)
-    tree_dist=2500.0,       # distance maximale des arbres modélisés (m); au-delà l'image aérienne suffit
+    tree_dist=4700.0,       # distance maximale des arbres modélisés (m); au-delà l'image aérienne suffit
     no_hires=False,         # ignore le relief 0,5 m et les images locales (comparaison / test mémoire)
     env_dir=None,           # dossier contenant env/ (défaut: celui des particules). Sert au test-clip
     clip=False,             # test grandeur nature: quelques secondes de l'événement (src/bench/clip.py)
@@ -840,6 +840,8 @@ def build_trees(env, coll, cam):
     nl = [int((lod == i).sum()) for i in range(3)]
     log(f"arbres: {len(X):,} sur {n0:,} (visibles, à moins de {CFG['tree_dist']:.0f} m), {nf:,} triangles "
         f"(détaillés {nl[0]:,}, moyens {nl[1]:,}, lointains {nl[2]:,})")
+    if nf > 15_000_000:
+        log(f"!! {nf:,} triangles d'arbres: risque de dépasser les 6 Go de la carte graphique. Réduire avec --tree-dist 3500 ou relancer prep-vegetation --rayon 3500.")
     return ob
 
 

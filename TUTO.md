@@ -201,6 +201,6 @@ Toutes ces étapes se lancent depuis le menu (`python blatten.py`). Les données
 | 19 | Préparer les bâtiments 3D (une fois, après le téléchargement HD) |
 | 20 | Image test de l'environnement seul (sans aléa, avec bâtiments et arbres), à regarder avec le 11 |
 | 21 | Télécharger la canopée (hauteur de la végétation), puis |
-| 22 | Préparer les arbres |
+| 22 | Préparer les arbres: emprise 0,5 m puis jusqu à 4,6 km avec le modèle de surface 2 m (amincis avec la distance) |
 
 Options de la scène: `--env-only` (sans particules), `--no-buildings`, `--no-trees`, `--tree-dist 2500`.

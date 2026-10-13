@@ -5,6 +5,9 @@ Hauteur de canopée = surface - relief 0,5 m. Les bâtiments (prep-batiments) so
 (>= 3 m) deviennent des arbres (position, hauteur, rayon de couronne, pente du sol). Les blocs de roche isolés sont écartés
 par un critère de peuplement (un arbre isolé doit dépasser 7 m). L'essence vient du taux de mélange des forêts de l'OFEV
 (swisstopo/waldmischungsgrad, 10 m: part de feuillus) et de l'altitude (épicéa, mélèze, pin cembro).
+Au-delà de l'emprise 0,5 m, jusqu'à --rayon (4600 m) autour de la caméra, les arbres viennent du modèle de surface à 2 m
+(swisstopo/swisssurface3d_raster_2m, menu 21), moins précis (peuplements plutôt qu'arbres isolés), puis amincis avec la distance
+(couronnes agrandies pour garder la couverture) afin de rester dans le budget de la carte graphique.
 Écrit <cache>/env/vegetation.npz et l'entrée "vegetation" de env_meta.json.
 
 Utilisation (via blatten.py):  python blatten.py prep-vegetation [--hmin 3]
@@ -149,32 +152,20 @@ def masque_batiments(env, meta, shape, x0, y1, step):
     return out
 
 
-def main():
-    ap = argparse.ArgumentParser(prog="prep_vegetation")
-    ap.add_argument("--swisstopo", default=os.path.join(ROOT, "data", "swisstopo"))
-    ap.add_argument("--data", default=os.path.join(ROOT, "data", "cache"))
-    ap.add_argument("--max-year", type=int, default=2024, help="année maximale du modèle de surface (événement: 2025)")
-    ap.add_argument("--hmin", type=float, default=3.0, help="hauteur minimale d'un arbre (m)")
-    ap.add_argument("--vert", type=float, default=0.0, help="part de vert minimale (G / (R+G+B)) de l'image aérienne; 0 = pas de filtre (défaut: les pentes à l'ombre seraient écartées)")
-    a = ap.parse_args(sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else sys.argv[1:])
-    if tifffile is None:
-        sys.exit("tifffile absent: lancer l'installation (menu 2).")
-    env = os.path.join(a.data, "env")
-    mp = os.path.join(env, "env_meta.json")
-    meta = json.load(open(mp))
-    d5 = meta.get("dem05")
-    if not d5:
-        sys.exit("Pas de relief 0,5 m: faire d'abord la préparation de la haute résolution (menu 7).")
-    t0 = time.time()
-    dem = np.load(os.path.join(env, d5["file"]))
-    x0, y1, step = d5["x0"], d5["y1"], d5["step"]
-    H, W = dem.shape
+def flou3(a):
+    """Lissage [1 2 1] séparable (pour la grille à 2 m, où le 5x5 écraserait les couronnes)."""
+    p = np.pad(a, 1, mode="edge")
+    t = 0.25 * p[:, :-2] + 0.5 * p[:, 1:-1] + 0.25 * p[:, 2:]
+    return 0.25 * t[:-2] + 0.5 * t[1:-1] + 0.25 * t[2:]
+
+
+def mosaique(dossier, x0, y1, W, H, step, max_year, motif_res=None):
+    """Assemble les dalles d'un dossier sur la grille (x0, y1, step, H x W). Rend (tableau, nombre de dalles)."""
     dsm = np.full((H, W), np.nan, np.float32)
     n = 0
-    for p in sorted(glob.glob(os.path.join(a.swisstopo, "swisssurface3d_raster_05m", "*.tif*"))):
+    for p in sorted(glob.glob(os.path.join(dossier, "*.tif*"))):
         m = re.search(r"_(\d{4})_", os.path.basename(p))
-        if m and int(m.group(1)) > a.max_year:
-            log(f"ignorée (postérieure à {a.max_year}): {os.path.basename(p)}")
+        if m and int(m.group(1)) > max_year:
             continue
         t, tx0, ty1, ts = lire_dalle(p)
         if abs(ts - step) > 1e-6:
@@ -187,25 +178,93 @@ def main():
             continue
         dsm[i0:i1, j0:j1] = t[i0 - i:i1 - i, j0 - j:j1 - j]
         n += 1
+    return dsm, n
+
+
+def detecter(nd, step, hmin, fin):
+    """Sommets de canopée (indices i, j, hauteur). fin=True: grille 0,5 m (arbres isolés), sinon grille 2 m (peuplements)."""
+    H, W = nd.shape
+    if fin:
+        ns, rm, k, seuil = flou(nd), 3, 13, 0.18
+    else:
+        ns, rm, k, seuil = flou3(nd), 1, 5, 0.30
+    cand = maxima_locaux(ns, rm) & (ns >= hmin)
+    dense = (ns >= 2.0).astype(np.int32)
+    a, b = k // 2 + 1, k // 2
+    c = np.pad(dense, ((a, b), (a, b))).cumsum(0, dtype=np.int32).cumsum(1, dtype=np.int32)
+    dens = (c[k:, k:] - c[:-k, k:] - c[k:, :-k] + c[:-k, :-k])[:H, :W] / float(k * k)
+    ii, jj = np.nonzero(cand & ((dens >= seuil) | (ns >= 7.0)))
+    return ii, jj, ns[ii, jj].astype(np.float32), int(cand.sum())
+
+
+def pente_sol(dem, ii, jj, step, demi=8.0):
+    H, W = dem.shape
+    d = max(int(round(demi / 2 / step)), 1)
+    i2, j2 = np.clip(ii, d, H - d - 1), np.clip(jj, d, W - d - 1)
+    gx = (dem[i2, j2 + d] - dem[i2, j2 - d]) / (2 * d * step)
+    gy = (dem[i2 + d, j2] - dem[i2 - d, j2]) / (2 * d * step)
+    return np.hypot(gx, gy).astype(np.float32)
+
+
+def melange(fm, E, N, ex0, ey0, ex1, ey1):
+    """Part de feuillus (0..1) du raster OFEV aux points (E, N); -1 si inconnu."""
+    pf = np.full(len(E), -1.0)
+    if not fm or not len(E):
+        return pf
+    w = lire_fenetre(fm[0], ex0, ey0, ex1, ey1)
+    if w is None:
+        return pf
+    arr, wx0, wy1, wst = w
+    vals = arr[np.clip(((wy1 - N) / wst).astype(int), 0, arr.shape[0] - 1), np.clip(((E - wx0) / wst).astype(int), 0, arr.shape[1] - 1)].astype(np.float32)
+    bon = vals <= 100
+    return np.where(bon, vals / 100.0, -1.0)
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="prep_vegetation")
+    ap.add_argument("--swisstopo", default=os.path.join(ROOT, "data", "swisstopo"))
+    ap.add_argument("--data", default=os.path.join(ROOT, "data", "cache"))
+    ap.add_argument("--max-year", type=int, default=2024, help="année maximale du modèle de surface (événement: 2025)")
+    ap.add_argument("--hmin", type=float, default=3.0, help="hauteur minimale d'un arbre (m)")
+    ap.add_argument("--rayon", type=float, default=4600.0, help="rayon (m) autour de la caméra des arbres lointains (modèle à 2 m); 0 = emprise 0,5 m seulement")
+    ap.add_argument("--vert", type=float, default=0.0, help="part de vert minimale de l'image aérienne; 0 = pas de filtre (défaut: les pentes à l'ombre seraient écartées)")
+    a = ap.parse_args(sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else sys.argv[1:])
+    if tifffile is None:
+        sys.exit("tifffile absent: lancer l'installation (menu 2).")
+    env = os.path.join(a.data, "env")
+    mp = os.path.join(env, "env_meta.json")
+    meta = json.load(open(mp))
+    d5 = meta.get("dem05")
+    if not d5:
+        sys.exit("Pas de relief 0,5 m: faire d'abord la préparation de la haute résolution (menu 7).")
+    t0 = time.time()
+    dz = meta.get("dz", 0.0)
+    try:
+        cam = json.load(open(os.path.join(ROOT, "camera.json")))["cam"]
+    except Exception:
+        cam = [0.0, 0.0, 0.0]
+    Ec, Nc = meta["scene_E0"] + cam[0], meta["scene_N0"] + meta["flip"] * cam[1]
+    fm = glob.glob(os.path.join(a.swisstopo, "waldmischungsgrad", "*.tif*"))
+    if not fm:
+        log("taux de mélange OFEV absent (menu 21 le télécharge): feuillus estimés d'après l'altitude")
+    zones = []     # (E, N, h, zg, pente, pf)
+
+    # ---- zone fine 0,5 m
+    dem = np.load(os.path.join(env, d5["file"]))
+    x0, y1, step = d5["x0"], d5["y1"], d5["step"]
+    H, W = dem.shape
+    dsm, n = mosaique(os.path.join(a.swisstopo, "swisssurface3d_raster_05m"), x0, y1, W, H, step, a.max_year)
     if not n:
         sys.exit("Aucune dalle de modèle de surface (menu 21: télécharger la canopée).")
-    couv = np.isfinite(dsm).mean() * 100
-    log(f"{n} dalle(s) de surface, {couv:.0f} % de la zone 0,5 m couverte ({time.time() - t0:.0f} s)")
-    nd = np.where(np.isfinite(dsm), dsm - dem, 0.0).astype(np.float32)
-    nd = np.clip(nd, 0, 60)
+    log(f"zone fine 0,5 m: {n} dalle(s), {np.isfinite(dsm).mean() * 100:.0f} % couverte ({time.time() - t0:.0f} s)")
+    nd = np.clip(np.where(np.isfinite(dsm), dsm - dem, 0.0).astype(np.float32), 0, 60)
     nd[masque_batiments(env, meta, nd.shape, x0, y1, step)] = 0
-    ns = flou(nd)
-    cand = maxima_locaux(ns, 3) & (ns >= a.hmin)
-    # peuplement: part de pixels hauts (>= 2 m) dans un rayon de 3 m. Un bloc de roche isolé n'est pas un arbre.
-    dense = (ns >= 2.0).astype(np.int32)
-    c = np.pad(dense, ((7, 6), (7, 6))).cumsum(0, dtype=np.int32).cumsum(1, dtype=np.int32)
-    k = 13
-    dens = (c[k:, k:] - c[:-k, k:] - c[k:, :-k] + c[:-k, :-k])[:H, :W] / float(k * k)
-    ii, jj = np.nonzero(cand & ((dens >= 0.18) | (ns >= 7.0)))
-    h = ns[ii, jj].astype(np.float32)
+    del dsm
+    ii, jj, h, nc = detecter(nd, step, a.hmin, True)
+    del nd
+    log(f"  {nc:,} sommets >= {a.hmin:g} m, {len(h):,} gardés (peuplement)")
     E = x0 + (jj + 0.5) * step
     N = y1 - (ii + 0.5) * step
-    log(f"{cand.sum():,} sommets de canopée >= {a.hmin:g} m, {len(h):,} gardés (peuplement)")
     if a.vert > 0:
         o = meta.get("ortho")
         if o and imagecodecs is not None and os.path.exists(os.path.join(env, o["file"])):
@@ -214,38 +273,62 @@ def main():
             oi = np.clip(((o["y1"] - N) / o["step"]).astype(int), 0, img.shape[0] - 1)
             px = img[oi, oj, :3].astype(np.float32)
             ok = px[:, 1] / np.maximum(px.sum(1), 1.0) >= a.vert
-            log(f"filtre vert >= {a.vert:g}: {ok.sum():,} gardés, {(~ok).sum():,} écartés")
+            log(f"  filtre vert >= {a.vert:g}: {ok.sum():,} gardés")
             ii, jj, h, E, N = ii[ok], jj[ok], h[ok], E[ok], N[ok]
-    zg = dem[ii, jj].astype(np.float32) + meta.get("dz", 0.0)
-    # pente du sol (tangente) sur 2 m autour de l'arbre
-    i2, j2 = np.clip(ii, 4, H - 5), np.clip(jj, 4, W - 5)
-    gx = (dem[i2, j2 + 4] - dem[i2, j2 - 4]) / (8 * step)
-    gy = (dem[i2 + 4, j2] - dem[i2 - 4, j2]) / (8 * step)
-    pente = np.hypot(gx, gy).astype(np.float32)
-    # essences
-    pf = np.full(len(h), -1.0)
-    fm = glob.glob(os.path.join(a.swisstopo, "waldmischungsgrad", "*.tif*"))
-    if fm:
-        w = lire_fenetre(fm[0], x0, y1 - H * step, x0 + W * step, y1)
-        if w is not None:
-            arr, wx0, wy1, wst = w
-            vals = arr[np.clip(((wy1 - N) / wst).astype(int), 0, arr.shape[0] - 1), np.clip(((E - wx0) / wst).astype(int), 0, arr.shape[1] - 1)].astype(np.float32)
-            bon = vals <= 100
-            pf = np.where(bon, vals / 100.0, -1.0)
-            log(f"taux de mélange OFEV lu: part de feuillus moyenne {pf[bon].mean() * 100:.0f} % ({bon.mean() * 100:.0f} % des arbres couverts)")
+    zones.append((E, N, h, dem[ii, jj].astype(np.float32) + dz, pente_sol(dem, ii, jj, step), melange(fm, E, N, x0, y1 - H * step, x0 + W * step, y1)))
+    n_fin = len(h)
+    ext = (x0, y1 - H * step, x0 + W * step, y1)
+    del dem
+
+    # ---- zone lointaine 2 m
+    d2 = meta.get("dem2")
+    dossier2 = os.path.join(a.swisstopo, "swisssurface3d_raster_2m")
+    if a.rayon > 0 and d2 and glob.glob(os.path.join(dossier2, "*.tif*")):
+        s2 = d2["step"]
+        gx0, gy1 = d2["x0"], d2["y1"]
+        wx0 = max(np.floor((Ec - a.rayon - gx0) / s2) * s2 + gx0, gx0)
+        wy1 = min(gy1 - np.floor((gy1 - (Nc + a.rayon)) / s2) * s2, gy1)
+        Wf = int(min(2 * a.rayon / s2, d2["shape"][1] - (wx0 - gx0) / s2))
+        Hf = int(min(2 * a.rayon / s2, d2["shape"][0] - (gy1 - wy1) / s2))
+        full = np.load(os.path.join(env, d2["file"]), mmap_mode="r")
+        r0, c0 = int(round((gy1 - wy1) / s2)), int(round((wx0 - gx0) / s2))
+        dem2 = np.array(full[r0:r0 + Hf, c0:c0 + Wf], np.float32)
+        dsm2, n2 = mosaique(dossier2, wx0, wy1, Wf, Hf, s2, a.max_year)
+        log(f"zone lointaine 2 m: {n2} dalle(s), {np.isfinite(dsm2).mean() * 100:.0f} % couverte, rayon {a.rayon:.0f} m")
+        nd2 = np.clip(np.where(np.isfinite(dsm2), dsm2 - dem2, 0.0).astype(np.float32), 0, 60)
+        del dsm2
+        nd2[masque_batiments(env, meta, nd2.shape, wx0, wy1, s2)] = 0
+        ii, jj, h, nc = detecter(nd2, s2, a.hmin, False)
+        log(f"  {nc:,} sommets >= {a.hmin:g} m, {len(h):,} gardés")
+        E = wx0 + (jj + 0.5) * s2
+        N = wy1 - (ii + 0.5) * s2
+        hors = ~((E >= ext[0]) & (E <= ext[2]) & (N >= ext[1]) & (N <= ext[3]))     # déjà couvert à 0,5 m
+        hors &= np.hypot(E - Ec, N - Nc) <= a.rayon
+        ii, jj, h, E, N = ii[hors], jj[hors], h[hors], E[hors], N[hors]
+        zones.append((E, N, h, dem2[ii, jj] + dz, pente_sol(dem2, ii, jj, s2), melange(fm, E, N, wx0, wy1 - Hf * s2, wx0 + Wf * s2, wy1)))
+        log(f"  {len(h):,} arbres hors de l'emprise 0,5 m")
     else:
-        log("taux de mélange OFEV absent (menu 21 le télécharge): feuillus estimés d'après l'altitude")
+        log("pas de zone lointaine (modèle de surface 2 m absent: menu 21, ou --rayon 0)")
+
+    E, N, h, zg, pente, pf = [np.concatenate([z[k] for z in zones]) for k in range(6)]
+    # amincissement avec la distance (budget): on garde une part des arbres et on agrandit les couronnes restantes
+    rng = np.random.default_rng(11)
+    d = np.hypot(E - Ec, N - Nc)
+    garde = np.interp(d, [1500.0, 3000.0, max(a.rayon, 3001.0)], [1.0, 0.5, 0.3])
+    ok = rng.random(len(h)) < garde
+    agr = (1.0 / np.sqrt(garde)).astype(np.float32)
+    E, N, h, zg, pente, pf, agr = E[ok], N[ok], h[ok], zg[ok], pente[ok], pf[ok], agr[ok]
+    log(f"amincissement avec la distance: {ok.sum():,} arbres gardés sur {len(ok):,}")
     defaut = np.interp(zg, [1500, 1800], [0.20, 0.04])
     pf = np.where(pf >= 0, pf, defaut)
-    rng = np.random.default_rng(11)
     sp = choisir_essences(zg, h, pf, rng)
     coef = np.array([[0.15, 0.5, 4.5], [0.18, 0.7, 4.5], [0.24, 0.8, 5.0], [0.28, 1.0, 6.0]], np.float32)   # a*h + b, plafond
-    r = np.minimum(coef[sp, 0] * h + coef[sp, 1], coef[sp, 2]).astype(np.float32)
+    r = (np.minimum(coef[sp, 0] * h + coef[sp, 1], coef[sp, 2]) * agr).astype(np.float32)
     X = (E - meta["scene_E0"]).astype(np.float32)
     Y = (meta["flip"] * (N - meta["scene_N0"])).astype(np.float32)
-    np.savez_compressed(os.path.join(env, "vegetation.npz"), x=X, y=Y, z=zg, h=h, r=r, pente=pente, sp=sp)
-    meta["vegetation"] = dict(file="vegetation.npz", arbres=int(len(h)), hmin=a.hmin, vert=a.vert, melange=bool(fm), max_year=a.max_year,
-                              created=time.strftime("%Y-%m-%d %H:%M"))
+    np.savez_compressed(os.path.join(env, "vegetation.npz"), x=X, y=Y, z=zg.astype(np.float32), h=h, r=r, pente=pente, sp=sp)
+    meta["vegetation"] = dict(file="vegetation.npz", arbres=int(len(h)), arbres_fins=int(n_fin), hmin=a.hmin, vert=a.vert, melange=bool(fm),
+                              rayon=a.rayon, max_year=a.max_year, created=time.strftime("%Y-%m-%d %H:%M"))
     json.dump(meta, open(mp, "w"), indent=1)
     log(f"{len(h):,} arbres, hauteur médiane {np.median(h):.1f} m, max {h.max():.1f} m")
     log("essences: " + ", ".join(f"{nom} {int((sp == i).sum()):,}" for i, nom in enumerate(("épicéa", "mélèze", "pin cembro", "feuillus"))))

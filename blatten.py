@@ -335,6 +335,23 @@ def _download_canopee(cfg, paths, max_year, dry, workers):
     todo = [(u, f) for u, f in todo if not os.path.exists(f)]
     ans = sorted({y for _u, y in tuiles.values()})
     print(f"=== modèle de surface 0,5 m: {len(tuiles)} dalles (années {ans}), {len(tuiles) - len(todo)} déjà présentes, {len(todo)} à télécharger ===")
+    # arbres lointains: modèle de surface à 2 m dans un rayon autour de la caméra (au-delà de l'emprise 0,5 m)
+    ray = float(cfg.get("tree_far_radius", 4600.0))
+    try:
+        cam = _load_json(os.path.join(ROOT, "camera.json"))["cam"]
+        m_ = _load_json(mp)
+        Ec, Nc = m_["scene_E0"] + cam[0], m_["scene_N0"] + m_["flip"] * cam[1]
+        la0, lo0 = _lv95_to_wgs84(Ec - ray, Nc - ray)
+        la1, lo1 = _lv95_to_wgs84(Ec + ray, Nc + ray)
+        dest2 = os.path.join(paths.swisstopo, "swisssurface3d_raster_2m")
+        os.makedirs(dest2, exist_ok=True)
+        t2 = _stac_tuiles("ch.swisstopo.swisssurface3d-raster", (lo0, la0, lo1, la1), max_year, "_2_")
+        todo2 = [(u, os.path.join(dest2, os.path.basename(u))) for u, _y in sorted(t2.values())]
+        todo2 = [(u, f) for u, f in todo2 if not os.path.exists(f)]
+        print(f"=== modèle de surface 2 m (arbres lointains, rayon {ray:.0f} m): {len(t2)} dalles, {len(t2) - len(todo2)} déjà présentes, {len(todo2)} à télécharger ===")
+        todo += todo2
+    except Exception as e:
+        print(f"!! dalles 2 m non récupérées ({e}); les arbres resteront limités à l'emprise 0,5 m.")
     # taux de mélange des forêts (OFEV, 10 m, part de feuillus): donne l'essence des arbres. Fichier national, une seule fois.
     mel_url = ("https://data.geo.admin.ch/ch.bafu.landesforstinventar-waldmischungsgrad/landesforstinventar-waldmischungsgrad/"
                "landesforstinventar-waldmischungsgrad_2056.tif")
