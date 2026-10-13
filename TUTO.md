@@ -189,3 +189,18 @@ donner `docs/HANDOVER_IA_MATIERE.md` à ton IA pour qu'elle t'aide à coder cett
 
 Erreurs fréquentes : `python` non reconnu (Python pas dans le PATH, le réinstaller en cochant la case), chemin avec `\` au lieu de `/` dans
 `config.local.json`, cache dézippé un niveau trop bas, Blender introuvable (vérifier le chemin dans `config.local.json`).
+
+## Environnement seul : bâtiments, arbres, version lite
+
+Toutes ces étapes se lancent depuis le menu (`python blatten.py`). Les données sont d'avant l'événement (28 mai 2025).
+
+| Menu | À quoi ça sert |
+|---|---|
+| 17 | Valider la coupe du relief invisible: la même image avec et sans coupe, comparées (le verdict doit dire IDENTIQUES, ou une différence de bruit seulement) |
+| 18 | Créer la version lite: un seul fichier `render\\blatten_env_lite.blend`, sans aléa, relief visible seulement |
+| 19 | Préparer les bâtiments 3D (une fois, après le téléchargement HD) |
+| 20 | Image test de l'environnement seul (sans aléa, avec bâtiments et arbres), à regarder avec le 11 |
+| 21 | Télécharger la canopée (hauteur de la végétation), puis |
+| 22 | Préparer les arbres |
+
+Options de la scène: `--env-only` (sans particules), `--no-buildings`, `--no-trees`, `--tree-dist 2500`.
