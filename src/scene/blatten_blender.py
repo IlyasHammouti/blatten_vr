@@ -1311,6 +1311,9 @@ def build_water(env, coll, cam):
     Le ruban est placé au plus bas de la section (rives comprises) puis lissé le long du cours: les berges plus hautes le cachent
     naturellement. Avec --cull, seuls les tronçons visibles. Les tronçons atteints par la matière sont masqués à son arrivée."""
     m = env["meta"]
+    if m.get("eau_masque"):
+        log("eau: lue dans l'image aérienne (masque), sans ruban")
+        return None
     em = m.get("eau")
     path = os.path.join(env["dir"], em["file"]) if em else None
     if not em or not os.path.exists(path):
@@ -1589,6 +1592,49 @@ def build_terrain_material(env=None):
         L.new(col, sol.inputs[6])
         sol.inputs[7].default_value = (0.62, 0.64, 0.58, 1)      # assombrit sans changer la teinte
         col = mix(under, col, sol.outputs[2])
+    # eau: masque tiré de l'image aérienne (prep-eau). Sol sombre, très brillant (reflets du ciel), ondulations qui bougent doucement.
+    wq = None
+    emk = env["meta"].get("eau_masque") if env else None
+    if emk and not CFG["no_water"]:
+        em_ = env["meta"]
+
+        def _tex_masque(info):
+            im_ = bpy.data.images.load(os.path.join(env["dir"], info["file"]))
+            im_.colorspace_settings.name = "Non-Color"
+            tx = N.new("ShaderNodeTexImage")
+            tx.image, tx.interpolation, tx.extension = im_, "Linear", "CLIP"
+            mp_ = N.new("ShaderNodeMapping")
+            mp_.vector_type = "POINT"
+            cW, cH = info["shape"][1] * info["step"], info["shape"][0] * info["step"]
+            cnb = info["y1"] - cH
+            mp_.inputs["Location"].default_value = ((em_["scene_E0"] - info["x0"]) / cW, (em_["scene_N0"] - cnb) / cH, 0.0)
+            mp_.inputs["Scale"].default_value = (1.0 / cW, em_["flip"] / cH, 1.0)
+            L.new(geo.outputs["Position"], mp_.inputs["Vector"])
+            L.new(mp_.outputs["Vector"], tx.inputs["Vector"])
+            sp_ = N.new("ShaderNodeSeparateColor")
+            L.new(tx.outputs["Color"], sp_.inputs["Color"])
+            return sp_.outputs["Red"], mp_.outputs["Vector"]
+
+        wq = None
+        if emk.get("grossier"):
+            wq, _v = _tex_masque(emk["grossier"])
+        if emk.get("fin"):
+            wf, vf = _tex_masque(emk["fin"])
+            sx = N.new("ShaderNodeSeparateXYZ")
+            L.new(vf, sx.inputs["Vector"])
+            dedans = math("MULTIPLY", math("MULTIPLY", math("GREATER_THAN", sx.outputs["X"], 0.0), math("LESS_THAN", sx.outputs["X"], 1.0)),
+                          math("MULTIPLY", math("GREATER_THAN", sx.outputs["Y"], 0.0), math("LESS_THAN", sx.outputs["Y"], 1.0)))
+            wq = wf if wq is None else mix(dedans, wq, wf)
+        # temps (s), pour l'animation
+        tn_ = N.new("ShaderNodeValue")
+        tn_.label = "temps (s)"
+        try:
+            fc_ = tn_.outputs[0].driver_add("default_value")
+            fc_.driver.type = "SCRIPTED"
+            fc_.driver.expression = f"(frame - 1) / {max(float(bpy.context.scene.render.fps), 1.0):g}"
+        except Exception as e:
+            log(f"eau: pilote de temps impossible ({e}), eau figée")
+        T_eau = tn_.outputs[0]
     # pentes raides: l'image projetée à la verticale s'étire en stries; on y ajoute des strates (multiplicatives) qui gardent les couleurs de l'image
     w_steep = mrange(nor.outputs["Z"], 0.62, 0.38, 0.0, 0.6)
     st_f = math("ADD", 0.75, math("MULTIPLY", strata.outputs["Fac"], 0.5))
@@ -1614,6 +1660,9 @@ def build_terrain_material(env=None):
         L.new(col, mm.inputs[6])
         L.new(dvec.outputs["Color"], mm.inputs[7])
         col = mm.outputs[2]
+    if wq is not None:
+        col = mix(wq, col, mix(0.55, col, (0.030, 0.060, 0.070, 1)))      # eau turbide: moitié de l'image, moitié teinte sombre bleu-vert
+        snow = math("MULTIPLY", snow, math("SUBTRACT", 1.0, wq))          # pas de neige sur l'eau
     col = mix(snow, col, (0.80, 0.82, 0.86, 1))
     L.new(col, bsdf.inputs["Base Color"])
     # micro-relief
@@ -1624,6 +1673,22 @@ def build_terrain_material(env=None):
     if D > 0:
         h = math("ADD", h, math("MULTIPLY", n_fine, 0.25 * D))
         h = math("ADD", h, math("MULTIPLY", math("MULTIPLY", strata.outputs["Fac"], steep), 0.6 * D))
+    if wq is not None:
+        def _onde(echelle, vit, amp):
+            sc_ = N.new("ShaderNodeVectorMath")
+            sc_.operation = "SCALE"
+            sc_.inputs["Scale"].default_value = echelle
+            L.new(geo.outputs["Position"], sc_.inputs[0])
+            nz_ = N.new("ShaderNodeTexNoise")
+            nz_.noise_dimensions = "4D"
+            nz_.inputs["Detail"].default_value = 2.0
+            L.new(sc_.outputs["Vector"], nz_.inputs["Vector"])
+            w_ = math("MULTIPLY", T_eau, vit)
+            L.new(w_, nz_.inputs["W"])
+            return math("MULTIPLY", math("SUBTRACT", nz_.outputs["Fac"], 0.5), amp)
+        ond = math("ADD", _onde(1.1, 0.9, 0.22), _onde(3.5, 1.7, 0.08))
+        h = math("ADD", h, math("MULTIPLY", ond, wq))
+        L.new(math("SUBTRACT", 0.95, math("MULTIPLY", wq, 0.89)), bsdf.inputs["Roughness"])
     L.new(h, bump.inputs["Height"])
     L.new(bump.outputs["Normal"], bsdf.inputs["Normal"])
     if CFG["haze"] > 0:  # perspective atmosphérique: on mélange vers la couleur du ciel avec la distance

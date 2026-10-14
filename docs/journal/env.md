@@ -34,3 +34,9 @@
 - Terrain: plus de fonte vers une roche grise sur les pentes (strates multiplicatives qui gardent l'ortho); sous canopée, simple assombrissement (x0,62) sans changer la teinte, effet plafonné à 0,35.
 - Arbres: ombrage lisse, couleur = 50 % essence + 50 % cime lue dans l'ortho (`tree_ortho`), balancement léger par nœuds de géométrie (`wind`, `wind_dist` 700 m, ~0,3 m en cime, `--no-wind`).
 - Reste: modèles d'arbres plus réalistes (décision à prendre), ombres visibles seulement en vue Rendu, empreinte du dépôt sur la série complète.
+
+## 2026-10-14 eau par image
+- Abandon des rubans OSM (tracé non calé). L'eau est un masque lu dans l'ortho: pas de NIR dans SWISSIMAGE donc pas de NDWI; la Lonza est gris-blanc. Critères: saturation < 0,20, luminosité > 0,40, pente < 0,25, dans un couloir OSM (±40 m rivière, ±8 m torrent, simple localisateur), ouverture morphologique.
+- Essai sur la vraie ortho: Lonza bien captée à 2 m; faux positifs possibles (toits et parkings clairs dans le couloir). Masques 2 m (toute la zone) et 0,5 m (image 50 cm).
+- Matériau du terrain: eau = moitié ortho moitié teinte sombre, rugosité 0,06, ondulations par bruit 4D animé (temps de l'image). Rendu sous ciel couvert: le reflet blanc du ciel domine (physique).
+- Arbres: limite sous la ligne de neige, 4 niveaux de détail, grain/relief du feuillage, vent 1200 m.

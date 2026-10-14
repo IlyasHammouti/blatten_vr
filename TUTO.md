@@ -209,7 +209,7 @@ Dans une rubrique, chaque action porte une pastille: `OK` = déjà fait, `..` = 
 Détails de l'environnement (les données sont d'avant l'événement du 28 mai 2025):
 - **Bâtiments**: toits et façades en motifs procéduraux selon le type (rondins de mélèze, planches, crépi, pierre; dalles, bardeaux, tuiles, tôle), fenêtres en grille.
 - **Arbres**: essences locales, emprise 0,5 m puis jusqu'à 4,6 km (amincis avec la distance), arbustes en avant-plan, sol de forêt sous la canopée.
-- **Rivière**: cours d'eau OpenStreetMap, rubans d'eau animés (courant, rides, écume), Internet requis une fois.
+- **Eau**: lue dans l'image aérienne (pixels clairs peu saturés + pente faible, dans un couloir de ±40 m autour du tracé OpenStreetMap, qui n'a pas besoin d'être calé). Sol brillant à ondulations animées, sans maillage. Regarder `cache/env/eau_apercu_2m.png` et `eau_apercu_50cm.png` (eau en bleu) pour juger; réglages `--sat`, `--lum`, `--couloir`.
 - **Pentes raides**: l'image aérienne est fondue vers une roche striée pour éviter l'étirement.
 
 Options de la scène: `--env-only` (sans particules), `--no-buildings`, `--no-trees`, `--tree-dist 2500`.

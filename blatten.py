@@ -456,7 +456,7 @@ def cmd_prep_vegetation(cfg, paths, extra):
 
 
 def cmd_prep_eau(cfg, paths, extra):
-    """Cours d'eau (OpenStreetMap) pour la rivière animée de la scène."""
+    """Eau lue dans l'image aérienne (couloir OpenStreetMap seulement pour dire où chercher)."""
     return run_blender(cfg, SCRIPTS["prep_eau"], ["--data", paths.cache] + extra)
 
 
@@ -538,7 +538,7 @@ def cmd_env_complet(cfg, paths, extra):
     etapes = [
         ("Télécharger la canopée", lambda: cmd_download(cfg, paths, ["--jeux", "canopee"])),
         ("Préparer les arbres", lambda: cmd_prep_vegetation(cfg, paths, [])),
-        ("Préparer la rivière (OpenStreetMap)", lambda: cmd_prep_eau(cfg, paths, [])),
+        ("Préparer l'eau (image aérienne)", lambda: cmd_prep_eau(cfg, paths, [])),
         ("Empreinte de l'aléa (si les particules sont préparées)", lambda: cmd_empreinte_alea(cfg, paths, [])),
         ("Zone visible avec couloir protégé de l'aléa", lambda: cmd_visible(cfg, paths, [])),
         ("Image test de l'environnement seul", lambda: cmd_test360(cfg, paths, ["--mono", "--env-only", "--cull", "--out", "render/env_seul"])),
@@ -766,7 +766,7 @@ RUBRIQUES = [
         ("Préparer les bâtiments 3D", "prep-batiments", [], "après le téléchargement HD", "bat", None),
         ("Télécharger la canopée (hauteur de végétation, forêts)", "download", ["--jeux", "canopee"], "arbres: emprise 0,5 m et jusqu'à 4,6 km, OFEV pour les essences", "canopee_dl", "dl"),
         ("Préparer les arbres et arbustes", "prep-vegetation", [], "après la canopée", "veg", None),
-        ("Préparer la rivière (cours d'eau OpenStreetMap)", "prep-eau", [], "Internet requis", "eau", None),
+        ("Préparer l'eau (lue dans l'image aérienne)", "prep-eau", [], "Internet la 1re fois (couloir OSM); regarder ensuite eau_apercu_2m.png dans cache\\env", "eau", None),
         ("TOUT ENCHAINER en un clic (canopée, arbres, rivière, empreinte, zone visible, image test)", "env-complet", [], "recommandé: reprend ce qui manque, une étape en échec n'arrête pas les autres", None, None),
     ]),
     ("Voir et vérifier", "images test, version lite, Blender", [
