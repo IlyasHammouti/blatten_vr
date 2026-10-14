@@ -96,7 +96,7 @@ CFG = dict(
     no_water=False,         # pas de rivière animée (python blatten.py prep-eau la prépare)
     no_trees=False,         # ne place pas les arbres (python blatten.py prep-vegetation les prépare)
     wind=True,              # léger balancement des arbres proches (--no-wind pour le couper)
-    wind_dist=700.0,        # distance (m) jusqu'à laquelle les arbres bougent (au-delà, imperceptible)
+    wind_dist=1200.0,       # distance (m) jusqu'à laquelle les arbres bougent (au-delà, imperceptible)
     tree_ortho=0.5,         # part de la couleur de l'image aérienne dans la couleur des arbres (0 = couleurs d'essence seules)
     tree_dist=4700.0,       # distance maximale des arbres modélisés (m); au-delà l'image aérienne suffit
     no_hires=False,         # ignore le relief 0,5 m et les images locales (comparaison / test mémoire)
@@ -968,12 +968,14 @@ def _bipyramide(zb, zt, rb, n, jit, rng, zlow=0.3, ph=0.0):
 def _ellipsoide(z0, z1, n, rings, jit, rng, rmax, fmax):
     """Couronne arrondie (type sphère aplatie) de z0 à z1; le rayon maximal est atteint à la fraction fmax de la hauteur."""
     V = [np.array([[0.0, 0.0, z0]])]
+    ph = rng.random() * 6.28
+    lobe = 1 + 0.22 * np.sin(np.linspace(0, 2 * np.pi, n, endpoint=False) * rng.integers(2, 4) + rng.random() * 6.28)   # lobes de la couronne
     for k in range(rings):
         f = (k + 1) / (rings + 1)
         prof = np.sin(np.pi * f ** (np.log(0.5) / np.log(fmax))) ** 0.75
-        ang = np.linspace(0, 2 * np.pi, n, endpoint=False) + rng.random() * 6.28
-        r = rmax * prof * (1 + jit * (rng.random(n) - 0.5) * 2)
-        zz = z0 + (z1 - z0) * f + (rng.random(n) - 0.5) * jit * 0.08
+        ang = np.linspace(0, 2 * np.pi, n, endpoint=False) + ph + 0.35 * k             # décalage régulier: pas de torsion
+        r = rmax * prof * lobe * (1 + jit * 0.35 * (rng.random(n) - 0.5) * 2)
+        zz = z0 + (z1 - z0) * f + (rng.random(n) - 0.5) * jit * 0.02
         V.append(np.stack([r * np.cos(ang), r * np.sin(ang), zz], 1))
     V.append(np.array([[0.0, 0.0, z1]]))
     V = np.concatenate(V)
@@ -1000,11 +1002,11 @@ def _fusion(parts):
 
 def _proto_arbre(espece, lod, rng):
     """Un arbre simplifié, rayon de couronne 1, hauteur 1, pied en z = 0. Rend (sommets, triangles, indice de tronc).
-    lod 0: détaillé (< 120 m), 1: moyen (< 500 m), 2: lointain."""
+    lod 0: détaillé (< 120 m), 1: moyen (< 500 m), 2: lointain (< 1500 m), 3: très lointain (cônes simples)."""
     parts = []
     if espece in (0, 1):                      # conifères à étages (épicéa serré, mélèze plus lâche)
-        T_ = {0: (9, 4, 1), 1: (7, 3, 1)}[espece][lod]
-        n = (9, 6, 5)[lod]
+        T_ = {0: (16, 8, 2, 1), 1: (12, 6, 2, 1)}[espece][lod]
+        n = (12, 8, 5, 4)[lod]
         zlow = 0.15 if espece == 0 else 0.22
         z0 = 0.16 if espece == 0 else 0.20
         expo = 0.95 if espece == 0 else 0.80
@@ -1012,15 +1014,15 @@ def _proto_arbre(espece, lod, rng):
             zb = z0 + (1 - z0) * k / T_
             zt = z0 + (1 - z0) * min(1.0, (k + 1.6) / T_)
             rb = ((1 - zb) ** expo) * (1.0 if espece == 0 else 0.92)
-            parts.append(_bipyramide(zb, zt, rb, n, 0.18 if lod == 0 else 0.1, rng, zlow, rng.random() * 6.28))
+            parts.append(_bipyramide(zb, zt, rb, n, (0.26, 0.16, 0.10, 0.05)[lod], rng, zlow, rng.random() * 6.28))
     elif espece == 4:                         # arbuste (aulne vert): dôme bas, sans tronc
-        V, T = _ellipsoide(0.0, 1.0, (8, 6, 5)[lod], (4, 3, 2)[lod], 0.30, rng, 1.0, 0.40)
+        V, T = _ellipsoide(0.0, 1.0, (8, 6, 5, 4)[lod], (4, 3, 2, 1)[lod], 0.30, rng, 1.0, 0.40)
         return V, T, len(V)
     else:                                     # pin cembro (couronne ovoïde, plus haute) et feuillus (couronne arrondie)
         zc0, zc1 = (0.22, 1.0) if espece == 2 else (0.30, 1.0)
-        rings = (5, 3, 2)[lod]
-        n = (9, 7, 5)[lod]
-        parts.append(_ellipsoide(zc0, zc1, n, rings, 0.26 if lod == 0 else 0.14, rng, 0.82 if espece == 2 else 1.0,
+        rings = (6, 4, 2, 1)[lod]
+        n = (10, 8, 5, 5)[lod]
+        parts.append(_ellipsoide(zc0, zc1, n, rings, (0.30, 0.20, 0.14, 0.08)[lod], rng, 0.82 if espece == 2 else 1.0,
                                  0.55 if espece == 2 else 0.45))
     V, T = _fusion(parts)
     ntr = len(V)
@@ -1058,6 +1060,11 @@ def build_trees(env, coll, cam):
     N = m["scene_N0"] + m["flip"] * Y
     if env.get("vis") and 2.0 in env["vis"]:
         keep &= _vis_at(env["vis"][2.0], E, N)
+    # limite supérieure de la forêt: pas d'arbres dans la neige ni au-dessus (dégradé sur 200 m sous la ligne de neige)
+    sl = CFG["snow_line"] - 50.0
+    if CFG["snow"] > 0:
+        pa = np.clip((sl - Zf) / 200.0, 0.0, 1.0)
+        keep &= np.random.default_rng(3).random(len(X)) < pa
     n0 = len(X)
     if not keep.any():
         log("arbres: aucun dans la zone visible")
@@ -1083,7 +1090,7 @@ def build_trees(env, coll, cam):
     var = rng.integers(0, nv_var, len(X))
     R = R * rng.uniform(0.9, 1.1, len(X))      # hauteurs: celles du relevé laser, sans variation
     Z = Z + np.maximum(0.0, R * pente * 0.9 - 0.12 * Hh) - 0.10     # sur forte pente, la couronne amont ne rentre pas dans le sol
-    lod = np.where(d < 120.0, 0, np.where(d < 500.0, 1, 2))
+    lod = np.where(d < 120.0, 0, np.where(d < 500.0, 1, np.where(d < 1500.0, 2, 3)))
     tone = rng.uniform(0.85, 1.15, len(X))
     # couleur de la cime lue dans l'image aérienne (ombres et teintes locales comprises): les arbres s'accordent ainsi au reste
     oc = _echantillon_ortho(env, E, N)
@@ -1092,7 +1099,7 @@ def build_trees(env, coll, cam):
     oc = np.where(oc <= 0.04045, oc / 12.92, ((oc + 0.055) / 1.055) ** 2.4)                 # sRGB -> linéaire
     w_oc = np.where(ok_oc, CFG["tree_ortho"], 0.0)
     near = d < CFG["wind_dist"]
-    protos = {(e, l, v): _proto_arbre(e, l, np.random.default_rng(1000 * e + 100 * l + v)) for e in range(5) for l in range(3) for v in range(nv_var)}
+    protos = {(e, l, v): _proto_arbre(e, l, np.random.default_rng(1000 * e + 100 * l + v)) for e in range(5) for l in range(4) for v in range(nv_var)}
     mt = bpy.data.materials.new("Arbre")
     mt.use_nodes = True
     nt_ = mt.node_tree
@@ -1100,7 +1107,44 @@ def build_trees(env, coll, cam):
     b.inputs["Roughness"].default_value = 0.92
     at = nt_.nodes.new("ShaderNodeAttribute")
     at.attribute_name, at.attribute_type = "col", "GEOMETRY"
-    nt_.links.new(at.outputs["Color"], b.inputs["Base Color"])
+    # grain d'aiguilles (bruit fin) et plaques de teinte (bruit large), en coordonnées du monde, + relief: casse l'aspect lisse des volumes
+    Nn, Ln = nt_.nodes, nt_.links
+    po = Nn.new("ShaderNodeNewGeometry")
+    def _bruit(sc, det):
+        t = Nn.new("ShaderNodeTexNoise")
+        t.inputs["Scale"].default_value, t.inputs["Detail"].default_value = sc, det
+        Ln.new(po.outputs["Position"], t.inputs["Vector"])
+        return t.outputs["Fac"]
+    def _plage(src, lo, hi):
+        r = Nn.new("ShaderNodeMapRange")
+        r.inputs["From Min"].default_value, r.inputs["From Max"].default_value = 0.25, 0.75
+        r.inputs["To Min"].default_value, r.inputs["To Max"].default_value = lo, hi
+        Ln.new(src, r.inputs["Value"])
+        return r.outputs["Result"]
+    grain = _bruit(2.2, 7.0)
+    plaque = _bruit(0.12, 3.0)
+    mx1 = Nn.new("ShaderNodeMix")
+    mx1.data_type, mx1.blend_type = "RGBA", "MULTIPLY"
+    mx1.inputs[0].default_value = 1.0
+    Ln.new(at.outputs["Color"], mx1.inputs[6])
+    g3 = Nn.new("ShaderNodeCombineColor")
+    for ch in ("Red", "Green", "Blue"):
+        Ln.new(_plage(grain, 0.55, 1.35), g3.inputs[ch])
+    Ln.new(g3.outputs["Color"], mx1.inputs[7])
+    mx2 = Nn.new("ShaderNodeMix")
+    mx2.data_type, mx2.blend_type = "RGBA", "MULTIPLY"
+    mx2.inputs[0].default_value = 1.0
+    Ln.new(mx1.outputs[2], mx2.inputs[6])
+    p3 = Nn.new("ShaderNodeCombineColor")
+    Ln.new(_plage(plaque, 0.85, 1.12), p3.inputs["Red"])
+    Ln.new(_plage(plaque, 0.88, 1.10), p3.inputs["Green"])
+    Ln.new(_plage(plaque, 0.80, 1.05), p3.inputs["Blue"])
+    Ln.new(p3.outputs["Color"], mx2.inputs[7])
+    Ln.new(mx2.outputs[2], b.inputs["Base Color"])
+    bp = Nn.new("ShaderNodeBump")
+    bp.inputs["Strength"].default_value, bp.inputs["Distance"].default_value = 0.8, 0.3
+    Ln.new(_bruit(5.0, 5.0), bp.inputs["Height"])
+    Ln.new(bp.outputs["Normal"], b.inputs["Normal"])
     ta = _arrivee(env, E, N)
     ob0, nf, nsw = None, 0, 0
     groupes = [(g, zn) for g in np.unique(ta) for zn in ((0, 1) if CFG["wind"] else (0,))]
@@ -1129,7 +1173,7 @@ def build_trees(env, coll, cam):
             wc = w_oc[sel][:, None, None]
             base = ((1.0 - wc) * esp + wc * cim).copy()
             base[:, ntr:, :] = COULEUR_TRONC[None, None, :]
-            vent = (0.022 * Hh[sel][:, None]) * (gg ** 2)[None, :]                     # amplitude du balancement (m) en cime
+            vent = (0.03 * Hh[sel][:, None]) * (gg ** 2)[None, :]                     # amplitude du balancement (m) en cime
             vent[:, ntr:] = 0.0
             vent_all.append(vent.reshape(-1))
             co_all.append(co.reshape(-1, 3))
@@ -1153,9 +1197,9 @@ def build_trees(env, coll, cam):
             ob0 = ob
         ob0 = ob0 or ob
         nf += len(tri)
-    nl = [int((lod == i).sum()) for i in range(3)]
+    nl = [int((lod == i).sum()) for i in range(4)]
     log(f"arbres: {len(X):,} sur {n0:,} (visibles, à moins de {CFG['tree_dist']:.0f} m), {nf:,} triangles "
-        f"(détaillés {nl[0]:,}, moyens {nl[1]:,}, lointains {nl[2]:,})"
+        f"(détaillés {nl[0]:,}, moyens {nl[1]:,}, lointains {nl[2]:,}, très lointains {nl[3]:,})"
         + (f", dont {nsw:,} sur le passage de la matière (masqués à son arrivée)" if nsw else ""))
     if nf > 15_000_000:
         log(f"!! {nf:,} triangles d'arbres: risque de dépasser les 6 Go de la carte graphique. Réduire avec --tree-dist 3500 ou relancer prep-vegetation --rayon 3500.")

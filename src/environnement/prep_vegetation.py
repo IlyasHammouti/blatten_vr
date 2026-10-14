@@ -203,7 +203,7 @@ def remplir(nd, step, hmin, rng):
     ii, jj = np.nonzero(cand & (dens >= 0.4))                        # un bloc isolé n'est pas un arbre
     h = ns[ii, jj].astype(np.float32)
     rr = np.minimum(0.15 * h + 0.5, 4.5)
-    p = np.clip(step * step / (0.55 * np.pi * rr * rr), 0.0, 1.0)
+    p = np.clip(step * step / (0.85 * np.pi * rr * rr), 0.0, 1.0)
     ok = rng.random(len(h)) < p
     ii, jj, h = ii[ok], jj[ok], h[ok]
     return ii, jj, h, (rng.random(len(h)) - 0.5) * step, (rng.random(len(h)) - 0.5) * step
