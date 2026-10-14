@@ -11,6 +11,16 @@
 ## Séances
 (date, ce qui marche, ce qui reste, décisions du contrat à changer, temps de rendu mesurés)
 
+## 2026-10-14 (séance 3, matière A, interpolation, banc de test)
+- **Banc de test** `src/matiere/banc_test.py` (cloud ou PC, `pip install bpy`): terrain et particules synthétiques, caméra à 2 m, dépôt à ~540 m, même densité angulaire que la vidéo (960x540 à 90 degrés). Sert à juger FORME et COÛT, pas la couleur (dépend de l'ortho et de la brume).
+- **Matière A** `src/matiere/matiere_roches.py` (`--matiere matiere_roches`): 4 variantes de roches irrégulières (80 faces), rotation et proportions aléatoires par particule, bump procédural en coordonnées objet, couleur aléatoire + éclaircie par la vitesse (attribut `speed` lu en Instancer, vérifié). Réglages dans `REGLAGES`, remplaçables par `src/matiere/reglages_matiere.json`. Même coût de reconstruction que le gabarit (positions + vitesse seulement).
+  Résultat banc (104 000 particules, espacement 6,8 m): les billes lisses du gabarit deviennent une masse irrégulière, plus rocheuse. Limite: à cette échelle ça se lit comme un lit de graviers, pas encore comme une masse qui coule; la poussière et le contraste restent à faire dans la vraie scène.
+  Coût CPU (2 coeurs, pas représentatif d'une RTX 2060): 32,7 s contre 21,7 s pour le gabarit (+50 %). À mesurer avec `bench` sur le PC.
+- **Interpolation**: la méthode de `Sequence.state` (fondu des extrapolations avant/arrière) n'est exacte qu'à l'ordre 1: à mi-chemin elle ajoute (dt/4)(v0-v1) au lieu de (dt/8)(v0-v1), erreur a·dt²/8 pour une accélération constante (comme un fondu linéaire des positions, de signe opposé). Remplacée dans ma matière par Hermite cubique (`src/matiere/interpolation.py`, option `interpolation: "scene"` pour comparer). Sur données synthétiques à 1 s d'écart: erreur médiane 0,06 m contre 2,2 m. **À confirmer sur les vraies données** avec `test_interpolation.py`.
+- `test_interpolation.py` estime aussi le pas de temps réel entre fichiers (1,0 s ou 1,04 s) à partir des vitesses: retrouve 1,044 s sur des données synthétiques à 1,04 s. Répond à la question à Johan sans le déranger.
+- Proposition ENV (non urgente): si Hermite se confirme, remplacer `Sequence.state` par `interpolation.etat` dans la scène pour que `empreinte-alea`, la matière par défaut et les futurs modules partagent la même interpolation.
+- Pas fait: B' (surface cuite hors ligne): en attente du rendu A sur la vraie scène; dépôt (attend `zfin` fiable); poussière et couleur (attendent l'environnement réel).
+
 ## 2026-10-14 (séance 2, mise à jour et plan)
 - `alea` contient déjà tout `main` (ENV jusqu'à ee09fea: caméra finale, relief HD, bâtiments, arbres, rivière, `empreinte-alea`). Interface `build`/`update` et helpers inchangés. Rien à pull de plus.
 - À retenir pour la matière: caméra finale à 2 m du sol, centre du dépôt à ~540 m (horizontal), 200 m en contrebas; bâtiments et arbres balayés masqués à `tarr`; `zfin` disponible pour le dépôt (sous réserve du stride, voir demandes).
