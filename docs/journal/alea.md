@@ -40,3 +40,10 @@
 - Ajout : `src/matiere/analyse_temps.py` (chronologie vitesse/distance/arrêt des 202 fichiers) pour trancher la fenêtre de temps avec des chiffres.
 - Écarts à noter : `camera.json` (-776,4 / 754,9 / 1708,07, rot z -117,4, `confirmed: false`) diffère de la position citée dans le handover ; budget de rendu du contrat (69 s fixes + 0,62 s/éch.) plus pessimiste que la mesure récente (40 s + 0,43 s/éch.).
 
+
+## 2026-10-16 (conversation unifiée) série complète
+- 202 PLY convertis (stride 5, 233 762 particules, origine conservée), ancien `all_particles_1500` rangé dans `cache/_ancien`.
+- analyse_temps : mouvement dès t = 2 s, pic 75,3 m/s à 31 s, 50 % de la distance à 34 s, 90 % à 53 s, traîne jusqu'à 202 s.
+- test_interpolation (écart 2 s) : Hermite 0,02 m médiane (pire instant 2,27 m) contre 0,21 m (4,96 m) pour l'ancien fondu ; pas de temps 1,000 s. Hermite branché dans `Sequence.state`.
+- Empreinte complète : 2,99 km2. **La caméra est dans l'empreinte** : matière à < 30 m dès t = 49-50 s, jusqu'à ~20 m au-dessus de la caméra entre 50 et 58 s, puis drainage (rien à < 50 m à t = 201 s). Décision D1 demandée à Ilyas (impact puis noir, ou déplacer la caméra).
+- Cap : rotation Z -150 (centre de l'image au 150 deg, départ 129 deg, dépôt 184 deg).

@@ -36,8 +36,8 @@ A. Remise à plat (15-17 oct) -> B. Brouillon du film entier (18-24 oct) -> C. C
 
 | # | Décision | Recommandation | Statut |
 |---|---|---|---|
-| D1 | Fenêtre de temps | Accéléré constant (x2 provisoire : `time_scale` 0.5) du départ jusqu'à ~90 % de la distance parcourue, puis le dépôt. À 1x, 40 s ne montrent pas le dépôt et 150 s coûteraient 4 500 images. Chiffres exacts après `analyse_temps` (A3). | provisoire dans `config.json` |
-| D2 | Cap de la caméra | Mettre le départ et le dépôt face au spectateur (rotation Z seulement, gratuit). Claude calcule l'angle (C2), Ilyas valide sur une image. | à faire |
+| D1 | Fenêtre de temps et caméra | **La coulée passe sur la caméra** (mesuré le 16 oct sur les 202 fichiers) : première matière à moins de 30 m à t = 49 s, coulée jusqu'à ~20 m au-dessus de la caméra entre 50 et 58 s, puis elle s'écoule (plus rien à moins de 50 m à la fin). Phase active 2 à 53 s (90 % de la distance), pic de vitesse 75 m/s à 31 s, pas de temps réel 1,000 s. Options : (a) temps réel 0 à 48 s puis noir au moment de l'impact (fort pour un colloque sur le risque, 1590 images) ; (b) déplacer la caméra hors de l'empreinte pour voir tout l'événement et le dépôt (recalculs faits par Claude, nouvelle validation de la vue par Ilyas). Recommandation : (a). Provisoire dans `config.json` : (a). | **à trancher par Ilyas** |
+| D2 | Cap de la caméra | Fait : rotation Z -69 -> -150, le centre de l'image regarde au 150° entre la zone de départ (129°, 3 km, 1 050 m plus haut) et le dépôt (184°, 590 m). Zone visible inchangée. Ilyas valide sur l'image A5. | à valider |
 | D3 | Matière | Une seule matière, la nôtre (`matiere_roches`), rendue par Ilyas. | décidé |
 | D4 | Modèles d'arbres réalistes | Pour les arbres proches (< 120 m, ~240) : modèles importés par essence (épicéa d'abord), choisis par Ilyas (licence CC0/CC-BY). Étape C. | modèle à fournir |
 | D5 | Rendu final | Tout sur le PC d'Ilyas (le PC de Maxime ne suffit pas). Le rendu final doit donc démarrer au plus tard le 12 novembre. | décidé |
@@ -49,7 +49,7 @@ Toutes les commandes se lancent dans PowerShell depuis `C:\Dev\blatten-vr`.
 
 ### Étape A : remise à plat (15-17 octobre)
 
-**A1 (PC, 5 min) : tout mettre sur `main` et pousser.**
+**A1 : FAIT (Claude, 16 oct)**, `main` contient tout (branche `alea` fusionnée, caméra commitée). Pour mémoire, la marche à suivre :
 ```
 git add camera.json
 git -c user.name="Ilyas Hammouti" -c user.email="e.hammouti01@gmail.com" commit -m "[env] Caméra finale validée"
@@ -61,7 +61,7 @@ git push origin main
 ```
 Fini quand : `git log --oneline -3` montre le handover `[alea]` en tête et `git status` ne montre plus `camera.json`.
 
-**A2 (PC, 20-40 min, sans surveillance) : convertir les 202 fichiers de Johan.**
+**A2 : FAIT (Claude, 16 oct)**, 202 fichiers, 233 762 particules chacun (stride 5), vmax 100 m/s, ancien fichier rangé dans `cache\_ancien\`. Pour mémoire :
 Déplacer d'abord `pipeline\cache\all_particles_1500.npy` dans un sous-dossier `pipeline\cache\_ancien\` (sinon il se mélange à la série). Puis :
 ```
 python blatten.py prep-particules "D:\OneDrive\Université\Master Dynarisk\M2\Blatten\Data_Johan\wetransfer_blatten-data_2026-10-07_1149" --stride 5 --reset --origin 1117.4016956592827 0.0 -1121.1231332002285
@@ -69,32 +69,32 @@ python blatten.py prep-particules "D:\OneDrive\Université\Master Dynarisk\M2\Bl
 (`--origin` garde exactement le calage actuel avec le terrain ; ne pas l'enlever.)
 Renvoyer : la dernière ligne (`meta.json écrit (202 fichier(s)), vmax=...`).
 
-**A3 (PC, 10 min) : analyses.**
+**A3 : FAIT (Claude, 16 oct)**, résultats dans D1 ; interpolation Hermite 10 fois plus précise, branchée dans la scène. Pour mémoire :
 ```
 python src/matiere/analyse_temps.py
 python src/matiere/test_interpolation.py
 ```
 Renvoyer : les deux résumés collés tels quels.
 
-**A4 (PC, 30-60 min, sans surveillance) : empreinte et zone visible sur la vraie série.**
-Menu `6` puis « Empreinte de l'aléa », puis menu `4` « Zone visible ». Renvoyer : le bilan.
+**A4 : FAIT (Claude, 16 oct)** : empreinte 2,99 km2 sur 201 s, zone visible avec couloir recalculée.
 
-**A5 (PC, 15 min) : première image de l'avalanche dans la vraie scène.**
+**A5 (PC, ~30 min) : premières images de l'avalanche dans la vraie scène.**
 ```
-python blatten.py test360 --mono --render-frame 900
+python blatten.py test360 --mono --render-frame 1050
+python blatten.py test360 --mono --render-frame 1440
 ```
-(image 900 = 30 s de film = 50 s de simulation avec les réglages provisoires). Renvoyer : l'image (et le message d'erreur s'il y en a un).
+(1050 = t 30 s, pic de vitesse ; 1440 = t 43 s, la coulée à ~200 m). Puis « Voir en 360 » pour les regarder. Renvoyer les deux images.
 
-**A6 (PC, 5 min) : préparer l'eau** (menu 4, « Préparer l'eau ») et envoyer `pipeline\cache\env\eau_apercu_2m.png`. Accepter tel quel sauf faux positif flagrant.
+**A6 : FAIT (Claude, 16 oct)** : masque d'eau 2 m et 50 cm (0,53 km2), aperçus `cache\env\eau_apercu_*.png`.
 
 **C1 (Claude, fait le 15 oct)** : préréglage `brouillon`, commandes `brouillon` et `montage`, rendu final avec reprise automatique, `t0`/`intro` dans la scène.
-**C2 (Claude, après A2)** : calcul du cap (D2) et proposition de `rot_deg` ; vérifier les positions départ/dépôt par rapport à la caméra.
-**C3 (Claude, après A3)** : si l'interpolation Hermite est confirmée, la brancher dans la scène. Fixer `t0`, `time_scale`, nombre d'images (D1).
+**C2 : FAIT** (cap, D2).
+**C3 : FAIT** (Hermite dans la scène). Reste : fixer la fenêtre selon D1.
 
 ### Étape B : le film entier en brouillon (18-24 octobre)
 
 **B1 (PC, une nuit, sans surveillance)** : menu `7` « BROUILLON du film complet », ou `python blatten.py brouillon`.
-1920x960, 16 échantillons, une image sur deux (675 images, ~8-10 h). En cas de coupure : relancer la même commande, les images faites sont gardées.
+1920x960, 16 échantillons, une image sur deux (795 images avec la fenêtre provisoire, ~9-12 h). En cas de coupure : relancer la même commande, les images faites sont gardées.
 Produit `render\brouillon\brouillon_360.mp4`.
 Si « Out of memory » : coller la ligne `arbres:` et l'erreur, Claude coupe le budget (C4) et on relance.
 
@@ -145,10 +145,10 @@ Le coût fixe (~40 s par image : reconstruction de la scène) domine. Leviers da
 | Arbres (placement, essences, taille réelle, vent, limite sous la neige) | fait, modèles simples | modèles réalistes proches (D4, étape C) |
 | Eau (masque tiré de l'ortho, brillance, ondulations) | fait, à vérifier (A6) | retouches si B2 en relève |
 | Ciel couvert, brume | fait | réglage final en C si besoin |
-| Particules (202 fichiers) | **pas converties** | A2 |
+| Particules (202 fichiers) | converties (stride 5) | fait |
 | Matière A (roches instanciées) | écrite, jamais vue en vraie scène | A5, puis C |
-| Interpolation Hermite | écrite, à confirmer | C3 |
-| Fenêtre de temps, cap | provisoire | D1, D2 de §3 |
+| Interpolation Hermite | confirmée et branchée | fait |
+| Fenêtre de temps, cap | cap fait ; fenêtre selon D1 | D1 |
 | Poussière | rien | C |
 | Dépôt (fond de vallée recouvert) | les particules au repos forment le dépôt ; trous possibles à stride 5 | à juger sur B2 |
 | Rendu, montage, 360, reprise | fait (C1) | B1, D3 |
