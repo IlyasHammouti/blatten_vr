@@ -150,6 +150,8 @@ def main():
     for path in files:
         out_name = os.path.splitext(os.path.basename(path))[0] + ".npy"
         out_path = os.path.join(a.out, out_name)
+        if out_name in entries and os.path.exists(out_path) and not a.reset:
+            continue                      # déjà converti (reprise après une coupure)
         print(f"{os.path.basename(path)} ...", flush=True)
         arr = open_ply(path)
         if origin is None:  # calculé sur le premier fichier, ~1/100 des points
@@ -181,6 +183,8 @@ def main():
             }
             meta["stats"] = st
 
+    if not speeds_all and entries:
+        print(f"Rien de nouveau: {len(entries)} fichier(s) déjà convertis.")
     vmax = float(np.percentile(np.concatenate(speeds_all), 99.5)) if speeds_all else 1.0
     meta.update({
         "origin": origin,
