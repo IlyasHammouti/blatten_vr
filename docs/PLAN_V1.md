@@ -8,21 +8,16 @@ leurs sections techniques restent valables comme mémoire). Une conversation Cla
 **Livrable V1 (25 novembre)** : une vidéo 360° muette, YouTube, 3840x1920, 30 images/s, ~45 s : 5 s de paysage calme, l'avalanche
 (accélérée si nécessaire), le dépôt, quelques secondes de fin avec crédits. Regardée **sur smartphone** via QR code.
 
-**Critère « assez bon »** : sur un téléphone, dans YouTube 360, un spectateur qui tourne la tête comprend ce qui arrive (une masse qui
-descend, de la poussière, un fond de vallée enseveli) et rien ne le sort de l'immersion (pas de trou, pas de scintillement, pas d'objet absurde).
-Rien d'autre ne compte pour la V1.
+**Exigence** : un résultat impeccable sur téléphone dans YouTube 360. Le spectateur qui tourne la tête voit une scène crédible de bout en bout :
+la masse qui descend, la poussière, le fond de vallée enseveli, un décor sans défaut (pas de trou, pas de scintillement, pas d'objet faux).
+On juge les images dans la visionneuse 360 (`voir360`) ou sur téléphone : la vue 3D de Blender ne montre ni le soleil ni les ombres de la scène.
 
-**Règles anti-détail (Pareto)** :
-1. On ne juge une image **que** dans la visionneuse 360 (`voir360`) ou sur téléphone. Jamais dans la vue 3D de Blender.
-2. Chaque tâche a une durée maximale. Dépassée : on garde l'état actuel et l'idée va au **Backlog V2** (§7).
-3. **L'environnement est gelé le 17 octobre.** Après : seulement les bugs qui cassent le rendu (mémoire, trous, crash).
-4. Une séance = une ligne du plan. Une idée nouvelle n'interrompt pas la séance : elle va au backlog.
-5. On voit le **film entier en brouillon** avant de peaufiner quoi que ce soit (étape B). On corrige ensuite les 3 plus gros défauts, pas les 20.
+**Répartition** : Claude fait tout ce qui ne demande pas Blender (code, préparation des données, analyses, git) directement sur le PC.
+Ilyas lance ce qui demande Blender (images test, brouillons, rendu final) et regarde les résultats. Tout le rendu se fait sur le PC d'Ilyas.
 
 ## 1. Recul (honnête)
 
-- Depuis début octobre, l'essentiel du temps est allé à l'**environnement** (relief, bâtiments, arbres, eau). C'est le décor. Le sujet,
-  l'avalanche, **n'a encore jamais été vue dans la vraie scène**. C'est le risque n° 1.
+- Le sujet, l'avalanche, **n'a encore jamais été vue dans la vraie scène** : c'est le risque n° 1, l'environnement est très avancé.
 - Les 202 fichiers PLY sont sur le PC (`Data_Johan\wetransfer_blatten-data_2026-10-07_1149`, 6,2 Go) mais **le cache n'en contient qu'un**
   (`all_particles_1500`). Toute la partie aléa attend cette conversion de 20 minutes.
 - La caméra 360 voit dans toutes les directions : **tourner le cap ne change rien à la zone visible** (`visible.py` n'utilise que la position).
@@ -33,7 +28,7 @@ Rien d'autre ne compte pour la V1.
 ## 2. Chemin critique
 
 ```
-A. Remise à plat (15-17 oct) -> B. Brouillon du film entier (18-24 oct) -> C. Les 3 plus gros défauts (25 oct-7 nov)
+A. Remise à plat (15-17 oct) -> B. Brouillon du film entier (18-24 oct) -> C. Corrections et finitions (25 oct-7 nov)
    -> D. Gel, réglages, rendu final (8-21 nov) -> E. Montage, crédits, YouTube (22-25 nov)
 ```
 
@@ -43,9 +38,9 @@ A. Remise à plat (15-17 oct) -> B. Brouillon du film entier (18-24 oct) -> C. L
 |---|---|---|---|
 | D1 | Fenêtre de temps | Accéléré constant (x2 provisoire : `time_scale` 0.5) du départ jusqu'à ~90 % de la distance parcourue, puis le dépôt. À 1x, 40 s ne montrent pas le dépôt et 150 s coûteraient 4 500 images. Chiffres exacts après `analyse_temps` (A3). | provisoire dans `config.json` |
 | D2 | Cap de la caméra | Mettre le départ et le dépôt face au spectateur (rotation Z seulement, gratuit). Claude calcule l'angle (C2), Ilyas valide sur une image. | à faire |
-| D3 | Maxime et la matière | Une seule matière, la nôtre (`matiere_roches`). Si Maxime veut aider : poussière de référence (vidéos de Blatten) ou son. Message à lui envoyer aujourd'hui. | à demander |
-| D4 | Modèles d'arbres réalistes | **Hors V1** (backlog). Les arbres actuels passent à distance ; seuls ~240 sont à moins de 120 m. | décidé |
-| D5 | 2e PC pour le rendu final | Seulement si Maxime a un GPU NVIDIA avec plus de 6 Go. Sinon tout sur le PC d'Ilyas. | à demander |
+| D3 | Matière | Une seule matière, la nôtre (`matiere_roches`), rendue par Ilyas. | décidé |
+| D4 | Modèles d'arbres réalistes | Pour les arbres proches (< 120 m, ~240) : modèles importés par essence (épicéa d'abord), choisis par Ilyas (licence CC0/CC-BY). Étape C. | modèle à fournir |
+| D5 | Rendu final | Tout sur le PC d'Ilyas (le PC de Maxime ne suffit pas). Le rendu final doit donc démarrer au plus tard le 12 novembre. | décidé |
 
 ## 4. Les tâches
 
@@ -106,24 +101,26 @@ Si « Out of memory » : coller la ligne `arbres:` et l'erreur, Claude coupe le 
 **B2 (PC, 15 min)** : envoyer `brouillon_360.mp4` sur YouTube en **non répertorié**, le regarder **sur le téléphone**, noter en 5 lignes max
 ce qui gêne le plus (ordre d'importance). Ça valide aussi toute la chaîne YouTube 360 dès maintenant.
 
-**B3 (Claude + Ilyas, 30 min)** : classer les défauts, garder les 3 premiers pour l'étape C. Le reste va au backlog.
+**B3 (Claude + Ilyas, 30 min)** : classer les défauts par importance : c'est la liste de l'étape C.
 
-### Étape C : les 3 plus gros défauts (25 octobre - 7 novembre)
+### Étape C : corrections et finitions (25 octobre - 7 novembre)
 
-Probables (à confirmer par B2), avec la piste prévue :
-1. **La matière se lit mal** (lit de graviers, contraste) : couleur, taille des roches, teinte sombre humide, ombrage. Durée max : 2 séances.
-2. **Pas de poussière** : nuage de poussière en volume (densité tirée des particules rapides + bruit), plume qui monte et dérive. Durée max : 3 séances.
-3. **Mémoire ou temps de rendu** : moins d'arbres lointains, persistance des données, échantillons. Durée max : 1 séance.
+Tout ce que B2 relève, par ordre d'importance. Chantiers déjà connus :
+1. **Lisibilité de la matière** (aujourd'hui un lit de graviers) : couleur, taille des roches, teinte sombre humide, ombrage ; surface continue si nécessaire.
+2. **Poussière** : nuage en volume (densité tirée des particules rapides + bruit), plume qui monte et dérive, d'après les vidéos de Blatten.
+3. **Dépôt** : fond de vallée enseveli sans trou (surface `zfin` si les particules au repos laissent voir le terrain).
+4. **Arbres proches réalistes** (D4).
+5. **Mémoire et temps de rendu** : tenir dans 6 Go et dans le budget du §5.
 
 Chaque correction se valide par **une image test** (A5) puis, si elle change tout le film, par un `test-clip` de 3 s. Pas de nouveau brouillon complet avant la fin de l'étape C.
-**C-fin (PC, une nuit)** : 2e brouillon complet, regardé sur téléphone. Fini quand : rien ne sort de l'immersion.
+**C-fin (PC, une nuit)** : 2e brouillon complet, regardé sur téléphone.
 
 ### Étape D : gel et rendu final (8 - 21 novembre)
 
 **D1 (Claude, 8-9 nov)** : choisir les échantillons (48 + débruitage OptiX probable), écrire les valeurs dans `config.json`, journal.
-**D2 (PC, 30 min)** : `python blatten.py bench` sur la scène gelée. Calcul : images x secondes par image ; si > 40 h, réduire (Claude).
+**D2 (PC, 30 min)** : `python blatten.py bench` sur la scène finale. Calcul : images x secondes par image ; si > 40 h, réduire (Claude).
 **D3 (PC, ~25-40 h réparties sur plusieurs nuits, 12-21 nov)** : menu `7` « RENDU FINAL ». Reprise automatique : lancer chaque soir, arrêter le matin (fermer la fenêtre), relancer le soir suivant.
-**Ne plus toucher au code pendant D3.**
+Pendant D3, ne pas modifier ce qui change l'image (sinon les images déjà rendues ne raccordent plus).
 
 ### Étape E : livraison (22 - 25 novembre)
 
@@ -144,9 +141,9 @@ Le coût fixe (~40 s par image : reconstruction de la scène) domine. Leviers da
 
 | Morceau | État | Pour la V1 |
 |---|---|---|
-| Relief, images, bâtiments | fait | gelé |
-| Arbres (placement, essences, taille réelle, vent, limite sous la neige) | fait, modèles simples | gelé (modèles réalistes : backlog) |
-| Eau (masque tiré de l'ortho, brillance, ondulations) | fait, à vérifier (A6) | gelé après A6 |
+| Relief, images, bâtiments | fait | retouches si B2 en relève |
+| Arbres (placement, essences, taille réelle, vent, limite sous la neige) | fait, modèles simples | modèles réalistes proches (D4, étape C) |
+| Eau (masque tiré de l'ortho, brillance, ondulations) | fait, à vérifier (A6) | retouches si B2 en relève |
 | Ciel couvert, brume | fait | réglage final en C si besoin |
 | Particules (202 fichiers) | **pas converties** | A2 |
 | Matière A (roches instanciées) | écrite, jamais vue en vraie scène | A5, puis C |
@@ -157,13 +154,13 @@ Le coût fixe (~40 s par image : reconstruction de la scène) domine. Leviers da
 | Rendu, montage, 360, reprise | fait (C1) | B1, D3 |
 | Crédits | rien | E1 |
 
-## 7. Backlog V2 (ne pas faire avant la V1)
+## 7. Hors du dépôt
 
-Modèles d'arbres réalistes (import par essence), surface continue de la matière (B'), dépôt maillé depuis `zfin`, stéréo 3D,
-son ambisonique (chantier d'Ilyas hors dépôt), torrents fins dans le masque d'eau, faux positifs d'eau (toits, parkings), ombres des arbres lointains.
+Son ambisonique (chantier d'Ilyas, Reaper + IEM). Stéréo 3D : non prévue (rendu mono).
 
 ## 8. Début et fin de chaque séance Claude
 
-- Début : lire ce plan et `docs/journal/*.md` (dernières entrées). Demander à Ilyas les résultats des tâches PC en cours. Une seule ligne du plan.
+- Début : lire ce plan et `docs/journal/*.md` (dernières entrées). Demander à Ilyas les résultats des tâches PC en cours.
 - Fin : cocher l'avancement dans §6, une entrée de journal (`docs/journal/env.md` ou `alea.md`), commit ciblé sur `main`, dire à Ilyas **exactement** quoi lancer ensuite.
-- Pièges techniques (git dans la VM, CRLF, verrous) : voir `HANDOVER_ALEA.md` §4. Règle simple : **Claude ne lance pas de git sur le PC** ; Ilyas fait `git pull` lui-même.
+- Git : la suppression est autorisée dans `C:\Dev\blatten-vr` pour la session, donc git marche depuis le shell de l'appareil, sauf `push` (pas d'identifiants) :
+  Claude pousse depuis le cloud (patchs `git format-patch` récupérés, puis `git fetch` et `git reset --hard origin/main` sur le PC une fois le contenu identique vérifié).
