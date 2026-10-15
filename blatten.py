@@ -49,6 +49,7 @@ SCRIPTS = {
     "comparer": os.path.join(SRC, "environnement", "comparer.py"),
     "empreinte": os.path.join(SRC, "environnement", "empreinte_alea.py"),
     "prep_eau": os.path.join(SRC, "environnement", "prep_eau.py"),
+    "montage": os.path.join(SRC, "scene", "montage.py"),
 }
 
 
@@ -649,9 +650,45 @@ def cmd_bench_compare(cfg, paths, extra):
     mod.compare(os.path.join(ROOT, "bench_results"))
 
 
+def _film(cfg):
+    """Réglages du film (config.json, clé "film"): plage d'images, fps."""
+    f = cfg.get("film") or {}
+    return int(f.get("images", 1350)), int((cfg.get("scene") or {}).get("fps", 30))
+
+
+def _rendre_film(cfg, paths, preset, out_rel, pas, extra):
+    out = os.path.join(ROOT, out_rel)
+    os.makedirs(out, exist_ok=True)
+    vides = [f for f in glob.glob(os.path.join(out, "frame_*.png")) if os.path.getsize(f) == 0]
+    for f in vides:            # images commencées puis interrompues: on les refait
+        os.remove(f)
+    n, fps = _film(cfg)
+    deja = len(glob.glob(os.path.join(out, "frame_*.png")))
+    print(f"Film: images 1 à {n} (pas {pas}), {deja} déjà rendues dans {out_rel}; reprise automatique en cas de coupure.")
+    a = scene_args(cfg, paths) + ["--preset", preset, "--render-anim", "--frames", "1", str(n), "--frame-step", str(pas), "--out", out] + extra
+    rc = run_blender(cfg, SCRIPTS["scene"], a)
+    if rc == 0:
+        rc = run_blender(cfg, SCRIPTS["montage"], ["--dir", out, "--fps", str(fps / pas), "--out", os.path.join(out, f"{preset}.mp4")])
+    return rc
+
+
 def cmd_render(cfg, paths, extra):
-    a = scene_args(cfg, paths) + ["--preset", "final", "--render-anim"] + extra
-    return run_blender(cfg, SCRIPTS["scene"], a)
+    """Rendu final: 3840x1920, toutes les images, reprise automatique."""
+    return _rendre_film(cfg, paths, "final", os.path.join("render", "final"), 1, ["--camera-confirmed"] + extra)
+
+
+def cmd_brouillon(cfg, paths, extra):
+    """Film complet en brouillon (1920x960, 16 échantillons, une image sur deux): une nuit, pour juger l'ensemble."""
+    return _rendre_film(cfg, paths, "brouillon", os.path.join("render", "brouillon"), 2, extra)
+
+
+def cmd_montage(cfg, paths, extra):
+    """Refait seulement la vidéo à partir des images déjà rendues (dossier en argument, défaut render/brouillon)."""
+    d = next((x for x in extra if not x.startswith("-")), os.path.join("render", "brouillon"))
+    d = d if os.path.isabs(d) else os.path.join(ROOT, d)
+    n, fps = _film(cfg)
+    pas = 2 if os.path.basename(d.rstrip("/\\")) == "brouillon" else 1
+    return run_blender(cfg, SCRIPTS["montage"], ["--dir", d, "--fps", str(fps / pas), "--out", os.path.join(d, os.path.basename(d.rstrip("/\\")) + ".mp4")])
 
 
 def _ply_step(path):
@@ -787,7 +824,9 @@ RUBRIQUES = [
         ("Test grandeur nature: 3 s de l'événement dans l'environnement", "test-clip", [], "plusieurs heures", None, None),
     ]),
     ("Rendu et performances", "rendu final, benchmark, métadonnées YouTube", [
-        ("RENDU FINAL (animation complète)", "render", [], "très long: demande confirmation", None, "final"),
+        ("BROUILLON du film complet (1920x960, une image sur deux, vidéo 360 au bout)", "brouillon", [], "une nuit; reprise automatique si coupure", None, None),
+        ("RENDU FINAL (animation complète)", "render", [], "très long: demande confirmation; reprise automatique si coupure", None, "final"),
+        ("Refaire seulement la vidéo à partir des images", "montage", [], "dossier render/brouillon par défaut", None, None),
         ("Benchmark de rendu de cette machine", "bench", [], "", None, None),
         ("Comparer les benchmarks enregistrés", "bench-compare", [], "", None, None),
         ("Ajouter les métadonnées 360 à un MP4 (YouTube)", "meta360", [], "demande le fichier", None, "mp4"),
@@ -912,7 +951,7 @@ def cmd_menu(cfg, paths, extra):
 COMMANDS = {
     "status": cmd_status, "setup": cmd_setup, "download": cmd_download, "prep-env": cmd_prep_env, "prep-batiments": cmd_prep_batiments, "prep-vegetation": cmd_prep_vegetation, "env-complet": cmd_env_complet, "visible": cmd_visible,
     "prep-particules": cmd_prep_particules, "terrain": cmd_terrain, "views": cmd_views, "test360": cmd_test360,
-    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
+    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "brouillon": cmd_brouillon, "montage": cmd_montage, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
 }
 
 

@@ -7,6 +7,14 @@
   "scene": {
     "sky": "couvert",
     "fog": 0.6,
-    "dt_per_step": 1.0
+    "dt_per_step": 1.0,
+    "matiere": "matiere_roches",
+    "t0": 0.0,
+    "time_scale": 0.5,
+    "intro": 5.0
+  },
+  "film": {
+    "_doc": "Film: images au total (intro + événement + fin), à 30 images/s. 1350 = 45 s. t0, time_scale (0.5 = accéléré x2) et intro sont dans 'scene'. Provisoire jusqu'à la décision sur la fenêtre de temps (PLAN_V1.md, D1).",
+    "images": 1350
   }
 }

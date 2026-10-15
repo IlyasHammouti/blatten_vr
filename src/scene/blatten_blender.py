@@ -44,7 +44,10 @@ CFG = dict(
     release_voxel=4.0,
     adaptivity=0.03,        # simplification du maillage VDB (0..1)
     dt_per_step=0.01,       # HYPOTHESE: secondes de simulation par unité de numéro de fichier
-    time_scale=1.0,         # secondes vidéo par seconde simulée (4.0 = ralenti x4)
+    time_scale=1.0,         # secondes vidéo par seconde simulée (4.0 = ralenti x4, 0.5 = accéléré x2)
+    t0=0.0,                 # seconde de simulation montrée au début de l'événement
+    intro=0.0,              # secondes de paysage avant l'événement (matière immobile à t0)
+    frame_step=1,           # 2 = une image sur deux (brouillon)
     max_extrap=4.0,         # s, extrapolation max par la vitesse (cas fichier unique / après le dernier)
     fps=30,
     radius=None,            # m, rayon des points (défaut: 0.6 x espacement estimé)
@@ -109,6 +112,7 @@ CFG = dict(
 
 PRESETS = {
     "test": dict(res=(1024, 512), samples=16),
+    "brouillon": dict(res=(1920, 960), samples=16),   # film complet à mi-résolution, pour juger l'ensemble en une nuit
     "final": dict(res=(3840, 1920), samples=96),   # mono; en stéréo haut/bas l'image fait 3840 x 3840
 }
 
@@ -198,7 +202,7 @@ def apply_time(t):
 
 def frame_to_time(scene, frame):
     fps = scene.render.fps / scene.render.fps_base
-    return (frame - scene.frame_start) / fps / CFG["time_scale"]
+    return CFG["t0"] + max(0.0, (frame - scene.frame_start) / fps - CFG["intro"]) / CFG["time_scale"]
 
 
 MATIERE = dict(mod=None)   # module de matière externe (src/matiere/<nom>.py), None = matière par défaut ci-dessous
@@ -2150,7 +2154,7 @@ def parse_args():
     ap = argparse.ArgumentParser(prog="blatten_blender")
     ap.add_argument("--data", dest="data_dir"); ap.add_argument("--terrain"); ap.add_argument("--release")
     ap.add_argument("--terrain-voxel", type=float); ap.add_argument("--terrain-only", type=float); ap.add_argument("--release-voxel", type=float)
-    ap.add_argument("--dt-per-step", type=float); ap.add_argument("--time-scale", type=float)
+    ap.add_argument("--dt-per-step", type=float); ap.add_argument("--time-scale", type=float); ap.add_argument("--t0", type=float); ap.add_argument("--intro", type=float); ap.add_argument("--frame-step", type=int)
     ap.add_argument("--fps", type=int); ap.add_argument("--radius", type=float)
     ap.add_argument("--color", choices=["speed", "natural"]); ap.add_argument("--look", choices=["realiste", "didactique"]); ap.add_argument("--haze", type=float)
     ap.add_argument("--cam", type=float, nargs=3); ap.add_argument("--target", type=float, nargs=3)
@@ -2339,6 +2343,10 @@ def main():
         bpy.ops.render.render(write_still=True)
         log("image:", scene.render.filepath)
     elif CFG["render_anim"]:
+        scene.frame_step = max(1, int(CFG["frame_step"]))
+        scene.render.use_overwrite = False      # reprise: les images déjà rendues sont gardées (relancer la même commande après une coupure)
+        scene.render.use_placeholder = True     # plusieurs Blender peuvent se partager la plage sans refaire les mêmes images
+        log(f"animation: images {scene.frame_start} à {scene.frame_end}, pas {scene.frame_step}, sortie {scene.render.filepath}")
         bpy.ops.render.render(animation=True)
 
 
