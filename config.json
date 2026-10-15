@@ -10,11 +10,11 @@
     "dt_per_step": 1.0,
     "matiere": "matiere_roches",
     "t0": 0.0,
-    "time_scale": 0.5,
+    "time_scale": 1.0,
     "intro": 5.0
   },
   "film": {
-    "_doc": "Film: images au total (intro + événement + fin), à 30 images/s. 1350 = 45 s. t0, time_scale (0.5 = accéléré x2) et intro sont dans 'scene'. Provisoire jusqu'à la décision sur la fenêtre de temps (PLAN_V1.md, D1).",
-    "images": 1350
+    "_doc": "Film rendu par Blender: 5 s de paysage (intro) puis l'événement en temps réel (time_scale 1.0) de t = 0 à 58 s de simulation (phase active: 90 % de la distance à 53 s). 1890 images à 30 images/s = 63 s. Les crédits de fin sont ajoutés au montage (pas de rendu). Repli si le budget de rendu ne tient pas: time_scale 0.77 (accéléré x1,3) et 1350 images.",
+    "images": 1890
   }
 }
