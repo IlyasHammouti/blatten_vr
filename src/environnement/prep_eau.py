@@ -219,9 +219,20 @@ def main():
             m[r0:min(r0 + 1024, H)] = mb[r0 - ra:r0 - ra + min(1024, H - r0)]
         log(f"2 m: eau {m.sum() * o['step'] ** 2 / 1e6:.2f} km2")
         apercu("eau_apercu_2m.png", rgb, m, o["step"], o["x0"], o["y1"], 500)
-        sm = (boite(m.astype(np.float32), 3) * 255).astype(np.uint8)
+        # mémoire de la carte graphique: on ne garde que le rectangle qui contient de l'eau, à 4 m (l'eau proche a son masque à 0,5 m)
+        ii, jj = np.nonzero(m)
+        if len(ii):
+            i0, i1 = max(ii.min() - 8, 0) // 2 * 2, min(ii.max() + 9, H) // 2 * 2
+            j0, j1 = max(jj.min() - 8, 0) // 2 * 2, min(jj.max() + 9, W) // 2 * 2
+        else:
+            i0, i1, j0, j1 = 0, 2, 0, 2
+        mc = m[i0:i1, j0:j1].astype(np.float32)
+        mc = mc.reshape(mc.shape[0] // 2, 2, mc.shape[1] // 2, 2).mean(axis=(1, 3))
+        sm = (np.clip(boite(mc, 3) * 1.3, 0, 1) * 255).astype(np.uint8)
         ecrire_png(os.path.join(sortie, "eau_masque.png"), sm)
-        res["grossier"] = dict(file="eau_masque.png", x0=o["x0"], y1=o["y1"], step=o["step"], shape=[H, W])
+        res["grossier"] = dict(file="eau_masque.png", x0=o["x0"] + j0 * o["step"], y1=o["y1"] - i0 * o["step"], step=o["step"] * 2,
+                               shape=[int(sm.shape[0]), int(sm.shape[1])])
+        log(f"2 m: masque recadré {sm.shape[1]} x {sm.shape[0]} à 4 m (au lieu de {W} x {H})")
         del rgb, m, sm, cor
     else:
         log("image 2 m ou relief 2 m absents ou de tailles différentes: pas de masque lointain")

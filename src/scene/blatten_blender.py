@@ -1209,7 +1209,7 @@ def build_trees(env, coll, cam):
                               scalaires={"vent": np.concatenate(vent_all)} if zn else None)
         if zn:
             _vent_modifier(ob)
-        ca = ob.data.color_attributes.new("col", "FLOAT_COLOR", "POINT")
+        ca = ob.data.color_attributes.new("col", "BYTE_COLOR", "POINT")      # 4 octets par sommet au lieu de 16 (mémoire GPU)
         ca.data.foreach_set("color", np.concatenate([col, np.ones((len(co), 1), np.float32)], 1).ravel())
         coll.objects.link(ob)
         if np.isfinite(g):

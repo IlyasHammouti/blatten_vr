@@ -680,7 +680,22 @@ def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra):
     deja = _nettoyer(out)
     print(f"Film {preset}: {n} images, {deja} déjà rendues dans {out_rel}; reprise automatique en cas de coupure (relancer la même commande).")
     a = scene_args(cfg, paths) + ["--preset", preset, "--mono", "--render-anim", "--frames", "1", str(n), "--out", out] + extra
-    rc = run_blender(cfg, SCRIPTS["scene"], a, fond=True)
+    # Relance automatique: un Blender neuf repart avec une mémoire graphique propre (manque de mémoire, plantage).
+    # On s'arrête quand toutes les images sont là, ou quand une tentative n'a produit aucune image.
+    essai = 0
+    while True:
+        essai += 1
+        rc = run_blender(cfg, SCRIPTS["scene"], a, fond=True)
+        faites = _nettoyer(out)
+        if faites >= n or rc == 0:
+            rc = 0 if faites >= n else rc
+            break
+        if faites <= deja:
+            print(f"\n!! Aucune nouvelle image à la tentative {essai} : arrêt. Le message d'erreur est au-dessus.")
+            break
+        print(f"\n>>> Blender s'est arrêté ({faites}/{n} images faites). Relance automatique (tentative {essai + 1}) dans 20 s ...", flush=True)
+        deja = faites
+        time.sleep(20)
     if rc == 0:
         rc = run_blender(cfg, SCRIPTS["montage"], ["--dir", out, "--fps", str(fps_video), "--out", os.path.join(out, f"{preset}.mp4")])
     return rc
