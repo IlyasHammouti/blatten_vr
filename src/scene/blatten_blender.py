@@ -2157,7 +2157,7 @@ def setup_render(scene, out_dir):
                     for d in prefs.devices:
                         d.use = d.type != "CPU"
                     scene.cycles.device = "GPU"
-                    log("GPU:", kind, [d.name for d in gpus])
+                    log("GPU:", kind, [f"{d.name} ({d.type}, id {d.id})" for d in gpus])
                     break
             except Exception:
                 continue

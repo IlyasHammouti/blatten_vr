@@ -190,6 +190,14 @@ def _lancer_journal(cmd, env, kw, surveiller):
             r = _ram_libre_go()
             if r is not None:
                 ligne += f"  RAM libre: {r:.1f} Go"
+            try:
+                t = subprocess.run(["tasklist", "/FI", "IMAGENAME eq blender.exe", "/FO", "CSV", "/NH"],
+                                   capture_output=True, text=True, timeout=8).stdout
+                ko = [int(re.sub(r"\D", "", l.split('","')[-1])) for l in t.splitlines() if "blender" in l.lower()]
+                if ko:
+                    ligne += f"  Blender: {sum(ko) / 1048576:.1f} Go"
+            except Exception:
+                pass
             ecrire(ligne, console=False)
     if surveiller:
         threading.Thread(target=sonde, daemon=True).start()
@@ -203,6 +211,43 @@ def _lancer_journal(cmd, env, kw, surveiller):
         arret.set()
         f.close()
     return rc
+
+
+def _gros_consommateurs(n=8):
+    """Les programmes qui occupent le plus de mémoire vive (Windows), regroupés par nom."""
+    if os.name != "nt":
+        return []
+    cmd = ("Get-Process | Group-Object ProcessName | ForEach-Object { '{0}|{1:N1}' -f $_.Name, "
+           "(($_.Group | Measure-Object WorkingSet64 -Sum).Sum / 1GB) } ")
+    try:
+        o = subprocess.run(["powershell", "-NoProfile", "-Command", cmd], capture_output=True, text=True, timeout=30).stdout
+        L = [(a, float(b.replace(",", "."))) for a, b in (l.strip().split("|") for l in o.splitlines() if "|" in l)]
+        return sorted(L, key=lambda x: -x[1])[:n]
+    except Exception:
+        return []
+
+
+def _attendre_ram(min_go=11.0, attente_max=900):
+    """Avant chaque paquet: Blender a besoin d'environ 10 Go de RAM libre au pire moment (voir le journal du 16 oct).
+    Sinon on attend (jusqu'à 15 min) que de la place se libère, en disant qui occupe la mémoire."""
+    debut = time.time()
+    prevenu = False
+    while True:
+        r = _ram_libre_go()
+        if r is None or r >= min_go:
+            if prevenu:
+                print(f"RAM libre: {r:.1f} Go, on repart.", flush=True)
+            return
+        if not prevenu:
+            print(f"\n!! Seulement {r:.1f} Go de RAM libre (il en faut au moins {min_go:.0f} pour Blender). Programmes les plus gourmands:", flush=True)
+            for nom, go in _gros_consommateurs():
+                print(f"     {go:5.1f} Go  {nom}", flush=True)
+            print("   Fermez ce qui n'est pas utile (Steam, navigateur, OneDrive...). Attente jusqu'à 15 min, puis le rendu repart quand même.", flush=True)
+            prevenu = True
+        if time.time() - debut > attente_max:
+            print(f"   Toujours {r:.1f} Go libres: on tente quand même.", flush=True)
+            return
+        time.sleep(30)
 
 
 def run_blender(cfg, script, args, background=True, extra_env=None, fond=False):
@@ -770,6 +815,7 @@ def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra):
         i = a.index("--frames")
         b_args = a[:i] + ["--frames", str(d0), str(d1), "--origine", "1"] + a[i + 3:]
         avant = len(manquantes)
+        _attendre_ram()
         rc = run_blender(cfg, SCRIPTS["scene"], b_args, fond=True)
         _nettoyer(out)
         apres = len([i for i in range(1, n + 1) if not os.path.exists(os.path.join(out, f"frame_{i:04d}.png"))])
