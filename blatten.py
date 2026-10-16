@@ -793,7 +793,7 @@ def _nettoyer(out):
     return len(glob.glob(os.path.join(out, "frame_*.png")))
 
 
-def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra):
+def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ram_min=11.0):
     out = os.path.join(ROOT, out_rel)
     deja = _nettoyer(out)
     print(f"Film {preset}: {n} images, {deja} déjà rendues dans {out_rel}; reprise automatique en cas de coupure (relancer la même commande).")
@@ -801,7 +801,7 @@ def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra):
     # Par paquets: un Blender neuf tous les PAQUET images repart avec une mémoire (graphique et vive) propre, ce qui évite
     # l'accumulation dans un processus long. En cas d'arrêt, on réessaie; on abandonne après 2 paquets de suite sans image.
     # --origine 1 garde le calcul du temps de simulation identique quel que soit le paquet.
-    PAQUET = 40
+    PAQUET = paquet
     echecs = 0
     rc = 0
     while True:
@@ -815,7 +815,7 @@ def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra):
         i = a.index("--frames")
         b_args = a[:i] + ["--frames", str(d0), str(d1), "--origine", "1"] + a[i + 3:]
         avant = len(manquantes)
-        _attendre_ram()
+        _attendre_ram(ram_min)
         rc = run_blender(cfg, SCRIPTS["scene"], b_args, fond=True)
         _nettoyer(out)
         apres = len([i for i in range(1, n + 1) if not os.path.exists(os.path.join(out, f"frame_{i:04d}.png"))])
@@ -859,6 +859,31 @@ def cmd_images_test(cfg, paths, extra, temps=(30.0, 43.0)):
         print(f"\n>>> image test à t = {t:g} s -> render/tests/t{t:g}s")
         rc = run_blender(cfg, SCRIPTS["scene"], scene_args(cfg, paths) + ["--preset", "brouillon", "--mono", "--render-frame", "1",
                          "--render-time", str(t), "--out", out] + [x for x in extra if x != "--refaire"], fond=True) or rc
+    return rc
+
+
+def cmd_apercu_alea(cfg, paths, extra):
+    """TOUTE la simulation (t = 0 à 201 s, une image par seconde simulée) à très basse résolution (1280x640), sans arbres
+    ni rivière: sert à voir l'emprise de l'aléa, sa position par rapport à la caméra et à trancher la durée du film.
+    Le temps de simulation est inscrit en bas de chaque image. Vidéo 360 à 10 images/s (10 s simulées par seconde)."""
+    return _rendre_film(cfg, paths, "apercu", os.path.join("render", "apercu_alea"), 202, 10,
+                        ["--chrono", "0.0", "202.0", "202", "--stamp", "--no-trees", "--no-water"] + extra, paquet=70, ram_min=6.0)
+
+
+def cmd_images_finales(cfg, paths, extra, temps=(30.0, 43.0, 52.0)):
+    """Trois images fixes à la résolution FINALE (3840x1920, 96 échantillons): environnement complet + aléa, à t = 30, 43 et 52 s.
+    Sert à juger le réalisme (environnement et matière) et à mesurer le temps d'une image finale."""
+    rc = 0
+    for t in temps:
+        out = os.path.join(ROOT, "render", "finales", f"t{t:g}s")
+        os.makedirs(out, exist_ok=True)
+        if os.path.exists(os.path.join(out, "frame_0001.png")) and "--refaire" not in extra:
+            print(f"image finale t = {t:g} s déjà faite (render/finales/t{t:g}s), ignorée (--refaire pour la refaire)")
+            continue
+        print(f"\n>>> image finale à t = {t:g} s -> render/finales/t{t:g}s", flush=True)
+        _attendre_ram(11.0)
+        rc = run_blender(cfg, SCRIPTS["scene"], scene_args(cfg, paths) + ["--preset", "final", "--mono", "--camera-confirmed",
+                         "--render-frame", "1", "--render-time", str(t), "--out", out] + [x for x in extra if x != "--refaire"], fond=True) or rc
     return rc
 
 
@@ -1026,7 +1051,9 @@ RUBRIQUES = [
         ("Test grandeur nature: 3 s de l'événement dans l'environnement", "test-clip", [], "plusieurs heures", None, None),
     ]),
     ("Rendu et performances", "aperçu complet, rendu final, benchmark, métadonnées YouTube", [
-        ("APERÇU COMPLET: images test t=30 s et t=43 s, puis brouillon de toute la simulation (vidéo 360)", "apercu-complet", [], "~8 h sans surveillance; reprise automatique si coupure", None, None),
+        ("APERÇU DE L'ALÉA: toute la simulation, très basse résolution, sans arbres (emprise, caméra, durée du film)", "apercu-alea", [], "~30-60 min; reprise automatique si coupure", None, None),
+        ("IMAGES FINALES: 3 images 3840x1920 (t=30, 43, 52 s), environnement + aléa (réalisme)", "images-finales", [], "~30-60 min; donne aussi le temps d'une image finale", None, None),
+        ("(ancien) Aperçu complet: images test puis brouillon 1920x960 de toute la simulation", "apercu-complet", [], "~5-8 h", None, None),
         ("Brouillon de toute la simulation seulement (1920x960, vidéo 360 au bout)", "brouillon", [], "~7-8 h; reprise automatique si coupure", None, None),
         ("Images test seulement (t=30 s et t=43 s, render/tests)", "images-test", [], "~5 min", None, None),
         ("Changer la vue de départ (angle donné par la visionneuse 360)", "cap", [], "", None, "cap"),
@@ -1161,7 +1188,7 @@ def cmd_menu(cfg, paths, extra):
 COMMANDS = {
     "status": cmd_status, "setup": cmd_setup, "download": cmd_download, "prep-env": cmd_prep_env, "prep-batiments": cmd_prep_batiments, "prep-vegetation": cmd_prep_vegetation, "env-complet": cmd_env_complet, "visible": cmd_visible,
     "prep-particules": cmd_prep_particules, "terrain": cmd_terrain, "views": cmd_views, "test360": cmd_test360,
-    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "cap": cmd_cap, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
+    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "cap": cmd_cap, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
 }
 
 

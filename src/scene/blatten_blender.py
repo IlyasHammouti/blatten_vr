@@ -66,6 +66,7 @@ CFG = dict(
     sun_rotation=200.0,     # degrés
     out=None,               # dossier de rendu (défaut: ../render)
     frames=None,            # (début, fin)
+    stamp=False,            # inscrit le temps de simulation (t = N s) en bas de chaque image (aperçu de l'aléa)
     origine=None,           # image de référence du temps (défaut: première image). Sert aux rendus par paquets
     render_frame=None,
     render_anim=False,
@@ -115,6 +116,7 @@ CFG = dict(
 
 PRESETS = {
     "test": dict(res=(1024, 512), samples=16),
+    "apercu": dict(res=(1280, 640), samples=8),   # toute la simulation en quelques dizaines de minutes: emprise de l'aléa, pas le réalisme
     "brouillon": dict(res=(1920, 960), samples=16),   # film complet à mi-résolution, pour juger l'ensemble en une nuit
     "final": dict(res=(3840, 1920), samples=96),   # mono; en stéréo haut/bas l'image fait 3840 x 3840
 }
@@ -250,6 +252,8 @@ def load_matiere(root):
 @persistent
 def on_frame(scene, *args):
     t = frame_to_time(scene, scene.frame_current)
+    if CFG["stamp"]:
+        scene.render.stamp_note_text = f"t = {t:.0f} s"
     maj_ensevelis(t)
     if MATIERE["mod"] is not None:
         MATIERE["mod"].update(scene, t, STATE["seq"])
@@ -2143,6 +2147,17 @@ def setup_render(scene, out_dir):
         scene.view_settings.exposure = CFG["exposure"] if CFG["exposure"] is not None else (0.0 if CFG["sky"] == "couvert" else -2.5)
     except Exception:
         pass
+    if CFG["stamp"]:
+        try:
+            for k in ("use_stamp_date", "use_stamp_time", "use_stamp_render_time", "use_stamp_frame", "use_stamp_frame_range",
+                      "use_stamp_memory", "use_stamp_hostname", "use_stamp_camera", "use_stamp_lens", "use_stamp_scene",
+                      "use_stamp_marker", "use_stamp_filename", "use_stamp_sequencer_strip", "use_stamp_labels"):
+                setattr(r, k, False)
+            r.use_stamp, r.use_stamp_note = True, True
+            r.stamp_font_size = 36
+            r.stamp_note_text = "t = 0 s"
+        except Exception as e:
+            log("stamp:", e)
     scene.cycles.samples = p["samples"]
     scene.cycles.use_denoising = True
     scene.cycles.device = "CPU"
@@ -2179,7 +2194,7 @@ def parse_args():
     ap.add_argument("--cam", type=float, nargs=3); ap.add_argument("--target", type=float, nargs=3)
     ap.add_argument("--mono", action="store_true"); ap.add_argument("--ipd", type=float)
     ap.add_argument("--preset", choices=list(PRESETS))
-    ap.add_argument("--frames", type=int, nargs=2); ap.add_argument("--origine", type=int)
+    ap.add_argument("--frames", type=int, nargs=2); ap.add_argument("--origine", type=int); ap.add_argument("--stamp", action="store_true")
     ap.add_argument("--render-frame", type=int); ap.add_argument("--render-anim", action="store_true")
     ap.add_argument("--out"); ap.add_argument("--save", action="store_true")
     ap.add_argument("--views", action="store_true"); ap.add_argument("--vue", type=int)
@@ -2207,7 +2222,7 @@ def parse_args():
         elif k == "no_wind":
             if v:
                 CFG["wind"] = False
-        elif k in ("no_env", "camera_confirmed", "accept_lowres", "bench", "bench_no_warm", "persistent", "clip", "clip_no_keys", "clip_no_video", "cull", "no_hires", "env_only", "lite", "no_buildings", "no_trees", "no_water"):
+        elif k in ("no_env", "camera_confirmed", "accept_lowres", "bench", "bench_no_warm", "persistent", "clip", "clip_no_keys", "clip_no_video", "cull", "no_hires", "env_only", "lite", "no_buildings", "no_trees", "no_water", "stamp"):
             if v:
                 CFG[k] = True
         elif v is not None and v is not False:
