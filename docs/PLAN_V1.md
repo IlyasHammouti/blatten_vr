@@ -103,7 +103,7 @@ Choisir la vue de départ (la petite maison) : dans la visionneuse, placer le ro
 
 Tout ce que B2 relève, par ordre d'importance. Chantiers déjà connus :
 1. **Lisibilité de la matière** (aujourd'hui un lit de graviers) : couleur, taille des roches, teinte sombre humide, ombrage ; surface continue si nécessaire.
-2. **Poussière** : nuage en volume (densité tirée des particules rapides + bruit), plume qui monte et dérive, d'après les vidéos de Blatten.
+2. **Poussière** : PREMIÈRE VERSION ÉCRITE (16 oct, `src/matiere/poussiere.py`, testée sous Blender 5.2.2), à régler d'après les images. Nuage en volume: bouffées émises par les particules rapides (probabilité proportionnelle à v²), qui gardent leur élan puis sont freinées, montent, grossissent et se diluent; bruit 3D dérivant pour l'aspect turbulent. C'est un modèle visuel: la simulation de Johan est granulaire, sans poussière ni air, et je n'ai trouvé aucune mesure publiée du nuage de Blatten. Réglages (densité, rayon, montée, durée) dans `REGLAGES`, à comparer avec les vidéos de l'événement. `--no-poussiere` pour la couper.
 3. **Dépôt** : fond de vallée enseveli sans trou (surface `zfin` si les particules au repos laissent voir le terrain).
 4. **Arbres proches réalistes** (D4).
 5. **Mémoire et temps de rendu** : tenir dans 6 Go et dans le budget du §5.
@@ -145,7 +145,7 @@ Le coût fixe (~40 s par image : reconstruction de la scène) domine. Leviers da
 | Matière A (roches instanciées) | écrite, jamais vue en vraie scène | A5, puis C |
 | Interpolation Hermite | confirmée et branchée | fait |
 | Fenêtre de temps, cap | cap fait ; fenêtre selon D1 | D1 |
-| Poussière | rien | C |
+| Poussière | première version (modèle visuel, à régler sur images) | C |
 | Dépôt (fond de vallée recouvert) | les particules au repos forment le dépôt ; trous possibles à stride 5 | à juger sur B2 |
 | Rendu, montage, 360, reprise | fait (C1) | B1, D3 |
 | Crédits | rien | E1 |

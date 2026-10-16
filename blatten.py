@@ -1051,8 +1051,8 @@ RUBRIQUES = [
         ("Test grandeur nature: 3 s de l'événement dans l'environnement", "test-clip", [], "plusieurs heures", None, None),
     ]),
     ("Rendu et performances", "aperçu complet, rendu final, benchmark, métadonnées YouTube", [
-        ("APERÇU DE L'ALÉA: toute la simulation, très basse résolution, sans arbres (emprise, caméra, durée du film)", "apercu-alea", [], "~30-60 min; reprise automatique si coupure", None, None),
-        ("IMAGES FINALES: 3 images 3840x1920 (t=30, 43, 52 s), environnement + aléa (réalisme)", "images-finales", [], "~30-60 min; donne aussi le temps d'une image finale", None, None),
+        ("APERÇU DE L'ALÉA: toute la simulation avec panache, très basse résolution, sans arbres (emprise, caméra, durée du film)", "apercu-alea", [], "~30-60 min; reprise automatique si coupure", None, None),
+        ("IMAGES FINALES: 3 images 3840x1920 (t=30, 43, 52 s), environnement + matière + panache de poussière (réalisme)", "images-finales", [], "~30-60 min; donne aussi le temps d'une image finale", None, None),
         ("(ancien) Aperçu complet: images test puis brouillon 1920x960 de toute la simulation", "apercu-complet", [], "~5-8 h", None, None),
         ("Brouillon de toute la simulation seulement (1920x960, vidéo 360 au bout)", "brouillon", [], "~7-8 h; reprise automatique si coupure", None, None),
         ("Images test seulement (t=30 s et t=43 s, render/tests)", "images-test", [], "~5 min", None, None),

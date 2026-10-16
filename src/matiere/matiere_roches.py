@@ -25,6 +25,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # le module est chargé par chemin: retrouver ses voisins
 import interpolation  # noqa: E402
+import poussiere  # noqa: E402   (panache de poussière, voir poussiere.py)
 
 REGLAGES = dict(
     n_variantes=4,           # nombre de formes de roche
@@ -249,7 +250,11 @@ def build(scene, seq, coll, cfg, log, helpers):
     coll.objects.link(obj)
     obj.modifiers.new("Roches", "NODES").node_group = _arbre(modeles, r, rayon)
 
-    STATE.update(mesh=mesh, last_t=None, seq=seq, to_blender=helpers["to_blender"], interp=r["interpolation"])
+    STATE.update(mesh=mesh, last_t=None, seq=seq, to_blender=helpers["to_blender"], interp=r["interpolation"], poussiere=False)
+    try:
+        STATE["poussiere"] = poussiere.construire(scene, coll, seq, helpers["to_blender"], cfg, log, r.get("poussiere_reglages"))
+    except Exception as e:      # le panache est un ajout: s'il échoue, la matière seule est rendue (et on le dit clairement)
+        log(f"!! poussière NON construite ({e!r}): rendu sans panache")
     update(scene, helpers["frame_to_time"](scene, scene.frame_start), seq)
     log(f"matière (roches): {n:,} particules, {int(r['n_variantes'])} variantes de {len(bpy.data.meshes['roche_0'].polygons)} faces, rayon de base {rayon:.2f} m")
     return obj
@@ -263,4 +268,6 @@ def update(scene, t, seq):
     mesh.vertices.foreach_set("co", STATE["to_blender"](P).ravel())
     mesh.attributes["speed"].data.foreach_set("value", np.linalg.norm(V, axis=1).astype(np.float32))
     mesh.update()
+    if STATE.get("poussiere"):
+        poussiere.maj(t)
     STATE["last_t"] = t
