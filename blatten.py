@@ -133,6 +133,78 @@ def find_blender(cfg, ask=True):
              '(clé "blender"), voir config.local.example.json.')
 
 
+LOG_COURANT = {}
+
+
+def _ram_libre_go():
+    """Mémoire vive libre (Go) sous Windows, None ailleurs."""
+    if os.name != "nt":
+        return None
+    try:
+        import ctypes
+
+        class MS(ctypes.Structure):
+            _fields_ = [("l", ctypes.c_ulong), ("load", ctypes.c_ulong), ("tot", ctypes.c_ulonglong), ("av", ctypes.c_ulonglong),
+                        ("tp", ctypes.c_ulonglong), ("ap", ctypes.c_ulonglong), ("tv", ctypes.c_ulonglong), ("av2", ctypes.c_ulonglong),
+                        ("ex", ctypes.c_ulonglong)]
+        m = MS()
+        m.l = ctypes.sizeof(MS)
+        ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(m))
+        return m.av / 2 ** 30
+    except Exception:
+        return None
+
+
+def _lancer_journal(cmd, env, kw, surveiller):
+    """Lance Blender en copiant tout ce qu'il écrit dans render/logs/*.log (la fenêtre peut se fermer, le journal reste).
+    surveiller=True: ajoute toutes les 10 s la mémoire graphique (nvidia-smi) et la RAM libre, pour voir ce qui sature."""
+    import threading
+    dossier = os.path.join(ROOT, "render", "logs")
+    os.makedirs(dossier, exist_ok=True)
+    if "chemin" not in LOG_COURANT:
+        LOG_COURANT["chemin"] = os.path.join(dossier, time.strftime("rendu_%Y%m%d_%H%M%S.log"))
+    f = open(LOG_COURANT["chemin"], "a", encoding="utf-8", errors="replace")
+    verrou = threading.Lock()
+
+    def ecrire(txt, console=True):
+        with verrou:
+            f.write(txt if txt.endswith("\n") else txt + "\n")
+            f.flush()
+        if console:
+            try:
+                print(txt.rstrip("\n"), flush=True)
+            except Exception:
+                pass
+    ecrire(f"[{time.strftime('%H:%M:%S')}] $ " + " ".join(cmd), console=False)
+    arret = threading.Event()
+
+    def sonde():
+        while not arret.wait(10):
+            ligne = f"[{time.strftime('%H:%M:%S')}] [sonde]"
+            try:
+                o = subprocess.run(["nvidia-smi", "--query-gpu=index,memory.used,memory.total", "--format=csv,noheader,nounits"],
+                                   capture_output=True, text=True, timeout=8).stdout.strip().replace("\n", " | ")
+                ligne += f" GPU(index, Mo utilisés, Mo total): {o}"
+            except Exception:
+                ligne += " GPU: nvidia-smi indisponible"
+            r = _ram_libre_go()
+            if r is not None:
+                ligne += f"  RAM libre: {r:.1f} Go"
+            ecrire(ligne, console=False)
+    if surveiller:
+        threading.Thread(target=sonde, daemon=True).start()
+    try:
+        pr = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                              encoding="utf-8", errors="replace", bufsize=1, **kw)
+        for ligne in pr.stdout:
+            ecrire(ligne.rstrip("\n"))
+        rc = pr.wait()
+    finally:
+        arret.set()
+        f.close()
+    return rc
+
+
 def run_blender(cfg, script, args, background=True, extra_env=None, fond=False):
     """fond=True (rendus longs): priorité basse et 2 coeurs laissés libres, pour pouvoir travailler à côté."""
     exe = find_blender(cfg)
@@ -144,9 +216,10 @@ def run_blender(cfg, script, args, background=True, extra_env=None, fond=False):
     kw = {}
     if fond and os.name == "nt":
         kw["creationflags"] = getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0x4000)
-    rc = subprocess.call(cmd, env=env, **kw)
+    rc = _lancer_journal(cmd, env, kw, fond)
     if rc != 0:
-        print(f"\n!! Blender s'est terminé avec une erreur (code {rc}). Le message se trouve juste au-dessus.", flush=True)
+        print(f"\n!! Blender s'est terminé avec une erreur (code {rc}). Le message se trouve juste au-dessus"
+              f" et dans le journal {LOG_COURANT.get('chemin', '')}.", flush=True)
     return rc
 
 
@@ -680,22 +753,36 @@ def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra):
     deja = _nettoyer(out)
     print(f"Film {preset}: {n} images, {deja} déjà rendues dans {out_rel}; reprise automatique en cas de coupure (relancer la même commande).")
     a = scene_args(cfg, paths) + ["--preset", preset, "--mono", "--render-anim", "--frames", "1", str(n), "--out", out] + extra
-    # Relance automatique: un Blender neuf repart avec une mémoire graphique propre (manque de mémoire, plantage).
-    # On s'arrête quand toutes les images sont là, ou quand une tentative n'a produit aucune image.
-    essai = 0
+    # Par paquets: un Blender neuf tous les PAQUET images repart avec une mémoire (graphique et vive) propre, ce qui évite
+    # l'accumulation dans un processus long. En cas d'arrêt, on réessaie; on abandonne après 2 paquets de suite sans image.
+    # --origine 1 garde le calcul du temps de simulation identique quel que soit le paquet.
+    PAQUET = 40
+    echecs = 0
+    rc = 0
     while True:
-        essai += 1
-        rc = run_blender(cfg, SCRIPTS["scene"], a, fond=True)
-        faites = _nettoyer(out)
-        if faites >= n or rc == 0:
-            rc = 0 if faites >= n else rc
+        manquantes = [i for i in range(1, n + 1) if not os.path.exists(os.path.join(out, f"frame_{i:04d}.png"))]
+        if not manquantes:
+            rc = 0
             break
-        if faites <= deja:
-            print(f"\n!! Aucune nouvelle image à la tentative {essai} : arrêt. Le message d'erreur est au-dessus.")
-            break
-        print(f"\n>>> Blender s'est arrêté ({faites}/{n} images faites). Relance automatique (tentative {essai + 1}) dans 20 s ...", flush=True)
-        deja = faites
-        time.sleep(20)
+        d0 = manquantes[0]
+        d1 = min(d0 + PAQUET - 1, n)
+        print(f"\n>>> paquet d'images {d0} à {d1} sur {n} ({len(manquantes)} restantes)", flush=True)
+        i = a.index("--frames")
+        b_args = a[:i] + ["--frames", str(d0), str(d1), "--origine", "1"] + a[i + 3:]
+        avant = len(manquantes)
+        rc = run_blender(cfg, SCRIPTS["scene"], b_args, fond=True)
+        _nettoyer(out)
+        apres = len([i for i in range(1, n + 1) if not os.path.exists(os.path.join(out, f"frame_{i:04d}.png"))])
+        if apres >= avant:
+            echecs += 1
+            print(f"\n!! Aucune nouvelle image dans ce paquet (échec {echecs}/2).", flush=True)
+            if echecs >= 2:
+                print(f"Arrêt. Journal complet: {LOG_COURANT.get('chemin', '')}")
+                rc = rc or 1
+                break
+        else:
+            echecs = 0
+        time.sleep(5)
     if rc == 0:
         rc = run_blender(cfg, SCRIPTS["montage"], ["--dir", out, "--fps", str(fps_video), "--out", os.path.join(out, f"{preset}.mp4")])
     return rc

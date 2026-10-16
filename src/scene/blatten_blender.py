@@ -66,6 +66,7 @@ CFG = dict(
     sun_rotation=200.0,     # degrés
     out=None,               # dossier de rendu (défaut: ../render)
     frames=None,            # (début, fin)
+    origine=None,           # image de référence du temps (défaut: première image). Sert aux rendus par paquets
     render_frame=None,
     render_anim=False,
     save=False,
@@ -212,7 +213,7 @@ def frame_to_time(scene, frame):
         return float(CFG["render_time"])
     if CFG["chrono"]:
         c = list(CFG["chrono"])
-        k = frame - scene.frame_start
+        k = frame - (CFG["origine"] if CFG["origine"] is not None else scene.frame_start)
         for a, b, n in zip(c[0::3], c[1::3], c[2::3]):
             n = int(n)
             if k < n:
@@ -220,7 +221,7 @@ def frame_to_time(scene, frame):
             k -= n
         return c[-2]
     fps = scene.render.fps / scene.render.fps_base
-    return CFG["t0"] + max(0.0, (frame - scene.frame_start) / fps - CFG["intro"]) / CFG["time_scale"]
+    return CFG["t0"] + max(0.0, (frame - (CFG["origine"] if CFG["origine"] is not None else scene.frame_start)) / fps - CFG["intro"]) / CFG["time_scale"]
 
 
 MATIERE = dict(mod=None)   # module de matière externe (src/matiere/<nom>.py), None = matière par défaut ci-dessous
@@ -2178,7 +2179,7 @@ def parse_args():
     ap.add_argument("--cam", type=float, nargs=3); ap.add_argument("--target", type=float, nargs=3)
     ap.add_argument("--mono", action="store_true"); ap.add_argument("--ipd", type=float)
     ap.add_argument("--preset", choices=list(PRESETS))
-    ap.add_argument("--frames", type=int, nargs=2)
+    ap.add_argument("--frames", type=int, nargs=2); ap.add_argument("--origine", type=int)
     ap.add_argument("--render-frame", type=int); ap.add_argument("--render-anim", action="store_true")
     ap.add_argument("--out"); ap.add_argument("--save", action="store_true")
     ap.add_argument("--views", action="store_true"); ap.add_argument("--vue", type=int)
