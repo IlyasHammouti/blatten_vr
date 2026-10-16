@@ -48,6 +48,8 @@ CFG = dict(
     t0=0.0,                 # seconde de simulation montrée au début de l'événement
     intro=0.0,              # secondes de paysage avant l'événement (matière immobile à t0)
     frame_step=1,           # 2 = une image sur deux (brouillon)
+    chrono=None,            # brouillon: [t_début, t_fin, images, ...] par tranches (remplace t0/time_scale/intro)
+    render_time=None,       # image test à cet instant de simulation (s), quelle que soit l'image
     max_extrap=4.0,         # s, extrapolation max par la vitesse (cas fichier unique / après le dernier)
     fps=30,
     radius=None,            # m, rayon des points (défaut: 0.6 x espacement estimé)
@@ -206,6 +208,17 @@ def apply_time(t):
 
 
 def frame_to_time(scene, frame):
+    if CFG["render_time"] is not None:
+        return float(CFG["render_time"])
+    if CFG["chrono"]:
+        c = list(CFG["chrono"])
+        k = frame - scene.frame_start
+        for a, b, n in zip(c[0::3], c[1::3], c[2::3]):
+            n = int(n)
+            if k < n:
+                return a + (b - a) * k / max(n, 1)
+            k -= n
+        return c[-2]
     fps = scene.render.fps / scene.render.fps_base
     return CFG["t0"] + max(0.0, (frame - scene.frame_start) / fps - CFG["intro"]) / CFG["time_scale"]
 
@@ -2159,7 +2172,7 @@ def parse_args():
     ap = argparse.ArgumentParser(prog="blatten_blender")
     ap.add_argument("--data", dest="data_dir"); ap.add_argument("--terrain"); ap.add_argument("--release")
     ap.add_argument("--terrain-voxel", type=float); ap.add_argument("--terrain-only", type=float); ap.add_argument("--release-voxel", type=float)
-    ap.add_argument("--dt-per-step", type=float); ap.add_argument("--time-scale", type=float); ap.add_argument("--t0", type=float); ap.add_argument("--intro", type=float); ap.add_argument("--frame-step", type=int)
+    ap.add_argument("--dt-per-step", type=float); ap.add_argument("--time-scale", type=float); ap.add_argument("--t0", type=float); ap.add_argument("--intro", type=float); ap.add_argument("--frame-step", type=int); ap.add_argument("--chrono", type=float, nargs="+"); ap.add_argument("--render-time", type=float)
     ap.add_argument("--fps", type=int); ap.add_argument("--radius", type=float)
     ap.add_argument("--color", choices=["speed", "natural"]); ap.add_argument("--look", choices=["realiste", "didactique"]); ap.add_argument("--haze", type=float)
     ap.add_argument("--cam", type=float, nargs=3); ap.add_argument("--target", type=float, nargs=3)

@@ -133,13 +133,18 @@ def find_blender(cfg, ask=True):
              '(clé "blender"), voir config.local.example.json.')
 
 
-def run_blender(cfg, script, args, background=True, extra_env=None):
+def run_blender(cfg, script, args, background=True, extra_env=None, fond=False):
+    """fond=True (rendus longs): priorité basse et 2 coeurs laissés libres, pour pouvoir travailler à côté."""
     exe = find_blender(cfg)
-    cmd = [exe] + (["-b"] if background else []) + ["--python", script, "--"] + [str(a) for a in args]
+    fil = ["-t", str(max(2, (os.cpu_count() or 4) - 2))] if fond else []
+    cmd = [exe] + (["-b"] if background else []) + fil + ["--python", script, "--"] + [str(a) for a in args]
     env = dict(os.environ, BLATTEN_ROOT=ROOT)
     env.update(extra_env or {})
     print("$", " ".join(f'"{c}"' if " " in c else c for c in cmd), flush=True)
-    rc = subprocess.call(cmd, env=env)
+    kw = {}
+    if fond and os.name == "nt":
+        kw["creationflags"] = getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0x4000)
+    rc = subprocess.call(cmd, env=env, **kw)
     if rc != 0:
         print(f"\n!! Blender s'est terminé avec une erreur (code {rc}). Le message se trouve juste au-dessus.", flush=True)
     return rc
@@ -656,30 +661,76 @@ def _film(cfg):
     return int(f.get("images", 1350)), int((cfg.get("scene") or {}).get("fps", 30))
 
 
-def _rendre_film(cfg, paths, preset, out_rel, pas, extra):
-    out = os.path.join(ROOT, out_rel)
+# Brouillon de TOUTE la simulation (0 à 202 s): 6 images par seconde simulée pendant la phase active (0-70 s),
+# 1 par seconde ensuite (la matière ralentit). Vidéo à 12 images/s: phase active en accéléré x2, fin en accéléré x12.
+CHRONO_BROUILLON = [0.0, 70.0, 420, 70.0, 202.0, 132]
+FPS_BROUILLON = 12
+
+
+def _nettoyer(out):
     os.makedirs(out, exist_ok=True)
-    vides = [f for f in glob.glob(os.path.join(out, "frame_*.png")) if os.path.getsize(f) == 0]
-    for f in vides:            # images commencées puis interrompues: on les refait
-        os.remove(f)
-    n, fps = _film(cfg)
-    deja = len(glob.glob(os.path.join(out, "frame_*.png")))
-    print(f"Film: images 1 à {n} (pas {pas}), {deja} déjà rendues dans {out_rel}; reprise automatique en cas de coupure.")
-    a = scene_args(cfg, paths) + ["--preset", preset, "--render-anim", "--frames", "1", str(n), "--frame-step", str(pas), "--out", out] + extra
-    rc = run_blender(cfg, SCRIPTS["scene"], a)
+    for f in glob.glob(os.path.join(out, "frame_*.png")):
+        if os.path.getsize(f) == 0:      # image commencée puis interrompue: à refaire
+            os.remove(f)
+    return len(glob.glob(os.path.join(out, "frame_*.png")))
+
+
+def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra):
+    out = os.path.join(ROOT, out_rel)
+    deja = _nettoyer(out)
+    print(f"Film {preset}: {n} images, {deja} déjà rendues dans {out_rel}; reprise automatique en cas de coupure (relancer la même commande).")
+    a = scene_args(cfg, paths) + ["--preset", preset, "--mono", "--render-anim", "--frames", "1", str(n), "--out", out] + extra
+    rc = run_blender(cfg, SCRIPTS["scene"], a, fond=True)
     if rc == 0:
-        rc = run_blender(cfg, SCRIPTS["montage"], ["--dir", out, "--fps", str(fps / pas), "--out", os.path.join(out, f"{preset}.mp4")])
+        rc = run_blender(cfg, SCRIPTS["montage"], ["--dir", out, "--fps", str(fps_video), "--out", os.path.join(out, f"{preset}.mp4")])
     return rc
 
 
 def cmd_render(cfg, paths, extra):
-    """Rendu final: 3840x1920, toutes les images, reprise automatique."""
-    return _rendre_film(cfg, paths, "final", os.path.join("render", "final"), 1, ["--camera-confirmed"] + extra)
+    """Rendu final: 3840x1920 mono, fenêtre du film (config.json), reprise automatique."""
+    n, fps = _film(cfg)
+    return _rendre_film(cfg, paths, "final", os.path.join("render", "final"), n, fps, ["--camera-confirmed"] + extra)
 
 
 def cmd_brouillon(cfg, paths, extra):
-    """Film complet en brouillon (1920x960, 16 échantillons, une image sur deux): une nuit, pour juger l'ensemble."""
-    return _rendre_film(cfg, paths, "brouillon", os.path.join("render", "brouillon"), 2, extra)
+    """Brouillon de toute la simulation (1920x960, 16 échantillons), vidéo 360 au bout."""
+    n = int(sum(CHRONO_BROUILLON[2::3]))
+    return _rendre_film(cfg, paths, "brouillon", os.path.join("render", "brouillon"), n, FPS_BROUILLON,
+                        ["--chrono"] + [str(x) for x in CHRONO_BROUILLON] + extra)
+
+
+def cmd_images_test(cfg, paths, extra, temps=(30.0, 43.0)):
+    """Images fixes de l'avalanche à des instants de simulation (défaut t = 30 s et 43 s), qualité brouillon."""
+    rc = 0
+    for t in temps:
+        out = os.path.join(ROOT, "render", "tests", f"t{t:g}s")
+        os.makedirs(out, exist_ok=True)
+        print(f"\n>>> image test à t = {t:g} s -> render/tests/t{t:g}s")
+        rc = run_blender(cfg, SCRIPTS["scene"], scene_args(cfg, paths) + ["--preset", "brouillon", "--mono", "--render-frame", "1",
+                         "--render-time", str(t), "--out", out] + extra, fond=True) or rc
+    return rc
+
+
+def cmd_apercu_complet(cfg, paths, extra):
+    """Tout d'un coup, sans surveillance: images test t = 30 s et 43 s, puis brouillon de toute la simulation et sa vidéo 360."""
+    rc = cmd_images_test(cfg, paths, extra)
+    print("\nImages test terminées (render/tests). Lancement du brouillon complet ...")
+    return cmd_brouillon(cfg, paths, extra) or rc
+
+
+def cmd_cap(cfg, paths, extra):
+    """Tourne la vue de départ de la vidéo de N degrés (positif = vers la droite). La visionneuse 360 donne N."""
+    v = [x for x in extra if re.match(r"^[+-]?\d+(\.\d+)?$", x)]
+    if not v:
+        sys.exit("Indiquez l'angle, par exemple : python blatten.py cap 35   (positif = vers la droite)")
+    f = os.path.join(ROOT, "camera.json")
+    c = _load_json(f)
+    rz = float(c["rot_deg"][2]) - float(v[0])
+    rz = (rz + 180.0) % 360.0 - 180.0
+    c["rot_deg"][2] = round(rz, 1)
+    json.dump(c, open(f, "w", encoding="utf-8"), indent=2, ensure_ascii=False)
+    print(f"Vue de départ tournée de {float(v[0]):g} degrés: rotation Z = {rz:.1f} (la zone visible ne change pas).")
+    return 0
 
 
 def cmd_montage(cfg, paths, extra):
@@ -687,8 +738,8 @@ def cmd_montage(cfg, paths, extra):
     d = next((x for x in extra if not x.startswith("-")), os.path.join("render", "brouillon"))
     d = d if os.path.isabs(d) else os.path.join(ROOT, d)
     n, fps = _film(cfg)
-    pas = 2 if os.path.basename(d.rstrip("/\\")) == "brouillon" else 1
-    return run_blender(cfg, SCRIPTS["montage"], ["--dir", d, "--fps", str(fps / pas), "--out", os.path.join(d, os.path.basename(d.rstrip("/\\")) + ".mp4")])
+    fv = FPS_BROUILLON if os.path.basename(d.rstrip("/\\")) == "brouillon" else fps
+    return run_blender(cfg, SCRIPTS["montage"], ["--dir", d, "--fps", str(fv), "--out", os.path.join(d, os.path.basename(d.rstrip("/\\")) + ".mp4")])
 
 
 def _ply_step(path):
@@ -824,7 +875,10 @@ RUBRIQUES = [
         ("Test grandeur nature: 3 s de l'événement dans l'environnement", "test-clip", [], "plusieurs heures", None, None),
     ]),
     ("Rendu et performances", "rendu final, benchmark, métadonnées YouTube", [
-        ("BROUILLON du film complet (1920x960, une image sur deux, vidéo 360 au bout)", "brouillon", [], "une nuit; reprise automatique si coupure", None, None),
+        ("APERÇU COMPLET: images test t=30 s et t=43 s, puis brouillon de toute la simulation (vidéo 360)", "apercu-complet", [], "~8 h sans surveillance; reprise automatique si coupure", None, None),
+        ("Brouillon de toute la simulation seulement (1920x960, vidéo 360 au bout)", "brouillon", [], "~7-8 h; reprise automatique si coupure", None, None),
+        ("Images test seulement (t=30 s et t=43 s, render/tests)", "images-test", [], "~5 min", None, None),
+        ("Changer la vue de départ (angle donné par la visionneuse 360)", "cap", [], "", None, "cap"),
         ("RENDU FINAL (animation complète)", "render", [], "très long: demande confirmation; reprise automatique si coupure", None, "final"),
         ("Refaire seulement la vidéo à partir des images", "montage", [], "dossier render/brouillon par défaut", None, None),
         ("Benchmark de rendu de cette machine", "bench", [], "", None, None),
@@ -866,6 +920,11 @@ def _invite(code, name, ex, cfg, paths):
         if input("Lancer le rendu final ? (o/n) : ").strip().lower() not in ("o", "oui", "y"):
             return None
         ex = ["--frames"] + fr.split() if fr else []
+    elif code == "cap":
+        n = input("Angle affiché par la visionneuse 360 (ex. 35 ou -20) : ").strip()
+        if not n:
+            return None
+        ex = [n]
     elif code == "mp4":
         f = input("Fichier MP4 (glisser-déposer dans la fenêtre) : ").strip().strip('"')
         if not f:
@@ -951,7 +1010,7 @@ def cmd_menu(cfg, paths, extra):
 COMMANDS = {
     "status": cmd_status, "setup": cmd_setup, "download": cmd_download, "prep-env": cmd_prep_env, "prep-batiments": cmd_prep_batiments, "prep-vegetation": cmd_prep_vegetation, "env-complet": cmd_env_complet, "visible": cmd_visible,
     "prep-particules": cmd_prep_particules, "terrain": cmd_terrain, "views": cmd_views, "test360": cmd_test360,
-    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "brouillon": cmd_brouillon, "montage": cmd_montage, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
+    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "cap": cmd_cap, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
 }
 
 

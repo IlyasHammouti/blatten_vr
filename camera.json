@@ -7,9 +7,9 @@
   "rot_deg": [
     90.0,
     0.0,
-    -150.0
+    -200.0
   ],
   "confirmed": true,
-  "note": "Camera finale choisie par Ilyas le 2026-10-12 (Walk, hauteur d'yeux 2 m, validee visuellement avec la HD). A valider avec le groupe. Cap tourné le 2026-10-16 (rotation Z -69 -> -150): le centre de l'image regarde au 150 deg (SSE), entre la zone de départ (129 deg, 3 km) et le dépôt (184 deg, 590 m). La position ne change pas, la zone visible non plus.",
+  "note": "Camera finale choisie par Ilyas le 2026-10-12 (Walk, hauteur d'yeux 2 m, validee visuellement avec la HD). A valider avec le groupe. Vue de départ: fond de vallée vers l'aval (cap ~200 deg, Lonza vers Wiler), réglable avec python blatten.py cap N (la visionneuse 360 donne N). La position ne change pas, la zone visible non plus.",
   "z_sol_plus": 2.0
 }

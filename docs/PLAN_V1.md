@@ -36,8 +36,8 @@ A. Remise à plat (15-17 oct) -> B. Brouillon du film entier (18-24 oct) -> C. C
 
 | # | Décision | Recommandation | Statut |
 |---|---|---|---|
-| D1 | Fenêtre de temps et caméra | **La coulée passe sur la caméra** (mesuré le 16 oct sur les 202 fichiers) : première matière à moins de 30 m à t = 49 s, coulée jusqu'à ~20 m au-dessus de la caméra entre 50 et 58 s, puis elle s'écoule (plus rien à moins de 50 m à la fin). Phase active 2 à 53 s (90 % de la distance), pic de vitesse 75 m/s à 31 s, pas de temps réel 1,000 s. Options : (a) temps réel 0 à 48 s puis noir au moment de l'impact (fort pour un colloque sur le risque, 1590 images) ; (b) déplacer la caméra hors de l'empreinte pour voir tout l'événement et le dépôt (recalculs faits par Claude, nouvelle validation de la vue par Ilyas). Recommandation : (a). Provisoire dans `config.json` : (a). | **à trancher par Ilyas** |
-| D2 | Cap de la caméra | Fait : rotation Z -69 -> -150, le centre de l'image regarde au 150° entre la zone de départ (129°, 3 km, 1 050 m plus haut) et le dépôt (184°, 590 m). Zone visible inchangée. Ilyas valide sur l'image A5. | à valider |
+| D1 | Fenêtre de temps | La coulée passe sur la caméra (matière à moins de 30 m dès t = 49 s, jusqu'à ~20 m au-dessus entre 50 et 58 s, puis drainage). Ilyas garde la caméra (c'est un atout). Décision de coupe (noir à l'impact ou suite) **après l'aperçu complet** de toute la simulation (B). | après B |
+| D2 | Vue de départ | Sur le paysage, pas sur l'événement (surprise, inciter à tourner la tête). Provisoire : fond de vallée vers l'aval (cap 200°). Ilyas choisit l'angle exact (la petite maison) avec la visionneuse 360 et `python blatten.py cap N`. Repères : départ 129° (3 km, 1 050 m plus haut), dépôt 184° (590 m). | à choisir par Ilyas |
 | D3 | Matière | Une seule matière, la nôtre (`matiere_roches`), rendue par Ilyas. | décidé |
 | D4 | Modèles d'arbres réalistes | Pour les arbres proches (< 120 m, ~240) : modèles importés par essence (épicéa d'abord), choisis par Ilyas (licence CC0/CC-BY). Étape C. | modèle à fournir |
 | D5 | Rendu final | Tout sur le PC d'Ilyas (le PC de Maxime ne suffit pas). Le rendu final doit donc démarrer au plus tard le 12 novembre. | décidé |
@@ -78,12 +78,7 @@ Renvoyer : les deux résumés collés tels quels.
 
 **A4 : FAIT (Claude, 16 oct)** : empreinte 2,99 km2 sur 201 s, zone visible avec couloir recalculée.
 
-**A5 (PC, ~30 min) : premières images de l'avalanche dans la vraie scène.**
-```
-python blatten.py test360 --mono --render-frame 1050
-python blatten.py test360 --mono --render-frame 1440
-```
-(1050 = t 30 s, pic de vitesse ; 1440 = t 43 s, la coulée à ~200 m). Puis « Voir en 360 » pour les regarder. Renvoyer les deux images.
+**A5** : intégrée à l'aperçu complet (B1).
 
 **A6 : FAIT (Claude, 16 oct)** : masque d'eau 2 m et 50 cm (0,53 km2), aperçus `cache\env\eau_apercu_*.png`.
 
@@ -91,17 +86,18 @@ python blatten.py test360 --mono --render-frame 1440
 **C2 : FAIT** (cap, D2).
 **C3 : FAIT** (Hermite dans la scène). Reste : fixer la fenêtre selon D1.
 
-### Étape B : le film entier en brouillon (18-24 octobre)
+### Étape B : aperçu complet (18-24 octobre)
 
-**B1 (PC, une nuit, sans surveillance)** : menu `7` « BROUILLON du film complet », ou `python blatten.py brouillon`.
-1920x960, 16 échantillons, une image sur deux (795 images avec la fenêtre provisoire, ~9-12 h). En cas de coupure : relancer la même commande, les images faites sont gardées.
-Produit `render\brouillon\brouillon_360.mp4`.
-Si « Out of memory » : coller la ligne `arbres:` et l'erreur, Claude coupe le budget (C4) et on relance.
+**B1 (PC, ~8 h sans surveillance)** : menu `7` « APERÇU COMPLET », ou `python blatten.py apercu-complet`.
+Rend d'abord deux images test (t = 30 s et 43 s, dans `render\tests\`), puis le **brouillon de toute la simulation** (0 à 202 s) :
+1920x960, 16 échantillons, 6 images par seconde simulée de 0 à 70 s puis 1 par seconde (552 images), vidéo à 12 images/s
+(phase active en accéléré x2, fin en x12) : `render\brouillon\brouillon_360.mp4`. Priorité basse et 2 cœurs laissés libres.
+Reprise automatique : relancer la même commande après une coupure.
 
-**B2 (PC, 15 min)** : envoyer `brouillon_360.mp4` sur YouTube en **non répertorié**, le regarder **sur le téléphone**, noter en 5 lignes max
-ce qui gêne le plus (ordre d'importance). Ça valide aussi toute la chaîne YouTube 360 dès maintenant.
+**B2 (PC)** : regarder les images test et la vidéo dans la visionneuse 360 puis sur téléphone (YouTube non répertorié).
+Choisir la vue de départ (la petite maison) : dans la visionneuse, placer le rond dessus et lancer la commande affichée (`python blatten.py cap N`).
 
-**B3 (Claude + Ilyas, 30 min)** : classer les défauts par importance : c'est la liste de l'étape C.
+**B3 (Claude + Ilyas)** : décider où couper le film (D1) et classer les corrections : c'est la liste de l'étape C.
 
 ### Étape C : corrections et finitions (25 octobre - 7 novembre)
 
@@ -164,3 +160,7 @@ Son ambisonique (chantier d'Ilyas, Reaper + IEM). Stéréo 3D : non prévue (ren
 - Fin : cocher l'avancement dans §6, une entrée de journal (`docs/journal/env.md` ou `alea.md`), commit ciblé sur `main`, dire à Ilyas **exactement** quoi lancer ensuite.
 - Git : la suppression est autorisée dans `C:\Dev\blatten-vr` pour la session, donc git marche depuis le shell de l'appareil, sauf `push` (pas d'identifiants) :
   Claude pousse depuis le cloud (patchs `git format-patch` récupérés, puis `git fetch` et `git reset --hard origin/main` sur le PC une fois le contenu identique vérifié).
+
+## 9. Faits vérifiés
+
+- Simulation de Johan Gaume : selon swissinfo, quelques jours avant l'effondrement, l'équipe a modélisé un départ de 10 millions de m3 de roche et de glace, et ses projections de l'étendue ont « étroitement correspondu » à la catastrophe réelle. **Non vérifié** : que les 202 fichiers reçus soient bien ce calcul d'avant l'événement (à confirmer par Johan avant de l'affirmer au colloque).
