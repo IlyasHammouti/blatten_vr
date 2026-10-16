@@ -705,9 +705,12 @@ def cmd_images_test(cfg, paths, extra, temps=(30.0, 43.0)):
     for t in temps:
         out = os.path.join(ROOT, "render", "tests", f"t{t:g}s")
         os.makedirs(out, exist_ok=True)
+        if os.path.exists(os.path.join(out, "frame_0001.png")) and "--refaire" not in extra:
+            print(f"image test t = {t:g} s déjà faite (render/tests/t{t:g}s), ignorée (--refaire pour la refaire)")
+            continue
         print(f"\n>>> image test à t = {t:g} s -> render/tests/t{t:g}s")
         rc = run_blender(cfg, SCRIPTS["scene"], scene_args(cfg, paths) + ["--preset", "brouillon", "--mono", "--render-frame", "1",
-                         "--render-time", str(t), "--out", out] + extra, fond=True) or rc
+                         "--render-time", str(t), "--out", out] + [x for x in extra if x != "--refaire"], fond=True) or rc
     return rc
 
 
@@ -874,7 +877,7 @@ RUBRIQUES = [
         ("Empreinte de l'aléa (où passe la matière)", "empreinte-alea", [], "protège le couloir de la coupe, masque bâtiments, arbres et rivière balayés; refaire la zone visible ensuite", "emp", None),
         ("Test grandeur nature: 3 s de l'événement dans l'environnement", "test-clip", [], "plusieurs heures", None, None),
     ]),
-    ("Rendu et performances", "rendu final, benchmark, métadonnées YouTube", [
+    ("Rendu et performances", "aperçu complet, rendu final, benchmark, métadonnées YouTube", [
         ("APERÇU COMPLET: images test t=30 s et t=43 s, puis brouillon de toute la simulation (vidéo 360)", "apercu-complet", [], "~8 h sans surveillance; reprise automatique si coupure", None, None),
         ("Brouillon de toute la simulation seulement (1920x960, vidéo 360 au bout)", "brouillon", [], "~7-8 h; reprise automatique si coupure", None, None),
         ("Images test seulement (t=30 s et t=43 s, render/tests)", "images-test", [], "~5 min", None, None),
