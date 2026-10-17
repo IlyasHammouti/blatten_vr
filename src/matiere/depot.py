@@ -1,6 +1,8 @@
 """
 depot.py : PEAU CONTINUE sous les roches (dépôt et coulée), recalculée à chaque image. Appelée par matiere_roches.py.
 
+Seulement sous la matière (presque) arrêtée: c'est le dépôt. La coulée rapide reste en roches et poussière.
+
 Pourquoi : à 1 grain sur 5, les particules sont espacées d'environ 6,8 m et les roches font ~4 m: entre elles on voit le
 terrain d'avant l'événement (pré, forêt), et la masse se lit comme un lit de graviers posé sur l'herbe. Sous la couche de
 roches, on tend donc une surface continue, de la couleur de la matière, à la hauteur des particules du dessus moins un
@@ -20,6 +22,8 @@ import numpy as np
 REGLAGES = dict(
     depot=True,          # False: pas de peau (matière en roches seules, comme avant)
     maille=5.0,          # m, côté d'une case
+    vitesse_max=3.0,     # m/s: seules les particules (presque) arrêtées forment la peau. Testé: sur la coulée rapide, la peau
+                         # flotte au-dessus du sol avec un bord plat visible, et ensevelit la caméra dès t = 50 s (image noire)
     densite_min=4,       # particules minimum dans le carré 3 x 3 autour d'une case pour y tendre la peau
     enfoncement=0.5,     # sous la particule la plus haute, en rayons de roche
     bord=3.0,            # m, abaissement des sommets du bord
@@ -107,11 +111,13 @@ def construire(coll, mat, rayon, log, reglages=None):
     return True
 
 
-def maj(Pb):
-    """Pb: positions (N,3) dans le repère de la scène. Reconstruit la peau."""
+def maj(Pb, vitesse=None):
+    """Pb: positions (N,3) dans le repère de la scène, vitesse (N,) en m/s. Reconstruit la peau."""
     me = ETAT["mesh"]
     if me is None:
         return
+    if vitesse is not None:
+        Pb = Pb[vitesse < float(ETAT["r"]["vitesse_max"])]
     s = surface(Pb, ETAT["r"], ETAT["rayon"])
     me.clear_geometry()
     if s is None:

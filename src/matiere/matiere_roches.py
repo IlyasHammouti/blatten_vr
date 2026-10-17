@@ -273,11 +273,12 @@ def update(scene, t, seq):
     P, V = interpolation.etat(seq, t) if STATE["interp"] == "hermite" else seq.state(t)
     Pb = STATE["to_blender"](P)
     mesh.vertices.foreach_set("co", Pb.ravel())
-    mesh.attributes["speed"].data.foreach_set("value", np.linalg.norm(V, axis=1).astype(np.float32))
+    vit = np.linalg.norm(V, axis=1).astype(np.float32)
+    mesh.attributes["speed"].data.foreach_set("value", vit)
     mesh.update()
     if STATE.get("depot"):
         try:
-            depot.maj(Pb)
+            depot.maj(Pb, vit)
         except Exception as e:
             log_ = print
             log_(f"[depot] ERREUR ({e!r}), peau coupée")
