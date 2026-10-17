@@ -11,6 +11,16 @@
 ## Séances
 (date, ce qui marche, ce qui reste, décisions du contrat à changer, temps de rendu mesurés)
 
+## 2026-10-17 (conversation unifiée) mémoire, aperçu sans orthophoto, peau du dépôt
+- **Rendu de la vraie scène dans le cloud** : les 202 fichiers de particules et le cache `env` (sans les arbres pré-calculés lourds) ont été copiés depuis le PC; Blender 5.2.2 en module (CPU, 2 coeurs, 7 Go). Sert à regarder les images sans faire lancer chaque essai à Ilyas.
+- **Masques de visibilité** recalculés dans le cloud: identiques bit à bit à ceux du PC (le `visible_meta.json` du PC a des pourcentages périmés, les masques sont bons).
+- **Coupe automatique du relief invisible** (`cull=None`): active si les masques existent et ont été calculés pour la caméra actuelle (1 m en plan, 3 m en altitude), sinon relief complet. `--no-cull` pour comparer. Gain mesuré sur les vraies données: 5,82 -> 4,68 M faces avec la HD (-20 %, l'anneau 0,5 m est presque tout visible), 2,28 -> 1,25 M sans la HD (-45 %).
+- **`--no-ortho`** : relief sans image aérienne drapée (couleurs procédurales). Les couleurs des toits et des arbres restent lues dans l'image (CPU, aucun coût mémoire graphique).
+- **Aperçu de l'aléa** (demande d'Ilyas): environnement complet (arbres, bâtiments, rivière, poussière) sans orthophoto ni relief 0,5 m. Mesuré dans le cloud à t = 43 s, 1280x640, 8 éch.: 532 000 arbres visibles (5,7 M triangles), relief 1,25 M faces, 731 bâtiments, pic 5,2 Go de RAM (CPU).
+- **Peau du dépôt** (`src/matiere/depot.py`, `--no-depot` pour la couper): surface continue sous les roches, recalculée à chaque image (cases de 5 m, au moins 4 particules dans le 3 x 3, un demi-rayon sous la particule la plus haute, bords enfoncés de 3 m). 20 000 à 38 000 faces, 0,03 s par image.
+- **`--border x0 x1 y0 y1`** : ne rend qu'un cadre de l'image (zoom d'essai à pleine résolution).
+- **Images finales** : si une image plante, nouvel essai avec arbres limités à 2,5 km, puis sans HD; l'image allégée est signalée (`ALLEGEE.txt`).
+
 ## 2026-10-14 (séance 3, matière A, interpolation, banc de test)
 - **Banc de test** `src/matiere/banc_test.py` (cloud ou PC, `pip install bpy`): terrain et particules synthétiques, caméra à 2 m, dépôt à ~540 m, même densité angulaire que la vidéo (960x540 à 90 degrés). Sert à juger FORME et COÛT, pas la couleur (dépend de l'ortho et de la brume).
 - **Matière A** `src/matiere/matiere_roches.py` (`--matiere matiere_roches`): 4 variantes de roches irrégulières (80 faces), rotation et proportions aléatoires par particule, bump procédural en coordonnées objet, couleur aléatoire + éclaircie par la vitesse (attribut `speed` lu en Instancer, vérifié). Réglages dans `REGLAGES`, remplaçables par `src/matiere/reglages_matiere.json`. Même coût de reconstruction que le gabarit (positions + vitesse seulement).

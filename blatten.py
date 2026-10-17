@@ -635,7 +635,7 @@ def cmd_valider_env(cfg, paths, extra):
     if run_blender(cfg, SCRIPTS["scene"], base + ["--cull", "--out", d1] + extra):
         return 1
     print("\n--- 2/3 image SANS coupe (relief complet) ---")
-    if run_blender(cfg, SCRIPTS["scene"], base + ["--out", d2] + extra):
+    if run_blender(cfg, SCRIPTS["scene"], base + ["--no-cull", "--out", d2] + extra):
         return 1
     print("\n--- 3/3 comparaison ---")
     return run_blender(cfg, SCRIPTS["comparer"], [os.path.join(d1, "frame_0001.png"), os.path.join(d2, "frame_0001.png"),
@@ -863,11 +863,12 @@ def cmd_images_test(cfg, paths, extra, temps=(30.0, 43.0)):
 
 
 def cmd_apercu_alea(cfg, paths, extra):
-    """TOUTE la simulation (t = 0 à 201 s, une image par seconde simulée) à très basse résolution (1280x640), sans arbres
-    ni rivière: sert à voir l'emprise de l'aléa, sa position par rapport à la caméra et à trancher la durée du film.
+    """TOUTE la simulation (t = 0 à 201 s, une image par seconde simulée) à très basse résolution (1280x640), avec tout
+    l'environnement (relief, bâtiments, arbres, rivière, poussière) mais SANS image aérienne drapée sur le relief (couleurs
+    procédurales) ni relief 0,5 m: sert à voir l'emprise de l'aléa, sa position par rapport à la caméra et à trancher la durée du film.
     Le temps de simulation est inscrit en bas de chaque image. Vidéo 360 à 10 images/s (10 s simulées par seconde)."""
     return _rendre_film(cfg, paths, "apercu", os.path.join("render", "apercu_alea"), 202, 10,
-                        ["--chrono", "0.0", "202.0", "202", "--stamp", "--no-trees", "--no-water", "--no-hires"] + extra, paquet=70, ram_min=6.0)
+                        ["--chrono", "0.0", "202.0", "202", "--stamp", "--no-hires", "--no-ortho"] + extra, paquet=70, ram_min=6.0)
 
 
 def cmd_images_finales(cfg, paths, extra, temps=(30.0, 43.0, 52.0)):
@@ -880,10 +881,27 @@ def cmd_images_finales(cfg, paths, extra, temps=(30.0, 43.0, 52.0)):
         if os.path.exists(os.path.join(out, "frame_0001.png")) and "--refaire" not in extra:
             print(f"image finale t = {t:g} s déjà faite (render/finales/t{t:g}s), ignorée (--refaire pour la refaire)")
             continue
-        print(f"\n>>> image finale à t = {t:g} s -> render/finales/t{t:g}s", flush=True)
-        _attendre_ram(11.0)
-        rc = run_blender(cfg, SCRIPTS["scene"], scene_args(cfg, paths) + ["--preset", "final", "--mono", "--camera-confirmed",
-                         "--render-frame", "1", "--render-time", str(t), "--out", out] + [x for x in extra if x != "--refaire"], fond=True) or rc
+        # si l'image plante (mémoire), on réessaie en allégeant, et on le DIT: une image allégée ne juge plus tout le réalisme
+        paliers = [([], "scène complète"),
+                   (["--tree-dist", "2500"], "arbres limités à 2,5 km"),
+                   (["--tree-dist", "2500", "--no-hires"], "arbres limités à 2,5 km, sans relief 0,5 m ni images locales")]
+        for k, (moins, quoi) in enumerate(paliers):
+            print(f"\n>>> image finale à t = {t:g} s ({quoi}) -> render/finales/t{t:g}s", flush=True)
+            _attendre_ram(11.0)
+            r1 = run_blender(cfg, SCRIPTS["scene"], scene_args(cfg, paths) + ["--preset", "final", "--mono", "--camera-confirmed",
+                             "--render-frame", "1", "--render-time", str(t), "--out", out] + moins
+                             + [x for x in extra if x != "--refaire"], fond=True)
+            f = os.path.join(out, "frame_0001.png")
+            if os.path.exists(f) and os.path.getsize(f) > 0:
+                if k:
+                    with open(os.path.join(out, "ALLEGEE.txt"), "w", encoding="utf-8") as fh:
+                        fh.write(f"Image allégée: {quoi} (la scène complète a planté).\n")
+                    print(f"!! image t = {t:g} s obtenue ALLÉGÉE ({quoi}): la scène complète ne tient pas en mémoire.")
+                break
+            print(f"!! échec ({quoi}); essai suivant plus léger" if k + 1 < len(paliers) else "!! échec même allégée")
+            rc = r1 or 1
+        else:
+            continue
     return rc
 
 
@@ -1051,7 +1069,7 @@ RUBRIQUES = [
         ("Test grandeur nature: 3 s de l'événement dans l'environnement", "test-clip", [], "plusieurs heures", None, None),
     ]),
     ("Rendu et performances", "aperçu complet, rendu final, benchmark, métadonnées YouTube", [
-        ("APERÇU DE L'ALÉA: toute la simulation avec panache, très basse résolution, sans arbres (emprise, caméra, durée du film)", "apercu-alea", [], "~30-60 min; reprise automatique si coupure", None, None),
+        ("APERÇU DE L'ALÉA: toute la simulation, environnement complet sans orthophoto, très basse résolution (emprise, caméra, durée du film)", "apercu-alea", [], "~30-60 min; reprise automatique si coupure", None, None),
         ("IMAGES FINALES: 3 images 3840x1920 (t=30, 43, 52 s), environnement + matière + panache de poussière (réalisme)", "images-finales", [], "~30-60 min; donne aussi le temps d'une image finale", None, None),
         ("(ancien) Aperçu complet: images test puis brouillon 1920x960 de toute la simulation", "apercu-complet", [], "~5-8 h", None, None),
         ("Brouillon de toute la simulation seulement (1920x960, vidéo 360 au bout)", "brouillon", [], "~7-8 h; reprise automatique si coupure", None, None),

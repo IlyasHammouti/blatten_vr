@@ -98,7 +98,8 @@ CFG = dict(
     matiere="defaut",       # "defaut": particules en sphères (build_debris ci-dessous), ou nom d'un module de src/matiere/ (ex. rendu_matiere), voir docs/HANDOVER_ALEA.md
     env_only=False,         # ENVIRONNEMENT SEUL: ni particules ni zone de rupture (décor d'avant l'événement)
     lite=False,             # version légère: environnement seul + relief visible seulement, enregistrée avec ses images dans render/blatten_env_lite.blend
-    cull=False,             # ne construit que le relief VISIBLE depuis la caméra (masques de "python blatten.py visible")
+    cull=None,              # relief VISIBLE seulement (masques de "python blatten.py visible"). None = automatique (si les masques existent
+                            # et ont été calculés pour la caméra actuelle), True = imposé (--cull), False = relief complet (--no-cull)
     no_buildings=False,     # ne place pas les bâtiments 3D (python blatten.py prep-batiments les prépare)
     no_water=False,         # pas de rivière animée (python blatten.py prep-eau la prépare)
     no_trees=False,         # ne place pas les arbres (python blatten.py prep-vegetation les prépare)
@@ -106,6 +107,9 @@ CFG = dict(
     wind_dist=1200.0,       # distance (m) jusqu'à laquelle les arbres bougent (au-delà, imperceptible)
     tree_ortho=0.5,         # part de la couleur de l'image aérienne dans la couleur des arbres (0 = couleurs d'essence seules)
     tree_dist=4700.0,       # distance maximale des arbres modélisés (m); au-delà l'image aérienne suffit
+    border=None,            # (x0, x1, y0, y1) en fraction de l'image: ne rend que ce cadre (zoom d'essai à pleine résolution, coût réduit)
+    no_depot=False,         # matière sans la peau continue sous les roches (src/matiere/depot.py)
+    no_ortho=False,         # terrain sans image aérienne drapée (couleurs procédurales: altitude, pente, neige); les couleurs des toits et des arbres restent tirées de l'image
     no_hires=False,         # ignore le relief 0,5 m et les images locales (comparaison / test mémoire)
     env_dir=None,           # dossier contenant env/ (défaut: celui des particules). Sert au test-clip
     clip=False,             # test grandeur nature: quelques secondes de l'événement (src/bench/clip.py)
@@ -443,6 +447,24 @@ def _block_mean(a, f):
     return a[:h, :w].reshape(h // f, f, w // f, f).mean(axis=(1, 3), dtype=np.float32)
 
 
+def _cull_auto(vd):
+    """Décide si la scène ne garde que le relief visible. Oui seulement si les masques existent ET ont été calculés pour la
+    caméra actuelle (à 1 m près): sinon on garde le relief complet, plus lourd mais jamais faux. Rend (bool, raison)."""
+    try:
+        mf = os.path.join(vd, "visible_meta.json")
+        if not (os.path.exists(mf) and os.path.exists(os.path.join(vd, "visible_2m.npy")) and os.path.exists(os.path.join(vd, "visible_8m.npy"))):
+            return False, "pas de masque, lancer python blatten.py visible"
+        if not CFG["cam"]:
+            return False, "pas de position de caméra explicite"
+        cm = json.load(open(mf))["camera"]
+        dx, dy, dz = (float(CFG["cam"][i]) - float(cm[i]) for i in range(3))
+        if math.hypot(dx, dy) > 1.0 or abs(dz) > 3.0:
+            return False, f"les masques datent d'une autre caméra (écart {math.hypot(dx, dy):.1f} m en plan, {abs(dz):.1f} m en altitude), relancer python blatten.py visible"
+        return True, "masques valides pour cette caméra"
+    except Exception as e:
+        return False, f"masques illisibles ({e})"
+
+
 def load_env(data_dir):
     d = os.path.join(data_dir, "env")
     p = os.path.join(d, "env_meta.json")
@@ -463,6 +485,9 @@ def load_env(data_dir):
         lv[1.0] = (_block_mean(a5, 2), d5["x0"], d5["y1"], 1.0)
     vis = None
     vd = os.path.join(d, "visible")
+    if CFG["cull"] is None:
+        CFG["cull"], raison = _cull_auto(vd)
+        log(f"coupe du relief invisible: {'OUI' if CFG['cull'] else 'NON'} (automatique: {raison})")
     if CFG["cull"]:
         if os.path.exists(os.path.join(vd, "visible_2m.npy")):
             v2 = np.load(os.path.join(vd, "visible_2m.npy"))
@@ -1527,7 +1552,7 @@ def build_terrain_material(env=None):
     steep = mrange(math("ADD", nor.outputs["Z"], math("MULTIPLY", math("SUBTRACT", mid, 0.5), 0.35)), 0.50, 0.78, 1.0, 0.0)
     rock = mix(fine, (0.17, 0.165, 0.16, 1), (0.27, 0.26, 0.25, 1))
     col = mix(steep, base, rock)
-    o = env["meta"].get("ortho") if env else None
+    o = env["meta"].get("ortho") if (env and not CFG["no_ortho"]) else None
     if o:  # image aérienne SWISSIMAGE projetée à la verticale, fondue vers le procédural hors emprise
         em = env["meta"]
         img = bpy.data.images.load(os.path.join(env["dir"], o["file"]))
@@ -2158,6 +2183,10 @@ def setup_render(scene, out_dir):
             r.stamp_note_text = "t = 0 s"
         except Exception as e:
             log("stamp:", e)
+    if CFG["border"]:
+        b = CFG["border"]
+        r.use_border, r.use_crop_to_border = True, True
+        r.border_min_x, r.border_max_x, r.border_min_y, r.border_max_y = b[0], b[1], b[2], b[3]
     scene.cycles.samples = p["samples"]
     scene.cycles.use_denoising = True
     scene.cycles.device = "CPU"
@@ -2208,7 +2237,7 @@ def parse_args():
     ap.add_argument("--bench-no-warm", action="store_true"); ap.add_argument("--persistent", action="store_true")
     ap.add_argument("--matiere")
     ap.add_argument("--no-buildings", action="store_true"); ap.add_argument("--no-trees", action="store_true"); ap.add_argument("--no-water", action="store_true"); ap.add_argument("--no-wind", action="store_true"); ap.add_argument("--no-poussiere", action="store_true"); ap.add_argument("--tree-ortho", type=float); ap.add_argument("--tree-dist", type=float); ap.add_argument("--env-only", action="store_true"); ap.add_argument("--lite", action="store_true")
-    ap.add_argument("--cull", action="store_true"); ap.add_argument("--no-hires", action="store_true")
+    ap.add_argument("--cull", action="store_true"); ap.add_argument("--no-cull", action="store_true"); ap.add_argument("--no-hires", action="store_true"); ap.add_argument("--no-ortho", action="store_true"); ap.add_argument("--no-depot", action="store_true"); ap.add_argument("--border", type=float, nargs=4)
     ap.add_argument("--env-dir"); ap.add_argument("--clip", action="store_true")
     ap.add_argument("--clip-seconds", type=float); ap.add_argument("--clip-every", type=int)
     ap.add_argument("--clip-quality", type=int); ap.add_argument("--clip-fullscale", type=float); ap.add_argument("--clip-scale", type=float)
@@ -2222,7 +2251,10 @@ def parse_args():
         elif k == "no_wind":
             if v:
                 CFG["wind"] = False
-        elif k in ("no_env", "camera_confirmed", "accept_lowres", "bench", "bench_no_warm", "persistent", "clip", "clip_no_keys", "clip_no_video", "cull", "no_hires", "env_only", "lite", "no_buildings", "no_trees", "no_water", "stamp", "no_poussiere"):
+        elif k == "no_cull":
+            if v:
+                CFG["cull"] = False
+        elif k in ("no_env", "camera_confirmed", "accept_lowres", "bench", "bench_no_warm", "persistent", "clip", "clip_no_keys", "clip_no_video", "cull", "no_hires", "env_only", "lite", "no_buildings", "no_trees", "no_water", "stamp", "no_poussiere", "no_ortho", "no_depot"):
             if v:
                 CFG[k] = True
         elif v is not None and v is not False:

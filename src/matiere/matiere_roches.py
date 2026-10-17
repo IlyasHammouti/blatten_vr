@@ -26,6 +26,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # le module est chargé par chemin: retrouver ses voisins
 import interpolation  # noqa: E402
 import poussiere  # noqa: E402   (panache de poussière, voir poussiere.py)
+import depot  # noqa: E402       (peau continue sous les roches, voir depot.py)
 
 REGLAGES = dict(
     n_variantes=4,           # nombre de formes de roche
@@ -250,7 +251,12 @@ def build(scene, seq, coll, cfg, log, helpers):
     coll.objects.link(obj)
     obj.modifiers.new("Roches", "NODES").node_group = _arbre(modeles, r, rayon)
 
-    STATE.update(mesh=mesh, last_t=None, seq=seq, to_blender=helpers["to_blender"], interp=r["interpolation"], poussiere=False)
+    STATE.update(mesh=mesh, last_t=None, seq=seq, to_blender=helpers["to_blender"], interp=r["interpolation"], poussiere=False, depot=False)
+    if not cfg.get("no_depot"):
+        try:
+            STATE["depot"] = depot.construire(coll, mat, rayon, log, r.get("depot_reglages"))
+        except Exception as e:  # même règle que la poussière: un ajout qui échoue ne bloque pas le rendu
+            log(f"!! dépôt NON construit ({e!r}): roches seules")
     try:
         STATE["poussiere"] = poussiere.construire(scene, coll, seq, helpers["to_blender"], cfg, log, r.get("poussiere_reglages"))
     except Exception as e:      # le panache est un ajout: s'il échoue, la matière seule est rendue (et on le dit clairement)
@@ -265,9 +271,17 @@ def update(scene, t, seq):
     if mesh is None or STATE["last_t"] == t:
         return
     P, V = interpolation.etat(seq, t) if STATE["interp"] == "hermite" else seq.state(t)
-    mesh.vertices.foreach_set("co", STATE["to_blender"](P).ravel())
+    Pb = STATE["to_blender"](P)
+    mesh.vertices.foreach_set("co", Pb.ravel())
     mesh.attributes["speed"].data.foreach_set("value", np.linalg.norm(V, axis=1).astype(np.float32))
     mesh.update()
+    if STATE.get("depot"):
+        try:
+            depot.maj(Pb)
+        except Exception as e:
+            log_ = print
+            log_(f"[depot] ERREUR ({e!r}), peau coupée")
+            STATE["depot"] = False
     if STATE.get("poussiere"):
         poussiere.maj(t)
     STATE["last_t"] = t
