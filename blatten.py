@@ -867,7 +867,7 @@ def cmd_apercu_alea(cfg, paths, extra):
     ni rivière: sert à voir l'emprise de l'aléa, sa position par rapport à la caméra et à trancher la durée du film.
     Le temps de simulation est inscrit en bas de chaque image. Vidéo 360 à 10 images/s (10 s simulées par seconde)."""
     return _rendre_film(cfg, paths, "apercu", os.path.join("render", "apercu_alea"), 202, 10,
-                        ["--chrono", "0.0", "202.0", "202", "--stamp", "--no-trees", "--no-water"] + extra, paquet=70, ram_min=6.0)
+                        ["--chrono", "0.0", "202.0", "202", "--stamp", "--no-trees", "--no-water", "--no-hires"] + extra, paquet=70, ram_min=6.0)
 
 
 def cmd_images_finales(cfg, paths, extra, temps=(30.0, 43.0, 52.0)):

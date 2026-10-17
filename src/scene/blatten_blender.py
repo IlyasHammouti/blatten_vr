@@ -2170,7 +2170,7 @@ def setup_render(scene, out_dir):
                 gpus = [d for d in prefs.devices if d.type != "CPU"]
                 if gpus:
                     for d in prefs.devices:
-                        d.use = d.type != "CPU"
+                        d.use = (d.type == kind)    # la même carte est listée en CUDA et en OPTIX: on n'active que le type choisi
                     scene.cycles.device = "GPU"
                     log("GPU:", kind, [f"{d.name} ({d.type}, id {d.id})" for d in gpus])
                     break
