@@ -930,6 +930,34 @@ def cmd_apercu_alea(cfg, paths, extra):
                         ["--chrono", "0.0", "202.0", "202", "--stamp", "--no-hires", "--no-ortho"] + extra, paquet=70, ram_min=6.0)
 
 
+def cmd_test_persistent(cfg, paths, extra, f0=1051, nb=3, pas=15):
+    """Test --persistent (données gardées en mémoire d'une image à l'autre) contre le mode normal, en conditions réelles:
+    nb images du film final espacées de pas images (par défaut images 1051, 1066, 1081 = t = 30,0 / 30,5 / 31,0 s), même résolution et même qualité.
+    Écrit dans render/test_persistent/{persistent,normal}. Donne la durée de chaque image (le journal complet contient aussi la construction de la scène)
+    pour mesurer le gain, la mémoire utilisée, et comparer les images (la matière bouge entre deux images: si les données persistantes ne la mettent pas à jour, ça se voit)."""
+    f1 = f0 + pas * (nb - 1)
+    rc = 0
+    for nom, plus in (("persistent", ["--persistent"]), ("normal", [])):
+        out = os.path.join(ROOT, "render", "test_persistent", nom)
+        os.makedirs(out, exist_ok=True)
+        for f in glob.glob(os.path.join(out, "frame_*")):
+            os.remove(f)
+        print(f"\n>>> mode {nom}: images {f0} à {f1} (pas {pas}) -> {out}", flush=True)
+        _attendre_ram(7.0)
+        t0 = time.time()
+        r = run_blender(cfg, SCRIPTS["scene"], scene_args(cfg, paths) + ["--preset", "final", "--mono", "--camera-confirmed", "--render-anim",
+                        "--frames", str(f0), str(f1), "--frame-step", str(pas), "--origine", "1", "--out", out] + plus + extra, fond=True)
+        rc = r or rc
+        fich = sorted(glob.glob(os.path.join(out, "frame_*.jpg")), key=os.path.getmtime)
+        print(f"mode {nom}: {len(fich)} image(s) en {(time.time() - t0) / 60:.1f} min (construction de la scène comprise)", flush=True)
+        prev = t0
+        for f in fich:
+            m = os.path.getmtime(f)
+            print(f"   {os.path.basename(f)}: +{(m - prev) / 60:.1f} min", flush=True)
+            prev = m
+    return rc
+
+
 def cmd_images_finales(cfg, paths, extra, temps=(30.0, 43.0, 52.0)):
     """Trois images fixes à la résolution FINALE (3840x1920, 96 échantillons): environnement complet + aléa, à t = 30, 43 et 52 s.
     Sert à juger le réalisme (environnement et matière) et à mesurer le temps d'une image finale."""
@@ -1266,7 +1294,7 @@ def cmd_menu(cfg, paths, extra):
 COMMANDS = {
     "status": cmd_status, "setup": cmd_setup, "download": cmd_download, "prep-env": cmd_prep_env, "prep-batiments": cmd_prep_batiments, "prep-vegetation": cmd_prep_vegetation, "env-complet": cmd_env_complet, "visible": cmd_visible,
     "prep-particules": cmd_prep_particules, "terrain": cmd_terrain, "views": cmd_views, "test360": cmd_test360,
-    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "cap": cmd_cap, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
+    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "test-persistent": cmd_test_persistent, "cap": cmd_cap, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
 }
 
 
