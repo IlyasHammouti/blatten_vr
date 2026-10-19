@@ -793,7 +793,37 @@ def _nettoyer(out):
     return len(glob.glob(os.path.join(out, "frame_*.png")))
 
 
+def _options_nuit(extra, paquet):
+    """Options d'un rendu par soirées, retirées de la liste transmise à Blender:
+      --jusqu-a HH:MM   s'arrête proprement avant cette heure (le prochain paquet n'est lancé que s'il a le temps de finir); relancer la même commande le lendemain reprend à la première image manquante
+      --paquet N        N images par Blender (plus petit = mémoire remise à zéro plus souvent)
+      --pause S         S secondes de repos entre deux paquets (refroidissement de la carte graphique)"""
+    extra = list(extra)
+    fin = pause = None
+    for flag in ("--jusqu-a", "--paquet", "--pause"):
+        if flag in extra:
+            i = extra.index(flag)
+            if i + 1 >= len(extra):
+                sys.exit(f"{flag} demande une valeur (exemple: {flag} " + {"--jusqu-a": "07:00", "--paquet": "10", "--pause": "60"}[flag] + ")")
+            v = extra[i + 1]
+            del extra[i:i + 2]
+            if flag == "--paquet":
+                paquet = max(1, int(v))
+            elif flag == "--pause":
+                pause = max(0.0, float(v))
+            else:
+                m = re.match(r"^(\d{1,2})[:h](\d{2})$", v)
+                if not m:
+                    sys.exit("--jusqu-a attend une heure du type 07:00")
+                now = time.time()
+                lt = time.localtime(now)
+                cible = time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, int(m.group(1)), int(m.group(2)), 0, 0, 0, -1))
+                fin = cible if cible > now else cible + 86400
+    return extra, paquet, pause, fin
+
+
 def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ram_min=11.0):
+    extra, paquet, pause, heure_fin = _options_nuit(extra, paquet)
     out = os.path.join(ROOT, out_rel)
     deja = _nettoyer(out)
     print(f"Film {preset}: {n} images, {deja} déjà rendues dans {out_rel}; reprise automatique en cas de coupure (relancer la même commande).")
@@ -804,6 +834,9 @@ def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ra
     PAQUET = paquet
     echecs = 0
     rc = 0
+    duree_paquet = 0.0
+    if heure_fin:
+        print(f"Rendu de nuit: arrêt propre avant {time.strftime('%d/%m %H:%M', time.localtime(heure_fin))}; relancer la même commande pour reprendre.", flush=True)
     while True:
         manquantes = [i for i in range(1, n + 1) if not os.path.exists(os.path.join(out, f"frame_{i:04d}.png"))]
         if not manquantes:
@@ -811,12 +844,18 @@ def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ra
             break
         d0 = manquantes[0]
         d1 = min(d0 + PAQUET - 1, n)
+        if heure_fin and duree_paquet and time.time() + 1.15 * duree_paquet > heure_fin:
+            print(f"\nHeure limite atteinte: le prochain paquet (~{duree_paquet / 60:.0f} min) ne finirait pas à temps. "
+                  f"{len(manquantes)} images restantes; relancer la même commande pour reprendre à l'image {d0}.", flush=True)
+            return 0
         print(f"\n>>> paquet d'images {d0} à {d1} sur {n} ({len(manquantes)} restantes)", flush=True)
         i = a.index("--frames")
         b_args = a[:i] + ["--frames", str(d0), str(d1), "--origine", "1"] + a[i + 3:]
         avant = len(manquantes)
         _attendre_ram(ram_min)
+        t_paquet = time.time()
         rc = run_blender(cfg, SCRIPTS["scene"], b_args, fond=True)
+        duree_paquet = max(duree_paquet * 0.5, time.time() - t_paquet) if duree_paquet else time.time() - t_paquet
         _nettoyer(out)
         apres = len([i for i in range(1, n + 1) if not os.path.exists(os.path.join(out, f"frame_{i:04d}.png"))])
         if apres >= avant:
@@ -828,7 +867,7 @@ def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ra
                 break
         else:
             echecs = 0
-        time.sleep(5)
+        time.sleep(pause if pause is not None else 5)
     if rc == 0:
         rc = run_blender(cfg, SCRIPTS["montage"], ["--dir", out, "--fps", str(fps_video), "--out", os.path.join(out, f"{preset}.mp4")])
     return rc
