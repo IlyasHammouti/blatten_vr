@@ -785,12 +785,20 @@ CHRONO_BROUILLON = [0.0, 70.0, 420, 70.0, 202.0, 132]
 FPS_BROUILLON = 12
 
 
-def _nettoyer(out):
+def _ext(preset, extra=()):
+    """Extension des images écrites: le preset final écrit en JPEG qualité 95 (environ 1 Mo par image au lieu de 30 Mo en PNG 16 bits),
+    sauf avec --format png16. Les autres presets restent en PNG."""
+    ex = list(extra)
+    png16 = "--format" in ex and ex[ex.index("--format") + 1:ex.index("--format") + 2] == ["png16"]
+    return ".jpg" if preset == "final" and not png16 else ".png"
+
+
+def _nettoyer(out, ext=".png"):
     os.makedirs(out, exist_ok=True)
-    for f in glob.glob(os.path.join(out, "frame_*.png")):
+    for f in glob.glob(os.path.join(out, "frame_*" + ext)):
         if os.path.getsize(f) == 0:      # image commencée puis interrompue: à refaire
             os.remove(f)
-    return len(glob.glob(os.path.join(out, "frame_*.png")))
+    return len(glob.glob(os.path.join(out, "frame_*" + ext)))
 
 
 def _options_nuit(extra, paquet):
@@ -835,7 +843,8 @@ def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ra
         except OSError as e:
             sys.exit(f"Dossier de rendu impossible ({rd}): {e}")
         print(f"Images finales écrites dans {out} (render_dir)", flush=True)
-    deja = _nettoyer(out)
+    ext = _ext(preset, extra)
+    deja = _nettoyer(out, ext)
     print(f"Film {preset}: {n} images, {deja} déjà rendues dans {out_rel}; reprise automatique en cas de coupure (relancer la même commande).")
     a = scene_args(cfg, paths) + ["--preset", preset, "--mono", "--render-anim", "--frames", "1", str(n), "--out", out] + extra
     # Par paquets: un Blender neuf tous les PAQUET images repart avec une mémoire (graphique et vive) propre, ce qui évite
@@ -848,7 +857,7 @@ def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ra
     if heure_fin:
         print(f"Rendu de nuit: arrêt propre avant {time.strftime('%d/%m %H:%M', time.localtime(heure_fin))}; relancer la même commande pour reprendre.", flush=True)
     while True:
-        manquantes = [i for i in range(1, n + 1) if not os.path.exists(os.path.join(out, f"frame_{i:04d}.png"))]
+        manquantes = [i for i in range(1, n + 1) if not os.path.exists(os.path.join(out, f"frame_{i:04d}{ext}"))]
         if not manquantes:
             rc = 0
             break
@@ -866,8 +875,8 @@ def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ra
         t_paquet = time.time()
         rc = run_blender(cfg, SCRIPTS["scene"], b_args, fond=True)
         duree_paquet = max(duree_paquet * 0.5, time.time() - t_paquet) if duree_paquet else time.time() - t_paquet
-        _nettoyer(out)
-        apres = len([i for i in range(1, n + 1) if not os.path.exists(os.path.join(out, f"frame_{i:04d}.png"))])
+        _nettoyer(out, ext)
+        apres = len([i for i in range(1, n + 1) if not os.path.exists(os.path.join(out, f"frame_{i:04d}{ext}"))])
         if apres >= avant:
             echecs += 1
             print(f"\n!! Aucune nouvelle image dans ce paquet (échec {echecs}/2).", flush=True)
@@ -927,7 +936,8 @@ def cmd_images_finales(cfg, paths, extra, temps=(30.0, 43.0, 52.0)):
     for t in temps:
         out = os.path.join(ROOT, "render", "finales", f"t{t:g}s")
         os.makedirs(out, exist_ok=True)
-        if os.path.exists(os.path.join(out, "frame_0001.png")) and "--refaire" not in extra:
+        ext = _ext("final", extra)
+        if os.path.exists(os.path.join(out, "frame_0001" + ext)) and "--refaire" not in extra:
             print(f"image finale t = {t:g} s déjà faite (render/finales/t{t:g}s), ignorée (--refaire pour la refaire)")
             continue
         # si l'image plante (mémoire), on réessaie en allégeant, et on le DIT: une image allégée ne juge plus tout le réalisme
@@ -940,7 +950,7 @@ def cmd_images_finales(cfg, paths, extra, temps=(30.0, 43.0, 52.0)):
             r1 = run_blender(cfg, SCRIPTS["scene"], scene_args(cfg, paths) + ["--preset", "final", "--mono", "--camera-confirmed",
                              "--render-frame", "1", "--render-time", str(t), "--out", out] + moins
                              + [x for x in extra if x != "--refaire"], fond=True)
-            f = os.path.join(out, "frame_0001.png")
+            f = os.path.join(out, "frame_0001" + ext)
             if os.path.exists(f) and os.path.getsize(f) > 0:
                 if k:
                     with open(os.path.join(out, "ALLEGEE.txt"), "w", encoding="utf-8") as fh:

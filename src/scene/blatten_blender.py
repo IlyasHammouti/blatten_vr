@@ -116,6 +116,7 @@ CFG = dict(
     clip_seconds=3.0, clip_every=1, clip_quality=48, clip_scale=0.5, clip_samples=(24, 48, 96, 192),
     clip_no_keys=False, clip_no_video=False, clip_fullscale=1.0,
     persistent=False,       # rendu: garde en mémoire ce qui ne change pas d'une image à l'autre (plus rapide, plus de mémoire)
+    format="jpg",           # images du preset final: "jpg" (JPEG qualité 95, environ 1 Mo) ou "png16" (PNG 16 bits sans perte, environ 30 Mo)
 )
 
 PRESETS = {
@@ -2164,8 +2165,13 @@ def setup_render(scene, out_dir):
     r.resolution_percentage = 100
     r.use_persistent_data = bool(CFG["persistent"])
     r.fps = CFG["fps"]
-    r.image_settings.file_format = "PNG"
-    r.image_settings.color_depth = "16" if CFG["preset"] == "final" else "8"
+    if CFG["preset"] == "final" and CFG["format"] == "jpg":
+        r.image_settings.file_format = "JPEG"
+        r.image_settings.color_mode = "RGB"
+        r.image_settings.quality = 95
+    else:
+        r.image_settings.file_format = "PNG"
+        r.image_settings.color_depth = "16" if CFG["preset"] == "final" else "8"
     r.filepath = os.path.join(out_dir, "frame_")
     try:  # AgX/Filmic délavent fortement ce ciel; Standard + exposition réduite
         scene.view_settings.view_transform = "Standard"
@@ -2235,7 +2241,7 @@ def parse_args():
     ap.add_argument("--camera-confirmed", action="store_true"); ap.add_argument("--accept-lowres", action="store_true")
     ap.add_argument("--bench", action="store_true"); ap.add_argument("--bench-scale", type=float)
     ap.add_argument("--bench-no-warm", action="store_true"); ap.add_argument("--persistent", action="store_true")
-    ap.add_argument("--matiere")
+    ap.add_argument("--matiere"); ap.add_argument("--format", choices=["jpg", "png16"])
     ap.add_argument("--no-buildings", action="store_true"); ap.add_argument("--no-trees", action="store_true"); ap.add_argument("--no-water", action="store_true"); ap.add_argument("--no-wind", action="store_true"); ap.add_argument("--no-poussiere", action="store_true"); ap.add_argument("--tree-ortho", type=float); ap.add_argument("--tree-dist", type=float); ap.add_argument("--env-only", action="store_true"); ap.add_argument("--lite", action="store_true")
     ap.add_argument("--cull", action="store_true"); ap.add_argument("--no-cull", action="store_true"); ap.add_argument("--no-hires", action="store_true"); ap.add_argument("--no-ortho", action="store_true"); ap.add_argument("--no-depot", action="store_true"); ap.add_argument("--border", type=float, nargs=4)
     ap.add_argument("--env-dir"); ap.add_argument("--clip", action="store_true")

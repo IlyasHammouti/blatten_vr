@@ -25,7 +25,7 @@ def main():
     ap.add_argument("--fps", type=float, default=30.0)
     ap.add_argument("--out", required=True)
     a = ap.parse_args(argv)
-    files = sorted(f for f in glob.glob(os.path.join(a.dir, "frame_*.png")) if os.path.getsize(f) > 0)
+    files = sorted(f for f in glob.glob(os.path.join(a.dir, "frame_*.*")) if f.lower().endswith((".png", ".jpg")) and os.path.getsize(f) > 0)  # PNG (aperçus) ou JPEG (final)
     if not files:
         sys.exit(f"Aucune image dans {a.dir}")
     log(f"{len(files)} images, {a.fps:g} images/s, {len(files) / a.fps:.1f} s")
