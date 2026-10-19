@@ -227,8 +227,9 @@ def _gros_consommateurs(n=8):
         return []
 
 
-def _attendre_ram(min_go=11.0, attente_max=900):
-    """Avant chaque paquet: Blender a besoin d'environ 10 Go de RAM libre au pire moment (voir le journal du 16 oct).
+def _attendre_ram(min_go=7.0, attente_max=900):
+    """Avant chaque paquet: Blender monte à environ 9 à 10 Go. Mesuré le 19 oct (images finales): avec 8 Go libres au départ, le rendu passe (minimum 0,6 Go libres).
+    Le seuil de 11 Go n'était jamais atteint (attente de 15 min pour rien avant chaque image): réglé à 7 Go.
     Sinon on attend (jusqu'à 15 min) que de la place se libère, en disant qui occupe la mémoire."""
     debut = time.time()
     prevenu = False
@@ -830,7 +831,7 @@ def _options_nuit(extra, paquet):
     return extra, paquet, pause, fin
 
 
-def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ram_min=11.0):
+def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ram_min=7.0):
     extra, paquet, pause, heure_fin = _options_nuit(extra, paquet)
     out = os.path.join(ROOT, out_rel)
     # Les images du rendu FINAL (plusieurs Go) peuvent aller sur un autre disque: clé "render_dir" de config.local.json
@@ -946,7 +947,7 @@ def cmd_images_finales(cfg, paths, extra, temps=(30.0, 43.0, 52.0)):
                    (["--tree-dist", "2500", "--no-hires"], "arbres limités à 2,5 km, sans relief 0,5 m ni images locales")]
         for k, (moins, quoi) in enumerate(paliers):
             print(f"\n>>> image finale à t = {t:g} s ({quoi}) -> render/finales/t{t:g}s", flush=True)
-            _attendre_ram(11.0)
+            _attendre_ram(7.0)
             r1 = run_blender(cfg, SCRIPTS["scene"], scene_args(cfg, paths) + ["--preset", "final", "--mono", "--camera-confirmed",
                              "--render-frame", "1", "--render-time", str(t), "--out", out] + moins
                              + [x for x in extra if x != "--refaire"], fond=True)
