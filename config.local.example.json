@@ -4,5 +4,6 @@
   "data_root": "D:/Blatten_data",
   "cache_dir": null,
   "swisstopo_dir": null,
-  "johan_dir": null
+  "johan_dir": null,
+  "render_dir": "D:/Blatten_render"
 }

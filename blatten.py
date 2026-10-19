@@ -825,6 +825,16 @@ def _options_nuit(extra, paquet):
 def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ram_min=11.0):
     extra, paquet, pause, heure_fin = _options_nuit(extra, paquet)
     out = os.path.join(ROOT, out_rel)
+    # Les images du rendu FINAL (plusieurs Go) peuvent aller sur un autre disque: clé "render_dir" de config.local.json
+    # (exemple "D:/Blatten_render"). Les aperçus et les journaux restent dans render/ du dépôt.
+    rd = (cfg.get("render_dir") or "").strip()
+    if rd and preset == "final":
+        out = os.path.join(rd, "final")
+        try:
+            os.makedirs(out, exist_ok=True)
+        except OSError as e:
+            sys.exit(f"Dossier de rendu impossible ({rd}): {e}")
+        print(f"Images finales écrites dans {out} (render_dir)", flush=True)
     deja = _nettoyer(out)
     print(f"Film {preset}: {n} images, {deja} déjà rendues dans {out_rel}; reprise automatique en cas de coupure (relancer la même commande).")
     a = scene_args(cfg, paths) + ["--preset", preset, "--mono", "--render-anim", "--frames", "1", str(n), "--out", out] + extra
