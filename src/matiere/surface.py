@@ -7,8 +7,9 @@ rarement 1 à 2 m. Ici on enveloppe les points d'une surface (l'équivalent Blen
 Houdini), puis on pose éventuellement de PETITS blocs (0,4 à 2 m) sur la peau.
 
 Méthode (noeuds de géométrie de Blender 5.2, recalculés à chaque image) :
-  1. chaque point reçoit un rayon `rs` (numpy): `surface_rayon_facteur` x espacement médian des points, ou 0 s'il est isolé
-     (moins de `surface_isoles` voisins dans les cases voisines): un grain projeté seul ne fait pas de boule;
+  1. chaque point reçoit un rayon `rs` (numpy) selon la densité locale EN 3D: `surface_rayon_facteur` x espacement médian dans la masse,
+     plus petit dans les zones éparses (avant, bords), 0 pour un point isolé (moins de `surface_isoles` voisins): un grain projeté
+     ne fait ni boule ni boudin; en mode mixte, il porte un bloc;
   2. Points to SDF Grid (grille de distance signée, maille `surface_voxel` m): union des sphères;
   3. SDF Grid Mean (`surface_lissage_largeur` voxels, `surface_lissage` passes): les sphères fondent en une masse;
   4. SDF Grid Offset (`surface_retrait` m): on resserre la peau pour compenser le gonflement des sphères;
@@ -240,6 +241,16 @@ def arbre(r, mat, modeles=None, rayon_blocs=(0.2, 1.0), graine=7, n_variantes=4)
         et.operation = "AND"
         L.new(cmp_.outputs[0], et.inputs[0])
         L.new(_sortie(tri, "BOOLEAN"), et.inputs[1])
+        iso = N.new("FunctionNodeCompare")                  # traceur isolé (rs = 0): toujours un bloc, la peau ne le montre pas
+        iso.data_type = "FLOAT"
+        iso.operation = "LESS_THAN"
+        _entree(iso, "B", "VALUE").default_value = 0.01
+        L.new(_attr(N, "rs").outputs["Attribute"], _entree(iso, "A", "VALUE"))
+        ou = N.new("FunctionNodeBooleanMath")
+        ou.operation = "OR"
+        L.new(et.outputs[0], ou.inputs[0])
+        L.new(iso.outputs[0], ou.inputs[1])
+        et = ou
 
         ci = N.new("GeometryNodeCollectionInfo")
         ci.transform_space = "RELATIVE"
@@ -279,16 +290,31 @@ def arbre(r, mat, modeles=None, rayon_blocs=(0.2, 1.0), graine=7, n_variantes=4)
 
 
 # ---------------------------------------------------------------- rayons par point (numpy, à chaque image)
-def rayons(P, rs, cellule, kmin):
-    """Rayon rs pour chaque point, 0 pour les points isolés: moins de kmin points dans les 3 x 3 colonnes de `cellule` m autour."""
-    out = np.full(len(P), float(rs), np.float32)
-    if kmin <= 1 or len(P) == 0:
-        return out
-    x0, y0 = P[:, 0].min(), P[:, 1].min()
-    ix = ((P[:, 0] - x0) / cellule).astype(np.int64) + 1
-    iy = ((P[:, 1] - y0) / cellule).astype(np.int64) + 1
-    nx, ny = int(ix.max()) + 2, int(iy.max()) + 2
-    cnt = np.bincount(iy * nx + ix, minlength=nx * ny).reshape(ny, nx)
-    s = sum(np.roll(np.roll(cnt, dy, 0), dx, 1) for dy in (-1, 0, 1) for dx in (-1, 0, 1))
-    out[s[iy, ix] < int(kmin)] = 0.0
+def voisins3d(P, cellule):
+    """Nombre de points dans les 3 x 3 x 3 cellules de `cellule` m autour de chaque point (0,3 s pour 234 000 points)."""
+    q = np.floor((P - P.min(0)) / cellule).astype(np.int64) + 1
+    m = q.max(0) + 2
+    cle = (q[:, 0] * m[1] + q[:, 1]) * m[2] + q[:, 2]
+    uk, cnt = np.unique(cle, return_counts=True)
+    tot = np.zeros(len(P), np.int64)
+    for dx in (-1, 0, 1):
+        for dy in (-1, 0, 1):
+            for dz in (-1, 0, 1):
+                k2 = ((q[:, 0] + dx) * m[1] + (q[:, 1] + dy)) * m[2] + (q[:, 2] + dz)
+                j = np.clip(np.searchsorted(uk, k2), 0, len(uk) - 1)
+                tot += np.where(uk[j] == k2, cnt[j], 0)
+    return tot
+
+
+def rayons(P, rs, espacement, kmin, kref, rmin):
+    """Rayon de la sphère autour de chaque traceur, selon la densité locale en 3D (cubes de 3 x 2 espacements de côté):
+    0 si moins de kmin voisins (grain projeté: pas de peau, il porte un bloc en mode mixte), rs plein à partir de kref voisins,
+    entre les deux rs x (part de kref)^(1/3), au moins rmin x rs. Mesuré à t = 43 s: médiane 101 voisins, 4 % des points sous 20.
+    Sans cette règle, les traceurs épars de l'avant et des bords se soudent en boudins (rendu du 30 oct.)."""
+    if len(P) == 0:
+        return np.zeros(0, np.float32)
+    c = voisins3d(P, 2.0 * espacement)
+    f = np.clip(((c - kmin) / max(kref - kmin, 1)) ** (1.0 / 3.0), rmin, 1.0)
+    out = (float(rs) * f).astype(np.float32)
+    out[c < kmin] = 0.0
     return out

@@ -53,7 +53,10 @@ REGLAGES = dict(
                              # | "mixte": peau continue + petits blocs portés par les traceurs proches de la peau
     surface_voxel=2.0,       # m, maille de la grille de distance. Mesuré à t = 43 s: 1,5 m -> 1,9 M faces, 2 m -> 0,95 M (0,68 M avec adaptivité 0,3)
     surface_rayon_facteur=1.5,    # rayon des sphères autour des points, en espacements médians (nn_median, ~3,6 m). 1,25: peau trouée
-    surface_isoles=4,        # un point avec moins de N voisins (colonnes de 2 rayons) ne gonfle pas la peau (grains projetés)
+    surface_isoles=20,       # voisins en 3D (cubes de 6 espacements) sous lesquels un traceur n'a pas de peau (grain projeté; bloc en mixte).
+                             # Mesuré à t = 43 s: médiane 101, 4 % des points sous 20. Avec 4 (colonnes 2D), les traceurs épars faisaient des boudins
+    surface_densite_ref=60,  # voisins à partir desquels la sphère a son rayon plein (en dessous: rayon réduit, peau plus fine sur les bords)
+    surface_rayon_min=0.5,   # rayon minimal des sphères réduites, en part du rayon plein
     surface_lissage=3,       # passes de lissage de la distance (0 = boules visibles)
     surface_lissage_largeur=2,    # largeur du lissage en voxels
     surface_retrait=1.0,     # m, resserre la peau après le lissage (compense le gonflement des sphères). Mesuré: sans retrait, sommets à
@@ -61,21 +64,21 @@ REGLAGES = dict(
     surface_adaptivite=0.2,  # 0..1: simplifie le maillage dans les zones planes (moins de mémoire graphique, un peu de détail perdu)
     texture_suit_matiere=True,    # la texture avance avec la matière (position de départ des traceurs), sinon fixe dans l'espace
     texture_flou=2,          # passes de flou de cette position sur la peau (adoucit les coutures entre traceurs)
-    surface_couleur_sombre=(0.055, 0.050, 0.046),   # débris humides, sombres (vidéos de l'événement)
-    surface_couleur_claire=(0.17, 0.155, 0.14),
-    surface_poussiere_max=0.25,   # dépôt clair sur la peau rapide (les roches: poussiere_max)
-    taches_echelle=9.0,      # m, taille des taches sombres/claires de la roche
+    surface_couleur_sombre=(0.040, 0.037, 0.034),   # débris humides, sombres (vidéos de l'événement). Rendu du 30 oct.: peau trop grise et uniforme
+    surface_couleur_claire=(0.15, 0.135, 0.12),
+    surface_poussiere_max=0.15,   # dépôt clair sur la peau rapide (les roches: poussiere_max)
+    taches_echelle=6.0,      # m, taille des taches sombres/claires de la roche
     glace_part=0.22,         # part de la surface en plaques de glace (le dépôt contenait environ un tiers de glace)
     glace_echelle=14.0,      # m, taille des plaques de glace
-    couleur_glace=(0.50, 0.53, 0.55),   # glace sale, grisée par les débris
+    couleur_glace=(0.58, 0.61, 0.63),   # glace sale, grisée par les débris (assez claire pour se détacher de la roche)
     glace_rugosite=0.45,
     relief_echelle=2.2,      # m, bosses de la peau (blocs noyés)
     relief_fin_echelle=0.5,  # m, grain fin
-    relief_force=0.8,
+    relief_force=1.0,
     relief_distance=0.6,     # m, amplitude apparente du relief (bump)
     depot_avec_surface=False,     # garde la peau du dépôt (depot.py) en plus de la surface (inutile en principe)
     blocs_taille_min=0.4,    # m, plus petits blocs (diamètre) en mode "mixte"
-    blocs_taille_max=2.0,    # m, plus gros blocs (Johan: rarement plus de 1 à 2 m dans le dépôt)
+    blocs_taille_max=2.5,    # m, plus gros blocs (Johan: rarement plus de 1 à 2 m dans le dépôt; un peu plus pour les fragments projetés)
     blocs_profondeur=1.5,    # m: seuls les traceurs à moins de cette profondeur sous la peau portent un bloc (les autres sont cachés)
     blocs_part=0.6,          # part de ces traceurs qui portent un bloc
 )
@@ -311,7 +314,7 @@ def build(scene, seq, coll, cfg, log, helpers):
             + (f", blocs de {r['blocs_taille_min']:g} à {r['blocs_taille_max']:g} m" if blocs else ""))
 
     STATE.update(mesh=mesh, last_t=None, seq=seq, to_blender=helpers["to_blender"], interp=r["interpolation"], poussiere=False, depot=False,
-                 mode=mode, rs=rs, r=r)
+                 mode=mode, rs=rs, r=r, espacement=espacement)
     if not cfg.get("no_depot") and (mode == "roches" or r["depot_avec_surface"]):
         try:
             STATE["depot"] = depot.construire(coll, mat, rayon, log, r.get("depot_reglages"))
@@ -338,7 +341,7 @@ def update(scene, t, seq):
     mesh.attributes["speed"].data.foreach_set("value", vit)
     if STATE.get("mode", "roches") != "roches":
         r = STATE["r"]
-        rs = surface.rayons(Pb, STATE["rs"], 2.0 * STATE["rs"], int(r["surface_isoles"]))
+        rs = surface.rayons(Pb, STATE["rs"], STATE["espacement"], int(r["surface_isoles"]), int(r["surface_densite_ref"]), float(r["surface_rayon_min"]))
         mesh.attributes["rs"].data.foreach_set("value", rs)
     mesh.update()
     if STATE.get("depot"):
