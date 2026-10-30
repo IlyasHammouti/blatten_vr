@@ -17,7 +17,8 @@ blatten.py : point d'entrée unique du projet Blatten VR 360.
     python blatten.py bench-compare   compare les benchmarks enregistrés (machines, clé de comparabilité)
     python blatten.py camera [--lv95 E N | --wgs84 LAT LON] [--hauteur 2] [--cap 200]   caméra en coordonnées suisses
     python blatten.py variantes --temps 43 --jeux actuel mixte "mixte poussiere_v2"   même instant, plusieurs jeux de réglages (reglages/)
-    python blatten.py render --frames 1 1200   rendu final (garde-fous: voir docs/)
+    python blatten.py render [--de N --a M]   rendu final (garde-fous: voir docs/); --de/--a: une partie du film seulement
+    python blatten.py paquet [--dest DOSSIER] [--de N] [--a M]   dossier autonome pour rendre une partie du film sur un autre PC
     python blatten.py menu            menu interactif
 
 Python 3.8+ suffit (aucune bibliothèque externe). Les réglages sont dans config.json, et ceux
@@ -811,6 +812,15 @@ def _options_nuit(extra, paquet):
       --pause S         S secondes de repos entre deux paquets (refroidissement de la carte graphique)"""
     extra = list(extra)
     fin = pause = None
+    plage = [None, None]
+    for flag in ("--de", "--a"):          # plage d'images (partage du rendu entre deux PC): --de 700 --a 1590
+        if flag in extra:
+            i = extra.index(flag)
+            if i + 1 >= len(extra) or not extra[i + 1].isdigit():
+                sys.exit(f"{flag} demande un numéro d'image (exemple: --de 700 --a 1590)")
+            plage[flag == "--a"] = int(extra[i + 1])
+            del extra[i:i + 2]
+    PLAGE.update(de=plage[0], a=plage[1])
     for flag in ("--jusqu-a", "--paquet", "--pause"):
         if flag in extra:
             i = extra.index(flag)
@@ -831,6 +841,9 @@ def _options_nuit(extra, paquet):
                 cible = time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, int(m.group(1)), int(m.group(2)), 0, 0, 0, -1))
                 fin = cible if cible > now else cible + 86400
     return extra, paquet, pause, fin
+
+
+PLAGE = dict(de=None, a=None)
 
 
 def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ram_min=7.0):
@@ -859,8 +872,11 @@ def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ra
     duree_paquet = 0.0
     if heure_fin:
         print(f"Rendu de nuit: arrêt propre avant {time.strftime('%d/%m %H:%M', time.localtime(heure_fin))}; relancer la même commande pour reprendre.", flush=True)
+    de, a_ = max(1, PLAGE["de"] or 1), min(n, PLAGE["a"] or n)
+    if (PLAGE["de"] or PLAGE["a"]):
+        print(f"Plage d'images: {de} à {a_} (le reste est rendu sur un autre PC)", flush=True)
     while True:
-        manquantes = [i for i in range(1, n + 1) if not os.path.exists(os.path.join(out, f"frame_{i:04d}{ext}"))]
+        manquantes = [i for i in range(de, a_ + 1) if not os.path.exists(os.path.join(out, f"frame_{i:04d}{ext}"))]
         if not manquantes:
             rc = 0
             break
@@ -879,7 +895,7 @@ def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ra
         rc = run_blender(cfg, SCRIPTS["scene"], b_args, fond=True)
         duree_paquet = max(duree_paquet * 0.5, time.time() - t_paquet) if duree_paquet else time.time() - t_paquet
         _nettoyer(out, ext)
-        apres = len([i for i in range(1, n + 1) if not os.path.exists(os.path.join(out, f"frame_{i:04d}{ext}"))])
+        apres = len([i for i in range(de, a_ + 1) if not os.path.exists(os.path.join(out, f"frame_{i:04d}{ext}"))])
         if apres >= avant:
             echecs += 1
             print(f"\n!! Aucune nouvelle image dans ce paquet (échec {echecs}/2).", flush=True)
@@ -890,7 +906,9 @@ def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ra
         else:
             echecs = 0
         time.sleep(pause if pause is not None else 5)
-    if rc == 0:
+    if rc == 0 and (de, a_) != (1, n):
+        print(f"Plage {de}-{a_} terminée. Le montage se fait une fois toutes les images réunies dans le même dossier.", flush=True)
+    elif rc == 0:
         rc = run_blender(cfg, SCRIPTS["montage"], ["--dir", out, "--fps", str(fps_video), "--out", os.path.join(out, f"{preset}.mp4")])
     return rc
 
@@ -1182,6 +1200,74 @@ def cmd_camera(cfg, paths, extra):
     return 0
 
 
+def cmd_paquet(cfg, paths, extra):
+    """Prépare un dossier autonome pour rendre une partie du film sur un AUTRE PC (frère: RTX 3060 12 Go).
+        python blatten.py paquet [--dest D:/Blatten_paquet] [--de 700] [--a 1590]
+    Copie le code, les particules et l'environnement préparé (~2,2 Go, sans les fichiers bruts swisstopo ni ceux de Johan), écrit
+    config.local.json (chemins relatifs au dossier), Lancer_rendu.bat (plage --de/--a) et LISEZMOI.txt. Reprend une copie interrompue
+    (fichiers déjà copiés à la même taille sautés). Par défaut, la plage est la fin du film (56 %, part mesurée du 3060)."""
+    n, _fps = _film(cfg)
+    dv, extra = _option(extra, "--dest", 1)
+    dev, extra = _option(extra, "--de", 1)
+    av, extra = _option(extra, "--a", 1)
+    dest = os.path.abspath(dv[0] if dv else "D:/Blatten_paquet")
+    de = int(dev[0]) if dev else int(round(n * 0.44)) + 1
+    a_ = int(av[0]) if av else n
+    if not (1 <= de <= a_ <= n):
+        sys.exit(f"Plage invalide: {de} à {a_} (le film a {n} images)")
+    code = os.path.join(dest, "blatten-vr")
+    cache = os.path.join(dest, "cache")
+    # 1. code: fichiers suivis par git (sinon tout sauf rendus et archives)
+    try:
+        fichiers = subprocess.run(["git", "-C", ROOT, "ls-files"], capture_output=True, text=True, check=True).stdout.splitlines()
+    except Exception:
+        fichiers = []
+        for d, sous, fs in os.walk(ROOT):
+            sous[:] = [x for x in sous if x not in (".git", "render", "__pycache__", "_archive", "_to_delete", ".pylibs")]
+            fichiers += [os.path.relpath(os.path.join(d, f), ROOT) for f in fs]
+    a_copier = [(os.path.join(ROOT, f), os.path.join(code, f)) for f in fichiers if os.path.isfile(os.path.join(ROOT, f))]
+    # 2. données: particules, sources de poussière, environnement préparé (pas les maillages du terrain de Johan: inutiles avec l'environnement)
+    for f in sorted(os.listdir(paths.cache)):
+        src = os.path.join(paths.cache, f)
+        if os.path.isfile(src) and (re.match(r"all_particles_\d+\.npy$", f) or f == "meta.json" or f.startswith("poussiere_sources_")):
+            if f == "all_particles_1500.npy":
+                continue
+            a_copier.append((src, os.path.join(cache, f)))
+    env = os.path.join(paths.cache, "env")
+    for d, _sous, fs in os.walk(env):
+        for f in fs:
+            src = os.path.join(d, f)
+            a_copier.append((src, os.path.join(cache, "env", os.path.relpath(src, env))))
+    total = sum(os.path.getsize(sf) for sf, _ in a_copier)
+    print(f"Paquet: {len(a_copier)} fichiers, {total / 1e9:.2f} Go -> {dest}", flush=True)
+    fait = 0
+    for k, (sf, df) in enumerate(a_copier, 1):
+        os.makedirs(os.path.dirname(df), exist_ok=True)
+        if not (os.path.exists(df) and os.path.getsize(df) == os.path.getsize(sf)):
+            shutil.copy2(sf, df)
+        fait += os.path.getsize(sf)
+        if k % 50 == 0 or k == len(a_copier):
+            print(f"  {k}/{len(a_copier)} fichiers, {fait / 1e9:.2f}/{total / 1e9:.2f} Go", flush=True)
+    json.dump({"data_root": "..", "cache_dir": "../cache", "render_dir": ""},
+              open(os.path.join(code, "config.local.json"), "w", encoding="utf-8"), indent=2)
+    with open(os.path.join(code, "Lancer_rendu.bat"), "w", encoding="utf-8", newline="\r\n") as fh:
+        fh.write("@echo off\ncd /d \"%~dp0\"\n(\n"
+                 f"python blatten.py render --de {de} --a {a_} --paquet 10\n"
+                 "echo.\necho Arret. Relancer ce fichier pour reprendre (les images faites sont gardees).\npause\nexit /b\n)\n")
+    with open(os.path.join(dest, "LISEZMOI.txt"), "w", encoding="utf-8", newline="\r\n") as fh:
+        fh.write(f"""Rendu d'une partie du film Blatten 360 (images {de} à {a_} sur {n}).
+
+1. Installer Blender 5.2.2 (blender.org) et Python 3 (python.org, cocher "Add to PATH").
+2. Copier ce dossier sur un disque avec au moins 5 Go libres (les images font environ 1 Mo chacune).
+3. Double-cliquer blatten-vr\\Lancer_rendu.bat. Au premier lancement, le programme cherche Blender (et le demande s'il ne le trouve pas).
+4. Le rendu s'arrête et reprend sans rien perdre: relancer le même fichier. Fermer la fenêtre pour arrêter.
+5. Les images sont dans blatten-vr\\render\\final (frame_NNNN.jpg). À la fin, envoyer ce dossier (environ {(a_ - de + 1) / 1000:.1f} Go).
+""")
+    print(f"Paquet prêt: {dest} (plage {de}-{a_}). Le copier sur une clé ou un disque; LISEZMOI.txt explique la suite.")
+    print(f"Sur CE PC, rendre l'autre partie: python blatten.py render --de 1 --a {de - 1}")
+    return 0
+
+
 def cmd_montage(cfg, paths, extra):
     """Refait seulement la vidéo à partir des images déjà rendues (dossier en argument, défaut render/brouillon)."""
     d = next((x for x in extra if not x.startswith("-")), os.path.join("render", "brouillon"))
@@ -1461,7 +1547,7 @@ def cmd_menu(cfg, paths, extra):
 COMMANDS = {
     "status": cmd_status, "setup": cmd_setup, "download": cmd_download, "prep-env": cmd_prep_env, "prep-batiments": cmd_prep_batiments, "prep-vegetation": cmd_prep_vegetation, "env-complet": cmd_env_complet, "visible": cmd_visible,
     "prep-particules": cmd_prep_particules, "terrain": cmd_terrain, "views": cmd_views, "test360": cmd_test360,
-    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "cap": cmd_cap, "camera": cmd_camera, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
+    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "cap": cmd_cap, "camera": cmd_camera, "paquet": cmd_paquet, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
 }
 
 
