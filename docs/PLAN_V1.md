@@ -146,7 +146,7 @@ Le coût fixe (~40 s par image : reconstruction de la scène) domine. Leviers da
 | Interpolation Hermite | confirmée et branchée | fait |
 | Fenêtre de temps, cap | cap fait ; fenêtre selon D1 | D1 |
 | Poussière | V1 (16 oct.) et V2 (30 oct.: bouffées moins nombreuses et plus grandes, nuage naissant transparent, `reglages/poussiere_v2.json`) | régler sur les vidéos SRF (transparence, échelle) |
-| Disparition arbres, bâtiments, rivière | à l'épaisseur réelle de matière (moitié de la hauteur, `ensevelissement`), plus jamais avant l'arrivée (30 oct.) | empreinte recalculée à copier sur le PC |
+| Disparition arbres, bâtiments, rivière | à l'épaisseur réelle de matière (10 % de la hauteur, `ensevelissement`; 50 % laissait des arbres debout dans la coulée), plus jamais avant l'arrivée (30 oct.) | empreinte recalculée à copier sur le PC |
 | Caméra | `python blatten.py camera --lv95 E N` (ou `--wgs84`), hauteur au-dessus du sol, cap; dalles HD manquantes listées | choisir la position (vidéos SRF) avant le 4 nov. |
 | Rendu sur 2 PC | `render --de/--a`, `python blatten.py paquet` (dossier autonome ~2,2 Go) | tester une image chez le frère |
 | Dépôt (fond de vallée recouvert) | les particules au repos forment le dépôt ; trous possibles à stride 5 | à juger sur B2 |
