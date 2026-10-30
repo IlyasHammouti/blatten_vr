@@ -314,7 +314,7 @@ def rayons(P, rs, espacement, kmin, kref, rmin):
     if len(P) == 0:
         return np.zeros(0, np.float32)
     c = voisins3d(P, 2.0 * espacement)
-    f = np.clip(((c - kmin) / max(kref - kmin, 1)) ** (1.0 / 3.0), rmin, 1.0)
+    f = np.clip((np.maximum(c - kmin, 0) / max(kref - kmin, 1)) ** (1.0 / 3.0), rmin, 1.0)
     out = (float(rs) * f).astype(np.float32)
     out[c < kmin] = 0.0
     return out

@@ -853,8 +853,8 @@ def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ra
     # Les images du rendu FINAL (plusieurs Go) peuvent aller sur un autre disque: clé "render_dir" de config.local.json
     # (exemple "D:/Blatten_render"). Les aperçus et les journaux restent dans render/ du dépôt.
     rd = (cfg.get("render_dir") or "").strip()
-    if rd and preset == "final":
-        out = os.path.join(rd, "final")
+    if rd and preset in ("final", "brouillon"):
+        out = os.path.join(rd, os.path.basename(out_rel))
         try:
             os.makedirs(out, exist_ok=True)
         except OSError as e:
@@ -863,6 +863,9 @@ def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ra
     ext = _ext(preset, extra)
     deja = _nettoyer(out, ext)
     pas_intro, extra = _option(extra, "--intro-pas", 1)
+    # --pas K: une image sur K pour tout le film, recopiée sur les K-1 suivantes (vidéo de contrôle plus rapide; mouvement saccadé à 30/K images/s)
+    pas_film, extra = _option(extra, "--pas", 1)
+    k_film = max(1, int(pas_film[0])) if pas_film else 1
     print(f"Film {preset}: {n} images, {deja} déjà rendues dans {out_rel}; reprise automatique en cas de coupure (relancer la même commande).")
     a = scene_args(cfg, paths) + ["--preset", preset, "--mono", "--render-anim", "--frames", "1", str(n), "--out", out] + extra
     # Par paquets: un Blender neuf tous les PAQUET images repart avec une mémoire (graphique et vive) propre, ce qui évite
@@ -897,27 +900,48 @@ def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ra
     de, a_ = max(1, PLAGE["de"] or 1), min(n, PLAGE["a"] or n)
     if (PLAGE["de"] or PLAGE["a"]):
         print(f"Plage d'images: {de} à {a_} (le reste est rendu sur un autre PC)", flush=True)
+    def _faite(i):
+        return os.path.exists(os.path.join(out, f"frame_{i:04d}{ext}"))
+    cibles = [i for i in range(de, a_ + 1) if (i - 1) % k_film == 0]
+    if k_film > 1:
+        print(f"Une image sur {k_film}: {len(cibles)} images à calculer sur {a_ - de + 1}", flush=True)
+    chrono_f = os.path.join(out, "chrono.json")
+    try:
+        chrono = json.load(open(chrono_f, encoding="utf-8"))
+    except Exception:
+        chrono = []
     while True:
-        manquantes = [i for i in range(de, a_ + 1) if not os.path.exists(os.path.join(out, f"frame_{i:04d}{ext}"))]
+        manquantes = [i for i in cibles if not _faite(i)]
         if not manquantes:
             rc = 0
             break
         d0 = manquantes[0]
-        d1 = min(d0 + PAQUET - 1, n)
+        d1 = min(d0 + (PAQUET - 1) * k_film, a_)
         if heure_fin and duree_paquet and time.time() + 1.15 * duree_paquet > heure_fin:
             print(f"\nHeure limite atteinte: le prochain paquet (~{duree_paquet / 60:.0f} min) ne finirait pas à temps. "
                   f"{len(manquantes)} images restantes; relancer la même commande pour reprendre à l'image {d0}.", flush=True)
             return 0
         print(f"\n>>> paquet d'images {d0} à {d1} sur {n} ({len(manquantes)} restantes)", flush=True)
         i = a.index("--frames")
-        b_args = a[:i] + ["--frames", str(d0), str(d1), "--origine", "1"] + a[i + 3:]
+        b_args = a[:i] + ["--frames", str(d0), str(d1), "--origine", "1"] + (["--frame-step", str(k_film)] if k_film > 1 else []) + a[i + 3:]
         avant = len(manquantes)
         _attendre_ram(ram_min)
         t_paquet = time.time()
         rc = run_blender(cfg, SCRIPTS["scene"], b_args, fond=True)
         duree_paquet = max(duree_paquet * 0.5, time.time() - t_paquet) if duree_paquet else time.time() - t_paquet
         _nettoyer(out, ext)
-        apres = len([i for i in range(de, a_ + 1) if not os.path.exists(os.path.join(out, f"frame_{i:04d}{ext}"))])
+        apres = len([i for i in cibles if not _faite(i)])
+        faites = avant - apres
+        if faites > 0:
+            # chronométrage: temps par image (construction de la scène comprise, une fois par paquet) et fin estimée
+            chrono.append(dict(date=time.strftime("%Y-%m-%d %H:%M"), de=d0, a=d1, images=faites, secondes=round(time.time() - t_paquet)))
+            try:
+                json.dump(chrono, open(chrono_f, "w", encoding="utf-8"), indent=1)
+            except OSError:
+                pass
+            mn = (time.time() - t_paquet) / 60 / faites
+            print(f"\n[chrono] {faites} images en {(time.time() - t_paquet) / 60:.0f} min ({mn:.2f} min par image); "
+                  f"reste {apres} images, environ {apres * mn / 60:.1f} h à ce rythme (le coût monte avec la poussière)", flush=True)
         if apres >= avant:
             echecs += 1
             print(f"\n!! Aucune nouvelle image dans ce paquet (échec {echecs}/2).", flush=True)
@@ -928,6 +952,12 @@ def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ra
         else:
             echecs = 0
         time.sleep(pause if pause is not None else 5)
+    if rc == 0 and k_film > 1:
+        for j in range(de, a_ + 1):
+            src = os.path.join(out, f"frame_{1 + ((j - 1) // k_film) * k_film:04d}{ext}")
+            dst = os.path.join(out, f"frame_{j:04d}{ext}")
+            if not os.path.exists(dst) and os.path.exists(src):
+                shutil.copy(src, dst)
     if rc == 0 and (de, a_) != (1, n):
         print(f"Plage {de}-{a_} terminée. Le montage se fait une fois toutes les images réunies dans le même dossier.", flush=True)
     elif rc == 0:
@@ -936,9 +966,20 @@ def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ra
 
 
 def cmd_render(cfg, paths, extra):
-    """Rendu final: 3840x1920 mono, fenêtre du film (config.json), reprise automatique."""
+    """Film complet (fenêtre du film de config.json, réglages reglages/film.json), reprise automatique.
+        python blatten.py render                          HD: 3840x1920, 96 échantillons (preset final) -> render/final (ou render_dir/final)
+        python blatten.py render --qualite brouillon      basse définition: 1920x960, 16 échantillons -> render/film_brouillon
+        options: --pas 2 (une image sur deux), --intro-pas 3, --de N --a M (partage entre deux PC), --jusqu-a 07:00, --paquet N"""
     n, fps = _film(cfg)
-    return _rendre_film(cfg, paths, "final", os.path.join("render", "final"), n, fps, ["--camera-confirmed"] + extra)
+    q, extra = _option(extra, "--qualite", 1)
+    q = (q or ["final"])[0]
+    if q not in ("final", "brouillon"):
+        sys.exit("--qualite final (HD) ou brouillon (basse définition)")
+    if q == "final":
+        return _rendre_film(cfg, paths, "final", os.path.join("render", "final"), n, fps, ["--camera-confirmed"] + extra)
+    pas, _ = _option(extra, "--pas", 1)
+    nom = "film_brouillon" + (f"_pas{pas[0]}" if pas and pas[0] != "1" else "")
+    return _rendre_film(cfg, paths, "brouillon", os.path.join("render", nom), n, fps, ["--camera-confirmed"] + extra, paquet=80)
 
 
 def cmd_brouillon(cfg, paths, extra):

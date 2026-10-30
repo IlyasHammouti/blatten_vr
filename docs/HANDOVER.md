@@ -26,11 +26,11 @@ Remplace le handover unifié du 15 octobre (rangé dans `docs/archive/`). Réfé
 - **Disparition** des arbres, bâtiments et rivière: à l'arrivée de la matière, arrondie vers le haut (avant: jusqu'à 3,5 s trop tôt). Option `ensevelissement` (épaisseurs
   `tep`/`niveaux` dans `alea_empreinte.npz`): essais à 50 % et 10 % de la hauteur écartés, des arbres restaient debout dans la coulée là où la nappe est mince.
 - **Commandes** (`python blatten.py ...` à la racine): `variantes` (même instant, plusieurs jeux; `Lancer_variantes.bat`), `camera --lv95 E N | --wgs84 LAT LON [--hauteur 2] [--cap 200]`,
-  `render [--de N --a M] [--intro-pas 3]`, `paquet` (dossier autonome ~2,2 Go pour le PC du frère), `images-finales`, `apercu-alea`, `empreinte-alea`, `montage`.
+  `render [--qualite brouillon] [--pas 2] [--de N --a M] [--intro-pas 3]` (`Lancer_film_brouillon.bat`, `Lancer_film_hd.bat`; temps par paquet dans `chrono.json`), `paquet` (dossier autonome ~2,2 Go pour le PC du frère), `images-finales`, `apercu-alea`, `empreinte-alea`, `montage`.
 - **Temps mesurés** (t = 43 s, qualité finale, scène complète, RTX 2060): 9 à 10 min par image construction comprise, quelle que soit la matière. GPU jusqu'à 5,6 Go sur 6,1.
   Film: ~175 h sur ce PC seul, ~75 h à deux PC (estimation, PC du frère non testé). `--persistent`: 18 % plus lent, abandonné.
 - **Comparaison du 30 oct. au soir** (`render/variantes/t43s/`: `actuel`, `mixte`, `mixte+poussiere_v2`, plus `mixte_v1_19h`; visionneuse claude.ai « Variantes de rendu Blatten »):
-  la peau corrigée remplace bien les roches de 3-5 m, mais à t = 43 s la poussière cache l'essentiel de la matière; la V2 fait un voile plus large et plus diffus. Choix non fait (Ilyas).
+  la peau corrigée remplace bien les roches de 3-5 m, mais à t = 43 s la poussière cache l'essentiel de la matière; la V2 fait un voile plus large et plus diffus. Ilyas a choisi peau + poussière V2: `reglages/film.json` hérite de `mixte` et `poussiere_v2`.
   `mixte` 9,8 min, `mixte+poussiere_v2` 8,9 min. Visionneuse GitHub corrigée (sortie sRGB: les images s'affichaient plus sombres que le rendu).
 
 ## 3. Ce qui reste (ordre proposé à Ilyas le 30 oct.)
