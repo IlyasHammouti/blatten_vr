@@ -89,6 +89,8 @@ CFG = dict(
     fog=0.6,                # multiplicateur de la brume (0 = aucune). 1.0: crêtes à 5 km environ 50 % fondues
     mist=0.0,               # 0..1, bancs de brume dans la vallée (visibles sur les vidéos de l'événement)
     detail=1.0,             # 0..1, détail procédural ajouté à l'image aérienne (sol, roche)
+    detail_proche=1.0,      # 0..1, grain fin (cailloux, touffes, 4 à 15 cm) ajouté au sol près de la caméra: à 2 m, un pixel de l'image 10 cm couvre ~30 pixels du rendu
+    detail_proche_dist=40.0,   # m, distance jusqu'à laquelle ce grain est visible (fondu de 30 % à 100 % de cette distance)
     cam_rot=None,           # (rx, ry, rz) degrés, lu dans camera.json (orientation de la vue 360)
     _env_ok=False,          # interne: environnement swisstopo chargé
     camera_confirmed=False, # garde-fou rendu final: position de caméra validée par le groupe
@@ -1736,6 +1738,22 @@ def build_terrain_material(env=None):
         L.new(col, mm.inputs[6])
         L.new(dvec.outputs["Color"], mm.inputs[7])
         col = mm.outputs[2]
+    DP = max(0.0, min(1.0, float(CFG["detail_proche"])))
+    if DP > 0:  # champ proche: grain de 4 à 15 cm, que l'image aérienne (10 cm) ne peut pas donner sous les pieds du spectateur
+        camp = N.new("ShaderNodeCameraData")
+        dd = float(CFG["detail_proche_dist"])
+        proche = mrange(camp.outputs["View Distance"], 0.3 * dd, dd, 1.0, 0.0)
+        g1, g2 = noise(7.0, 6.0), noise(25.0, 4.0)
+        dvp = math("ADD", 1.0, math("ADD", math("MULTIPLY", math("SUBTRACT", g1, 0.5), 0.7 * DP), math("MULTIPLY", math("SUBTRACT", g2, 0.5), 0.45 * DP)))
+        dvc = N.new("ShaderNodeCombineColor")
+        for ch in ("Red", "Green", "Blue"):
+            L.new(dvp, dvc.inputs[ch])
+        mp_ = N.new("ShaderNodeMix")
+        mp_.data_type, mp_.blend_type = "RGBA", "MULTIPLY"
+        L.new(proche, mp_.inputs[0])
+        L.new(col, mp_.inputs[6])
+        L.new(dvc.outputs["Color"], mp_.inputs[7])
+        col = mp_.outputs[2]
     if wq is not None:
         col = mix(wq, col, mix(0.55, col, (0.030, 0.060, 0.070, 1)))      # eau turbide: moitié de l'image, moitié teinte sombre bleu-vert
         snow = math("MULTIPLY", snow, math("SUBTRACT", 1.0, wq))          # pas de neige sur l'eau
@@ -1746,6 +1764,8 @@ def build_terrain_material(env=None):
     bump.inputs["Strength"].default_value = 0.6
     bump.inputs["Distance"].default_value = 1.0
     h = math("ADD", math("MULTIPLY", mid, 0.7), math("MULTIPLY", fine, 0.3))
+    if DP > 0:
+        h = math("ADD", h, math("MULTIPLY", proche, math("ADD", math("MULTIPLY", g1, 0.06 * DP), math("MULTIPLY", g2, 0.03 * DP))))
     if D > 0:
         h = math("ADD", h, math("MULTIPLY", n_fine, 0.25 * D))
         h = math("ADD", h, math("MULTIPLY", math("MULTIPLY", strata.outputs["Fac"], steep), 0.6 * D))
