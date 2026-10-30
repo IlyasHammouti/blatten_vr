@@ -910,6 +910,8 @@ def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ra
     cibles = [i for i in range(de, a_ + 1) if (i - 1) % k_film == 0]
     if k_film > 1:
         print(f"Une image sur {k_film}: {len(cibles)} images à calculer sur {a_ - de + 1}", flush=True)
+    done0 = len([i for i in cibles if _faite(i)])
+    print(f"==== AVANCEMENT: {100.0 * done0 / max(len(cibles), 1):.0f} % du film au départ ({done0}/{len(cibles)} images) ====", flush=True)
     chrono_f = os.path.join(out, "chrono.json")
     try:
         chrono = json.load(open(chrono_f, encoding="utf-8"))
@@ -945,6 +947,13 @@ def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ra
             except OSError:
                 pass
             mn = (time.time() - t_paquet) / 60 / faites
+            pct = 100.0 * (len(cibles) - apres) / max(len(cibles), 1)
+            print(f"\n==== AVANCEMENT: {pct:.0f} % du film ({len(cibles) - apres}/{len(cibles)} images) ====", flush=True)
+            try:
+                open(os.path.join(ROOT, "render", "progression.txt"), "w", encoding="utf-8").write(
+                    f"{time.strftime('%d/%m %H:%M')}  {pct:.1f} %  ({len(cibles) - apres}/{len(cibles)} images)  {out}\n")
+            except OSError:
+                pass
             print(f"\n[chrono] {faites} images en {(time.time() - t_paquet) / 60:.0f} min ({mn:.2f} min par image); "
                   f"reste {apres} images, environ {apres * mn / 60:.1f} h à ce rythme (le coût monte avec la poussière)", flush=True)
         if apres >= avant:
@@ -984,7 +993,7 @@ def cmd_render(cfg, paths, extra):
         return _rendre_film(cfg, paths, "final", os.path.join("render", "final"), n, fps, ["--camera-confirmed"] + extra)
     pas, _ = _option(extra, "--pas", 1)
     nom = "film_brouillon" + (f"_pas{pas[0]}" if pas and pas[0] != "1" else "")
-    return _rendre_film(cfg, paths, "brouillon", os.path.join("render", nom), n, fps, ["--camera-confirmed"] + extra, paquet=80)
+    return _rendre_film(cfg, paths, "brouillon", os.path.join("render", nom), n, fps, ["--camera-confirmed"] + extra, paquet=30)
 
 
 def cmd_brouillon(cfg, paths, extra):
@@ -1631,6 +1640,8 @@ def main():
     paths = Paths(cfg)
     if a.commande == "download":
         return cmd_download(cfg, paths, extra, max_year=a.max_year, dry=a.dry_run, jeux=a.jeux)
+    if a.jeux:      # --jeux sert aussi à d'autres commandes (variantes): on le leur rend
+        extra = extra + ["--jeux"] + a.jeux
     return COMMANDS[a.commande](cfg, paths, extra) or 0
 
 
