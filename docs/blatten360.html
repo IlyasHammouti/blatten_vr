@@ -44,7 +44,7 @@ var stage=document.getElementById("stage"),bar=document.getElementById("bar"),ca
 var lon=112,lat=6,fov=75,tex={};
 function fail(m){var d=document.createElement("div");d.id="err";d.textContent=m;stage.appendChild(d)}
 if(!window.THREE){fail("La bibliothèque 3D n'a pas pu se charger.")}else{
-var renderer=new THREE.WebGLRenderer({antialias:true});
+var renderer=new THREE.WebGLRenderer({antialias:true});renderer.outputEncoding=THREE.sRGBEncoding;
 renderer.setPixelRatio(Math.min(devicePixelRatio||1,2));
 stage.insertBefore(renderer.domElement,cap);
 var scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(fov,1,.1,100);
