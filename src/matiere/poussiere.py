@@ -53,6 +53,18 @@ REGLAGES = dict(
     bruit_petit=14.0,        # m: taille des détails
     vent=(0.0, 0.0),         # m/s (x est, y nord, repère de la scène)
     graine=11,
+    # ---- V2 (30 oct., retours de Johan: « champignons » d'échelle peu réaliste, nuage qui masque vite l'écoulement; choix
+    #      d'Ilyas: garder de la transparence pour voir la matière). Valeurs par défaut = comportement V1; la V2 est dans
+    #      reglages/poussiere_v2.json. Les sources (cache .npz) ne changent pas: on en garde seulement une part.
+    fraction=1.0,            # part des sources utilisées (0..1): moins de bouffées, chacune plus grande = nuage d'un seul tenant
+    transparence_jeune=1.0,  # densité d'une bouffée à sa naissance, relative (0..1): < 1 = on voit la matière à travers le nuage naissant
+    age_opaque=1.0,          # s: âge auquel la bouffée atteint toute sa densité (après le fondu d'apparition)
+    bruit_seuil_bas=0.30,    # bruit (0..1) en dessous duquel le nuage est creusé au maximum
+    bruit_seuil_haut=0.68,   # bruit au-dessus duquel il est le plus dense
+    bruit_creux=0.15,        # densité relative dans les creux du bruit (0 = trous francs, nuage déchiqueté)
+    bruit_pleins=1.7,        # densité relative dans les pleins
+    anisotropie=0.25,        # diffusion vers l'avant de la lumière (0 = isotrope, 0,6 = nuage très lumineux à contre-jour)
+    couleur_absorption=(0.45, 0.42, 0.38),
 )
 
 STATE = dict(classes=[], S=None, R=None, nmax=0, noeud_t=None, erreur=False)
@@ -111,6 +123,10 @@ def bouffees(S, R, t):
         return np.zeros((0, 3), np.float32), np.zeros(0, np.float32), np.zeros(0, np.float32)
     tau = tau[vivant][:, None]                               # (j,1)
     P, V, W = S["P"][vivant], S["V"][vivant], S["W"][vivant]
+    fr = float(R.get("fraction", 1.0))
+    if fr < 1.0:                                             # même sous-ensemble de sources à chaque image (graine fixe)
+        garde_k = np.random.default_rng(int(R["graine"]) + 5).random(P.shape[1]) < max(fr, 1e-3)
+        P, V, W = P[:, garde_k], V[:, garde_k], W[:, garde_k]
     Tf, Tm = float(R["frein"]), float(R["montee_duree"])
     pos = P + V * (Tf * (1.0 - np.exp(-tau / Tf)))[..., None]
     pos[..., 2] += float(R["montee"]) * Tm * (1.0 - np.exp(-tau / Tm))
@@ -120,6 +136,10 @@ def bouffees(S, R, t):
     d = W * (float(R["rayon0"]) / r) ** float(R["dilution"]) * np.exp(-tau / float(R["depot"]))
     u = np.clip(tau / max(float(R["apparition"]), 1e-3), 0.0, 1.0)
     d = d * (u * u * (3.0 - 2.0 * u))
+    tj = float(R.get("transparence_jeune", 1.0))
+    if tj < 1.0:                                             # bouffée naissante plus claire: la matière reste visible dessous
+        a = np.clip(tau / max(float(R.get("age_opaque", 1.0)), 1e-3), 0.0, 1.0)
+        d = d * (tj + (1.0 - tj) * (a * a * (3.0 - 2.0 * a)))
     garde = (W * 1.0 > 0.02)
     pos, r, d = pos[garde], np.broadcast_to(r, W.shape)[garde], d[garde]
     return pos.astype(np.float32), r.astype(np.float32), d.astype(np.float32)
@@ -173,10 +193,10 @@ def _materiau(R):
     L.new(n2.outputs["Fac"], mel.inputs[3])
     mr = N.new("ShaderNodeMapRange")                        # bruit 0.3-0.7 -> facteur 0.15-1.7: creux et bouffées
     mr.clamp = True
-    mr.inputs["From Min"].default_value = 0.30
-    mr.inputs["From Max"].default_value = 0.68
-    mr.inputs["To Min"].default_value = 0.15
-    mr.inputs["To Max"].default_value = 1.7
+    mr.inputs["From Min"].default_value = float(R["bruit_seuil_bas"])
+    mr.inputs["From Max"].default_value = float(R["bruit_seuil_haut"])
+    mr.inputs["To Min"].default_value = float(R["bruit_creux"])
+    mr.inputs["To Max"].default_value = float(R["bruit_pleins"])
     L.new(mel.outputs[0], mr.inputs["Value"])
 
     dens = N.new("ShaderNodeMath")
@@ -190,10 +210,10 @@ def _materiau(R):
 
     diff = N.new("ShaderNodeVolumeScatter")
     diff.inputs["Color"].default_value = (*R["albedo"], 1.0)
-    diff.inputs["Anisotropy"].default_value = 0.25
+    diff.inputs["Anisotropy"].default_value = float(R["anisotropie"])
     L.new(dens2.outputs[0], diff.inputs["Density"])
     absn = N.new("ShaderNodeVolumeAbsorption")
-    absn.inputs["Color"].default_value = (0.45, 0.42, 0.38, 1.0)
+    absn.inputs["Color"].default_value = (*R["couleur_absorption"], 1.0)
     dabs = N.new("ShaderNodeMath")
     dabs.operation = "MULTIPLY"
     dabs.inputs[1].default_value = float(R["absorption"])
@@ -234,7 +254,11 @@ def _arbre(mat, R, niveau, nom):
 def construire(scene, coll, seq, to_blender, cfg, log, reglages=None):
     """Crée les objets Poussiere_*. Renvoie True si le panache est actif."""
     R = dict(REGLAGES)
-    R.update(reglages or {})
+    inconnues = [k for k in (reglages or {}) if k not in REGLAGES]
+    if inconnues:
+        raise SystemExit(f"Réglages poussière inconnus: {inconnues} (voir REGLAGES dans src/matiere/poussiere.py)")
+    for k, v in (reglages or {}).items():
+        R[k] = tuple(v) if isinstance(v, list) and isinstance(REGLAGES.get(k), tuple) else v
     if not R["poussiere"] or cfg.get("no_poussiere"):
         log("poussière: désactivée")
         return False

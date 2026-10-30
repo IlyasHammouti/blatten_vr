@@ -25,6 +25,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # le module est chargé par chemin: retrouver ses voisins
 import interpolation  # noqa: E402
+import surface  # noqa: E402     (peau continue à partir des points, voir surface.py)
 import poussiere  # noqa: E402   (panache de poussière, voir poussiere.py)
 import depot  # noqa: E402       (peau continue sous les roches, voir depot.py)
 
@@ -47,12 +48,44 @@ REGLAGES = dict(
     rugosite=0.9,
     interpolation="hermite",   # "hermite" (src/matiere/interpolation.py) ou "scene" (Sequence.state, pour comparer)
     graine=7,
+    # ---- RENDU de la matière (recommandation de Johan, 20 oct.: les points MPM sont des traceurs, blocs réels de 1 à 2 m)
+    rendu="roches",          # "roches": une roche de 3 à 5 m par point (version A) | "surface": peau continue (src/matiere/surface.py)
+                             # | "mixte": peau continue + petits blocs portés par les traceurs proches de la peau
+    surface_voxel=2.0,       # m, maille de la grille de distance. Mesuré à t = 43 s: 1,5 m -> 1,9 M faces, 2 m -> 0,95 M (0,68 M avec adaptivité 0,3)
+    surface_rayon_facteur=1.5,    # rayon des sphères autour des points, en espacements médians (nn_median, ~3,6 m). 1,25: peau trouée
+    surface_isoles=4,        # un point avec moins de N voisins (colonnes de 2 rayons) ne gonfle pas la peau (grains projetés)
+    surface_lissage=3,       # passes de lissage de la distance (0 = boules visibles)
+    surface_lissage_largeur=2,    # largeur du lissage en voxels
+    surface_retrait=1.0,     # m, resserre la peau après le lissage (compense le gonflement des sphères). Mesuré: sans retrait, sommets à
+                             # 4,3 m (médiane) du traceur le plus proche; 2 m de retrait -> 3,4 m
+    surface_adaptivite=0.2,  # 0..1: simplifie le maillage dans les zones planes (moins de mémoire graphique, un peu de détail perdu)
+    texture_suit_matiere=True,    # la texture avance avec la matière (position de départ des traceurs), sinon fixe dans l'espace
+    texture_flou=2,          # passes de flou de cette position sur la peau (adoucit les coutures entre traceurs)
+    surface_couleur_sombre=(0.055, 0.050, 0.046),   # débris humides, sombres (vidéos de l'événement)
+    surface_couleur_claire=(0.17, 0.155, 0.14),
+    surface_poussiere_max=0.25,   # dépôt clair sur la peau rapide (les roches: poussiere_max)
+    taches_echelle=9.0,      # m, taille des taches sombres/claires de la roche
+    glace_part=0.22,         # part de la surface en plaques de glace (le dépôt contenait environ un tiers de glace)
+    glace_echelle=14.0,      # m, taille des plaques de glace
+    couleur_glace=(0.50, 0.53, 0.55),   # glace sale, grisée par les débris
+    glace_rugosite=0.45,
+    relief_echelle=2.2,      # m, bosses de la peau (blocs noyés)
+    relief_fin_echelle=0.5,  # m, grain fin
+    relief_force=0.8,
+    relief_distance=0.6,     # m, amplitude apparente du relief (bump)
+    depot_avec_surface=False,     # garde la peau du dépôt (depot.py) en plus de la surface (inutile en principe)
+    blocs_taille_min=0.4,    # m, plus petits blocs (diamètre) en mode "mixte"
+    blocs_taille_max=2.0,    # m, plus gros blocs (Johan: rarement plus de 1 à 2 m dans le dépôt)
+    blocs_profondeur=1.5,    # m: seuls les traceurs à moins de cette profondeur sous la peau portent un bloc (les autres sont cachés)
+    blocs_part=0.6,          # part de ces traceurs qui portent un bloc
 )
 
 STATE = dict(mesh=None, last_t=None, seq=None, to_blender=None, interp="hermite")
 
 
-def _reglages():
+def _reglages(cfg=None):
+    """REGLAGES, puis l'ancien fichier src/matiere/reglages_matiere.json s'il existe, puis la section "matiere" des jeux de
+    réglages (reglages/<nom>.json, --reglages / --set, voir src/reglages.py)."""
     r = dict(REGLAGES)
     p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reglages_matiere.json")
     if os.path.exists(p):
@@ -60,6 +93,16 @@ def _reglages():
             r.update(json.load(open(p, encoding="utf-8")))
         except Exception as e:  # un réglage cassé ne doit pas empêcher le rendu
             print("[matiere_roches] reglages_matiere.json ignoré:", e)
+    regl = (cfg or {}).get("_regl") or {}
+    inconnues = [k for k in regl.get("matiere", {}) if k not in REGLAGES and not k.endswith("_reglages")]
+    if inconnues:
+        raise SystemExit(f"Réglages matière inconnus: {inconnues} (voir REGLAGES dans src/matiere/matiere_roches.py)")
+    for k, v in regl.get("matiere", {}).items():
+        r[k] = tuple(v) if isinstance(v, list) and isinstance(REGLAGES.get(k), tuple) else v
+    if r["rendu"] not in ("roches", "surface", "mixte"):
+        raise SystemExit(f"matiere.rendu = {r['rendu']!r}: attendu \"roches\", \"surface\" ou \"mixte\"")
+    r["depot_reglages"] = dict(r.get("depot_reglages") or {}, **regl.get("depot", {}))
+    r["poussiere_reglages"] = dict(r.get("poussiere_reglages") or {}, **regl.get("poussiere", {}))
     return r
 
 
@@ -232,10 +275,12 @@ def _index_sortie(node, kind):
 
 # ---------------------------------------------------------------- interface scène
 def build(scene, seq, coll, cfg, log, helpers):
-    r = _reglages()
+    r = _reglages(cfg)
     n = seq.count
     st = seq.meta.get("stats", {})
-    rayon = (cfg.get("radius") or 0.6 * (st.get("nn_median") or 3.0)) * float(r["rayon_facteur"])
+    espacement = st.get("nn_median") or 3.0
+    rayon = (cfg.get("radius") or 0.6 * espacement) * float(r["rayon_facteur"])
+    mode = r["rendu"]
 
     mat = _material(helpers, cfg, r)
     modeles = bpy.data.collections.new("MatiereRoches_modeles")     # non liée à la scène: sert seulement de réserve
@@ -249,10 +294,25 @@ def build(scene, seq, coll, cfg, log, helpers):
     mesh.attributes.new("speed", "FLOAT", "POINT")
     obj = bpy.data.objects.new("Matiere", mesh)
     coll.objects.link(obj)
-    obj.modifiers.new("Roches", "NODES").node_group = _arbre(modeles, r, rayon)
+    rs = 0.0
+    if mode == "roches":
+        obj.modifiers.new("Roches", "NODES").node_group = _arbre(modeles, r, rayon)
+    else:
+        rs = float(r["surface_rayon_facteur"]) * espacement
+        mesh.attributes.new("rs", "FLOAT", "POINT")
+        mesh.attributes.new("p0", "FLOAT_VECTOR", "POINT")
+        p0 = helpers["to_blender"](np.asarray(seq.arr(0)[:, :3], np.float32))     # position de départ: la texture suit la matière
+        mesh.attributes["p0"].data.foreach_set("vector", p0.ravel())
+        mat_s = surface.materiau(helpers, r)
+        blocs = modeles if mode == "mixte" else None
+        rb = (0.5 * float(r["blocs_taille_min"]), 0.5 * float(r["blocs_taille_max"]))    # variantes de rayon ~1: échelle = rayon
+        obj.modifiers.new("Surface", "NODES").node_group = surface.arbre(r, mat_s, blocs, rb, int(r["graine"]), int(r["n_variantes"]))
+        log(f"matière ({mode}): peau continue, grille {r['surface_voxel']:g} m, sphères de {rs:.2f} m autour des traceurs"
+            + (f", blocs de {r['blocs_taille_min']:g} à {r['blocs_taille_max']:g} m" if blocs else ""))
 
-    STATE.update(mesh=mesh, last_t=None, seq=seq, to_blender=helpers["to_blender"], interp=r["interpolation"], poussiere=False, depot=False)
-    if not cfg.get("no_depot"):
+    STATE.update(mesh=mesh, last_t=None, seq=seq, to_blender=helpers["to_blender"], interp=r["interpolation"], poussiere=False, depot=False,
+                 mode=mode, rs=rs, r=r)
+    if not cfg.get("no_depot") and (mode == "roches" or r["depot_avec_surface"]):
         try:
             STATE["depot"] = depot.construire(coll, mat, rayon, log, r.get("depot_reglages"))
         except Exception as e:  # même règle que la poussière: un ajout qui échoue ne bloque pas le rendu
@@ -262,7 +322,8 @@ def build(scene, seq, coll, cfg, log, helpers):
     except Exception as e:      # le panache est un ajout: s'il échoue, la matière seule est rendue (et on le dit clairement)
         log(f"!! poussière NON construite ({e!r}): rendu sans panache")
     update(scene, helpers["frame_to_time"](scene, scene.frame_start), seq)
-    log(f"matière (roches): {n:,} particules, {int(r['n_variantes'])} variantes de {len(bpy.data.meshes['roche_0'].polygons)} faces, rayon de base {rayon:.2f} m")
+    if mode == "roches":
+            log(f"matière (roches): {n:,} particules, {int(r['n_variantes'])} variantes de {len(bpy.data.meshes['roche_0'].polygons)} faces, rayon de base {rayon:.2f} m")
     return obj
 
 
@@ -275,6 +336,10 @@ def update(scene, t, seq):
     mesh.vertices.foreach_set("co", Pb.ravel())
     vit = np.linalg.norm(V, axis=1).astype(np.float32)
     mesh.attributes["speed"].data.foreach_set("value", vit)
+    if STATE.get("mode", "roches") != "roches":
+        r = STATE["r"]
+        rs = surface.rayons(Pb, STATE["rs"], 2.0 * STATE["rs"], int(r["surface_isoles"]))
+        mesh.attributes["rs"].data.foreach_set("value", rs)
     mesh.update()
     if STATE.get("depot"):
         try:

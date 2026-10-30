@@ -1,0 +1,8 @@
+{
+  "_doc": "Poussière V2, plus couvrante (proche des vidéos réelles où le nuage masque vite l'écoulement): pour comparer avec poussiere_v2.",
+  "herite": ["poussiere_v2"],
+  "poussiere": {
+    "densite": 0.05,
+    "transparence_jeune": 0.5
+  }
+}

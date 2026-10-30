@@ -1,0 +1,21 @@
+{
+  "_doc": "Poussière V2: moins de bouffées mais plus grandes (fin des « champignons »), qui gardent plus longtemps l'élan de la matière et montent moins (nuage qui suit la vallée au lieu de colonnes), nuage naissant transparent pour voir la matière, densité globale réduite.",
+  "poussiere": {
+    "fraction": 0.35,
+    "rayon0": 35.0,
+    "croissance": 6.0,
+    "rayon_max": 350.0,
+    "montee": 2.5,
+    "montee_duree": 50.0,
+    "densite": 0.03,
+    "transparence_jeune": 0.25,
+    "age_opaque": 20.0,
+    "bruit_grand": 140.0,
+    "bruit_petit": 35.0,
+    "bruit_creux": 0.05,
+    "bruit_pleins": 1.6,
+    "voxel": 20.0,
+    "anisotropie": 0.3,
+    "frein": 25.0
+  }
+}

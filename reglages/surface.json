@@ -1,0 +1,6 @@
+{
+  "_doc": "Matière en peau continue autour des traceurs MPM (suggestion de Johan, « Particle Fluid Surface »), sans blocs.",
+  "matiere": {
+    "rendu": "surface"
+  }
+}

@@ -1,0 +1,4 @@
+{
+  "_doc": "Réglages du FILM (lus par config.json -> scene.reglages). À faire évoluer après chaque validation; ne plus toucher pendant le rendu final.",
+  "herite": []
+}

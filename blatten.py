@@ -15,6 +15,7 @@ blatten.py : point d'entrée unique du projet Blatten VR 360.
     python blatten.py open [--vue N]  ouvre la scène dans Blender pour se promener
     python blatten.py bench           benchmark: temps de rendu de cette machine
     python blatten.py bench-compare   compare les benchmarks enregistrés (machines, clé de comparabilité)
+    python blatten.py variantes --temps 43 --jeux actuel mixte "mixte poussiere_v2"   même instant, plusieurs jeux de réglages (reglages/)
     python blatten.py render --frames 1 1200   rendu final (garde-fous: voir docs/)
     python blatten.py menu            menu interactif
 
@@ -930,34 +931,6 @@ def cmd_apercu_alea(cfg, paths, extra):
                         ["--chrono", "0.0", "202.0", "202", "--stamp", "--no-hires", "--no-ortho"] + extra, paquet=70, ram_min=6.0)
 
 
-def cmd_test_persistent(cfg, paths, extra, f0=1051, nb=3, pas=15):
-    """Test --persistent (données gardées en mémoire d'une image à l'autre) contre le mode normal, en conditions réelles:
-    nb images du film final espacées de pas images (par défaut images 1051, 1066, 1081 = t = 30,0 / 30,5 / 31,0 s), même résolution et même qualité.
-    Écrit dans render/test_persistent/{persistent,normal}. Donne la durée de chaque image (le journal complet contient aussi la construction de la scène)
-    pour mesurer le gain, la mémoire utilisée, et comparer les images (la matière bouge entre deux images: si les données persistantes ne la mettent pas à jour, ça se voit)."""
-    f1 = f0 + pas * (nb - 1)
-    rc = 0
-    for nom, plus in (("persistent", ["--persistent"]), ("normal", [])):
-        out = os.path.join(ROOT, "render", "test_persistent", nom)
-        os.makedirs(out, exist_ok=True)
-        for f in glob.glob(os.path.join(out, "frame_*")):
-            os.remove(f)
-        print(f"\n>>> mode {nom}: images {f0} à {f1} (pas {pas}) -> {out}", flush=True)
-        _attendre_ram(7.0)
-        t0 = time.time()
-        r = run_blender(cfg, SCRIPTS["scene"], scene_args(cfg, paths) + ["--preset", "final", "--mono", "--camera-confirmed", "--render-anim",
-                        "--frames", str(f0), str(f1), "--frame-step", str(pas), "--origine", "1", "--out", out] + plus + extra, fond=True)
-        rc = r or rc
-        fich = sorted(glob.glob(os.path.join(out, "frame_*.jpg")), key=os.path.getmtime)
-        print(f"mode {nom}: {len(fich)} image(s) en {(time.time() - t0) / 60:.1f} min (construction de la scène comprise)", flush=True)
-        prev = t0
-        for f in fich:
-            m = os.path.getmtime(f)
-            print(f"   {os.path.basename(f)}: +{(m - prev) / 60:.1f} min", flush=True)
-            prev = m
-    return rc
-
-
 def cmd_images_finales(cfg, paths, extra, temps=(30.0, 43.0, 52.0)):
     """Trois images fixes à la résolution FINALE (3840x1920, 96 échantillons): environnement complet + aléa, à t = 30, 43 et 52 s.
     Sert à juger le réalisme (environnement et matière) et à mesurer le temps d'une image finale."""
@@ -991,6 +964,73 @@ def cmd_images_finales(cfg, paths, extra, temps=(30.0, 43.0, 52.0)):
         else:
             continue
     return rc
+
+
+def _option(extra, flag, n=None):
+    """Retire --flag v1 v2 ... de extra (jusqu'au prochain --option). Rend (valeurs ou None, extra restant)."""
+    extra = list(extra)
+    if flag not in extra:
+        return None, extra
+    i = extra.index(flag)
+    j = i + 1
+    while j < len(extra) and not extra[j].startswith("--") and (n is None or j - i <= n):
+        j += 1
+    vals = extra[i + 1:j]
+    del extra[i:j]
+    return vals, extra
+
+
+def cmd_variantes(cfg, paths, extra):
+    """Le MÊME instant rendu avec plusieurs jeux de réglages (dossier reglages/), pour comparer avant de choisir.
+        python blatten.py variantes [--temps 43 30] [--jeux actuel mixte "mixte poussiere_v2"] [--qualite final|brouillon] [--refaire]
+    Un jeu entre guillemets peut en combiner plusieurs (appliqués dans l'ordre). Images: render/variantes/t43s/<jeu>/,
+    avec le temps de rendu et les réglages effectifs (reglages_effectifs.json). Une variante déjà rendue est sautée (--refaire pour la refaire).
+    Les options inconnues (ex. --set poussiere.densite=0.02) s'appliquent à toutes les variantes."""
+    sys.path.insert(0, SRC)
+    import reglages as R
+    temps, extra = _option(extra, "--temps")
+    jeux, extra = _option(extra, "--jeux")
+    qual, extra = _option(extra, "--qualite", 1)
+    refaire = "--refaire" in extra
+    extra = [x for x in extra if x != "--refaire"]
+    temps = [float(t) for t in (temps or ["43"])]
+    jeux = jeux or ["actuel", "mixte", "mixte poussiere_v2"]
+    qual = (qual or ["final"])[0]
+    if qual not in ("final", "brouillon", "test"):
+        sys.exit("--qualite final, brouillon ou test")
+    dispo = R.lister()
+    for j in jeux:
+        for nom in j.split():
+            if nom not in dispo:
+                sys.exit(f"Jeu de réglages inconnu: {nom} (disponibles: {', '.join(dispo)})")
+    ext = _ext(qual, extra)
+    bilan = []
+    for t in temps:
+        for j in jeux:
+            noms = j.split()
+            label = "+".join(noms)
+            out = os.path.join(ROOT, "render", "variantes", f"t{t:g}s", label)
+            os.makedirs(out, exist_ok=True)
+            f = os.path.join(out, "frame_0001" + ext)
+            if os.path.exists(f) and os.path.getsize(f) > 0 and not refaire:
+                print(f"t = {t:g} s, {label}: déjà rendue, sautée (--refaire pour la refaire)")
+                bilan.append(dict(temps=t, jeu=label, statut="deja"))
+                continue
+            print(f"\n>>> t = {t:g} s, réglages {label} -> render/variantes/t{t:g}s/{label}", flush=True)
+            _attendre_ram(7.0)
+            t0 = time.time()
+            rc = run_blender(cfg, SCRIPTS["scene"], scene_args(cfg, paths) + ["--preset", qual, "--mono", "--camera-confirmed",
+                             "--render-frame", "1", "--render-time", str(t), "--out", out, "--reglages"] + noms + extra, fond=True)
+            ok = os.path.exists(f) and os.path.getsize(f) > 0
+            d = time.time() - t0
+            bilan.append(dict(temps=t, jeu=label, statut="ok" if ok else f"echec (code {rc})", minutes=round(d / 60, 1)))
+            print(f"{'OK' if ok else 'ÉCHEC'}: t = {t:g} s, {label}, {d / 60:.1f} min (construction de la scène comprise)", flush=True)
+    with open(os.path.join(ROOT, "render", "variantes", "bilan.json"), "w", encoding="utf-8") as fh:
+        json.dump(dict(date=time.strftime("%Y-%m-%d %H:%M"), qualite=qual, variantes=bilan), fh, indent=2, ensure_ascii=False)
+    print("\nBilan:")
+    for b in bilan:
+        print(f"  t = {b['temps']:g} s  {b['jeu']:<30} {b['statut']}" + (f"  ({b['minutes']} min)" if "minutes" in b else ""))
+    return 0 if all(b["statut"] in ("ok", "deja") for b in bilan) else 1
 
 
 def cmd_apercu_complet(cfg, paths, extra):
@@ -1294,7 +1334,7 @@ def cmd_menu(cfg, paths, extra):
 COMMANDS = {
     "status": cmd_status, "setup": cmd_setup, "download": cmd_download, "prep-env": cmd_prep_env, "prep-batiments": cmd_prep_batiments, "prep-vegetation": cmd_prep_vegetation, "env-complet": cmd_env_complet, "visible": cmd_visible,
     "prep-particules": cmd_prep_particules, "terrain": cmd_terrain, "views": cmd_views, "test360": cmd_test360,
-    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "test-persistent": cmd_test_persistent, "cap": cmd_cap, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
+    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "cap": cmd_cap, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
 }
 
 

@@ -25,6 +25,7 @@ import json
 import math
 import os
 import sys
+import time
 
 import bpy
 import numpy as np
@@ -116,6 +117,10 @@ CFG = dict(
     clip_seconds=3.0, clip_every=1, clip_quality=48, clip_scale=0.5, clip_samples=(24, 48, 96, 192),
     clip_no_keys=False, clip_no_video=False, clip_fullscale=1.0,
     persistent=False,       # rendu: garde en mémoire ce qui ne change pas d'une image à l'autre (plus rapide, plus de mémoire)
+    reglages=None,          # jeux de réglages nommés (dossier reglages/, voir src/reglages.py), appliqués dans l'ordre
+    set=None,               # réglages ponctuels "section.cle=valeur" (après les jeux)
+    _regl=None,             # interne: réglages fusionnés {section: {clé: valeur}}, lus par les modules de matière
+    ensevelissement=0.5,    # part de la hauteur d'un arbre ou d'un bâtiment que la matière doit recouvrir pour qu'il disparaisse (0 = au premier contact)
     format="jpg",           # images du preset final: "jpg" (JPEG qualité 95, environ 1 Mo) ou "png16" (PNG 16 bits sans perte, environ 30 Mo)
 )
 
@@ -2242,6 +2247,7 @@ def parse_args():
     ap.add_argument("--bench", action="store_true"); ap.add_argument("--bench-scale", type=float)
     ap.add_argument("--bench-no-warm", action="store_true"); ap.add_argument("--persistent", action="store_true")
     ap.add_argument("--matiere"); ap.add_argument("--format", choices=["jpg", "png16"])
+    ap.add_argument("--reglages", nargs="+"); ap.add_argument("--set", action="append"); ap.add_argument("--ensevelissement", type=float)
     ap.add_argument("--no-buildings", action="store_true"); ap.add_argument("--no-trees", action="store_true"); ap.add_argument("--no-water", action="store_true"); ap.add_argument("--no-wind", action="store_true"); ap.add_argument("--no-poussiere", action="store_true"); ap.add_argument("--tree-ortho", type=float); ap.add_argument("--tree-dist", type=float); ap.add_argument("--env-only", action="store_true"); ap.add_argument("--lite", action="store_true")
     ap.add_argument("--cull", action="store_true"); ap.add_argument("--no-cull", action="store_true"); ap.add_argument("--no-hires", action="store_true"); ap.add_argument("--no-ortho", action="store_true"); ap.add_argument("--no-depot", action="store_true"); ap.add_argument("--border", type=float, nargs=4)
     ap.add_argument("--env-dir"); ap.add_argument("--clip", action="store_true")
@@ -2270,6 +2276,42 @@ def parse_args():
     for k in ("terrain", "release", "data_dir", "out", "env_dir"):  # chemins absolus (le dossier courant varie)
         if CFG.get(k):
             CFG[k] = os.path.abspath(CFG[k])
+    charger_reglages()
+
+
+def charger_reglages():
+    """Jeux de réglages (reglages/<nom>.json) puis --set. La section "scene" remplace les clés de CFG (y compris celles venues de
+    config.json): un jeu exprime l'essai voulu. Les autres sections sont lues par les modules de matière (cfg["_regl"])."""
+    src_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) if "__file__" in globals() else os.getcwd()
+    if src_dir not in sys.path:
+        sys.path.insert(0, src_dir)
+    import reglages as R
+    try:
+        regl, noms = R.charger(CFG["reglages"] or [])
+        R.appliquer_set(regl, CFG["set"] or [])
+    except Exception as e:
+        raise SystemExit(f"Réglages: {e}")
+    inconnues = [k for k in regl.get("scene", {}) if k not in CFG or k.startswith("_")]
+    if inconnues:
+        raise SystemExit(f"Réglages: clé(s) de scène inconnue(s) {inconnues} (voir CFG dans src/scene/blatten_blender.py)")
+    for k, v in regl.get("scene", {}).items():
+        CFG[k] = tuple(v) if isinstance(v, list) and isinstance(CFG.get(k), tuple) else v
+    CFG["_regl"] = regl
+    if noms or CFG["set"]:
+        log("réglages: jeux " + (", ".join(noms) or "aucun") + (f" + {len(CFG['set'])} --set" if CFG["set"] else ""))
+        for ligne in R.resume(regl):
+            log("   " + ligne)
+
+
+def ecrire_reglages(out_dir):
+    """Trace des réglages effectifs à côté des images (pour savoir ce qui a produit quoi)."""
+    try:
+        d = dict(jeux=CFG["reglages"] or [], set=CFG["set"] or [], effectifs=CFG["_regl"] or {},
+                 matiere=CFG["matiere"], date=time.strftime("%Y-%m-%d %H:%M:%S"))
+        with open(os.path.join(out_dir, "reglages_effectifs.json"), "w", encoding="utf-8") as f:
+            json.dump(d, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        log("trace des réglages non écrite:", e)
 
 
 def main():
@@ -2376,6 +2418,7 @@ def main():
         if not CFG["no_water"]:
             build_water(env, coll, scene.camera.location)
     setup_render(scene, out_dir)
+    ecrire_reglages(out_dir)
     prepare_viewports(center)
     if not bpy.app.background:  # l'interface n'est pas encore prête au démarrage: on recadre un peu après
         bpy.app.timers.register(lambda: prepare_viewports(center), first_interval=1.5)
