@@ -29,6 +29,9 @@ Remplace le handover unifié du 15 octobre (rangé dans `docs/archive/`). Réfé
   `render [--de N --a M] [--intro-pas 3]`, `paquet` (dossier autonome ~2,2 Go pour le PC du frère), `images-finales`, `apercu-alea`, `empreinte-alea`, `montage`.
 - **Temps mesurés** (t = 43 s, qualité finale, scène complète, RTX 2060): 9 à 10 min par image construction comprise, quelle que soit la matière. GPU jusqu'à 5,6 Go sur 6,1.
   Film: ~175 h sur ce PC seul, ~75 h à deux PC (estimation, PC du frère non testé). `--persistent`: 18 % plus lent, abandonné.
+- **Comparaison du 30 oct. au soir** (`render/variantes/t43s/`: `actuel`, `mixte`, `mixte+poussiere_v2`, plus `mixte_v1_19h`; visionneuse claude.ai « Variantes de rendu Blatten »):
+  la peau corrigée remplace bien les roches de 3-5 m, mais à t = 43 s la poussière cache l'essentiel de la matière; la V2 fait un voile plus large et plus diffus. Choix non fait (Ilyas).
+  `mixte` 9,8 min, `mixte+poussiere_v2` 8,9 min. Visionneuse GitHub corrigée (sortie sRGB: les images s'affichaient plus sombres que le rendu).
 
 ## 3. Ce qui reste (ordre proposé à Ilyas le 30 oct.)
 
