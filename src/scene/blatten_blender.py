@@ -104,6 +104,8 @@ CFG = dict(
     cull=None,              # relief VISIBLE seulement (masques de "python blatten.py visible"). None = automatique (si les masques existent
                             # et ont été calculés pour la caméra actuelle), True = imposé (--cull), False = relief complet (--no-cull)
     no_buildings=False,     # ne place pas les bâtiments 3D (python blatten.py prep-batiments les prépare)
+    eau_reflets=0.8,        # reflets qui descendent le courant sur l'eau (0 = aucun, 1 = marqués)
+    eau_vitesse=2.0,        # vitesse apparente de ces reflets (m/s)
     no_water=False,         # pas de rivière animée (python blatten.py prep-eau la prépare)
     no_trees=False,         # ne place pas les arbres (python blatten.py prep-vegetation les prépare)
     wind=True,              # léger balancement des arbres proches (--no-wind pour le couper)
@@ -1786,7 +1788,40 @@ def build_terrain_material(env=None):
             return math("MULTIPLY", math("SUBTRACT", nz_.outputs["Fac"], 0.5), amp)
         ond = math("ADD", _onde(1.1, 0.9, 0.22), _onde(3.5, 1.7, 0.08))
         h = math("ADD", h, math("MULTIPLY", ond, wq))
-        L.new(math("SUBTRACT", 0.95, math("MULTIPLY", wq, 0.89)), bsdf.inputs["Roughness"])
+        # reflets qui descendent la pente (impression d'écoulement): des taches de bruit entraînées par la plus grande pente (direction
+        # horizontale de la normale du relief, freinée là où l'eau est plate), qui éclaircissent la surface (rugosité plus basse) et la creusent un peu.
+        ECL = float(CFG["eau_reflets"])
+        if ECL > 0:
+            den = math("ADD", math("SQRT", math("ADD", math("MULTIPLY", nor.outputs["X"], nor.outputs["X"]), math("MULTIPLY", nor.outputs["Y"], nor.outputs["Y"]))), 0.03)
+            dxy = N.new("ShaderNodeCombineXYZ")
+            L.new(math("DIVIDE", nor.outputs["X"], den), dxy.inputs["X"])
+            L.new(math("DIVIDE", nor.outputs["Y"], den), dxy.inputs["Y"])
+            dep = N.new("ShaderNodeVectorMath")
+            dep.operation = "SCALE"
+            L.new(dxy.outputs["Vector"], dep.inputs[0])
+            L.new(math("MULTIPLY", T_eau, float(CFG["eau_vitesse"])), dep.inputs["Scale"])
+
+            def _tache(echelle, graine):
+                sc_ = N.new("ShaderNodeVectorMath")
+                sc_.operation = "SUBTRACT"
+                L.new(geo.outputs["Position"], sc_.inputs[0])
+                L.new(dep.outputs["Vector"], sc_.inputs[1])
+                sc2 = N.new("ShaderNodeVectorMath")
+                sc2.operation = "SCALE"
+                sc2.inputs["Scale"].default_value = echelle
+                L.new(sc_.outputs["Vector"], sc2.inputs[0])
+                nz_ = N.new("ShaderNodeTexNoise")
+                nz_.noise_dimensions = "4D"
+                nz_.inputs["Detail"].default_value = 3.0
+                nz_.inputs["W"].default_value = graine
+                L.new(sc2.outputs["Vector"], nz_.inputs["Vector"])
+                return nz_.outputs["Fac"]
+            refl = mrange(math("ADD", _tache(0.9, 3.0), math("MULTIPLY", _tache(3.1, 7.0), 0.5)), 0.78, 1.0)
+            refl = math("MULTIPLY", math("MULTIPLY", refl, wq), ECL)
+            h = math("SUBTRACT", h, math("MULTIPLY", refl, 0.08))
+            L.new(math("SUBTRACT", math("SUBTRACT", 0.95, math("MULTIPLY", wq, 0.89)), math("MULTIPLY", refl, 0.06)), bsdf.inputs["Roughness"])
+        else:
+            L.new(math("SUBTRACT", 0.95, math("MULTIPLY", wq, 0.89)), bsdf.inputs["Roughness"])
     L.new(h, bump.inputs["Height"])
     L.new(bump.outputs["Normal"], bsdf.inputs["Normal"])
     if CFG["haze"] > 0:  # perspective atmosphérique: on mélange vers la couleur du ciel avec la distance
