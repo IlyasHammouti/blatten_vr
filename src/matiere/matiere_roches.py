@@ -7,7 +7,7 @@ aléatoires par particule, un relief procédural (bump) qui tourne avec la roche
 et de la vitesse (la matière rapide se couvre de poussière claire). Coût de reconstruction par image: identique à la
 matière par défaut (un point par particule, on ne touche qu'aux positions et à la vitesse).
 
-Interface (voir docs/HANDOVER_ALEA.md, ne pas changer sans prévenir ENV):
+Interface (voir docs/archive/HANDOVER_ALEA.md, ne pas changer sans prévenir ENV):
     build(scene, seq, coll, cfg, log, helpers) -> objet Blender principal
     update(scene, t, seq)
 

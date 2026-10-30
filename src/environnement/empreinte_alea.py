@@ -6,6 +6,9 @@ Lit les particules préparées (cache/meta.json + .npy, prep-particules) et écr
   tarr   instant (s de simulation, depuis le premier fichier) de la première arrivée de la matière; NaN si jamais
   zfin   altitude de la surface du dépôt (plus haute particule du dernier fichier), NaN hors dépôt
   zmax   altitude maximale atteinte par une particule dans la cellule, tous instants
+  tep, niveaux   tep[k] = instant où l'ÉPAISSEUR de matière au-dessus du sol d'avant l'événement (relief 2 m) atteint niveaux[k] m
+                 (au moins 2 particules dans la cellule); NaN si jamais. Sert à faire disparaître un arbre ou un bâtiment quand la
+                 matière en recouvre une part donnée (CFG ensevelissement de la scène), pas au premier grain qui passe.
   x0, y1, step   coin nord-ouest (LV95) et pas
 
 Servent: 1. visible.py garde un couloir protégé autour de l'empreinte (la coupe du relief invisible ne la touche jamais),
@@ -64,6 +67,23 @@ def main():
     log(f"emprise des particules: X {lo[0]:.0f}..{hi[0]:.0f}  Y {lo[1]:.0f}..{hi[1]:.0f} (repère Blender), grille {W} x {H} de {s:g} m")
     occ = np.zeros((H, W), bool)
     tarr = np.full((H, W), np.nan, np.float32)
+    # sol d'avant l'événement au centre des cellules (relief 2 m, même calage que la scène: + dz)
+    sol = None
+    d2 = meta.get("dem2")
+    if d2 and os.path.exists(os.path.join(env, d2["file"])):
+        dem = np.load(os.path.join(env, d2["file"]), mmap_mode="r")
+        Ec = E0 + (np.arange(W) + 0.5) * s
+        Nc = N1 - (np.arange(H) + 0.5) * s
+        ci = np.clip(np.round((Ec - d2["x0"]) / d2["step"]).astype(np.int64), 0, dem.shape[1] - 1)
+        ri = np.clip(np.round((d2["y1"] - Nc) / d2["step"]).astype(np.int64), 0, dem.shape[0] - 1)
+        dz = meta.get("dz", 0.0)
+        dz = dz if abs(dz) < 30 else 0.0
+        sol = (np.asarray(dem[ri][:, ci], np.float32) + np.float32(dz))
+        log(f"sol d'avant l'événement lu ({d2['file']}): épaisseurs de matière calculées")
+    else:
+        log("!! relief 2 m absent: pas d'épaisseurs (les objets disparaîtront au premier contact)")
+    NIV = np.array([1.0, 2.0, 3.0, 5.0, 8.0, 12.0, 18.0, 25.0, 35.0], np.float32)
+    tep = np.full((len(NIV), H, W), np.nan, np.float32)
     zmax = np.full((H, W), -np.inf, np.float32)
     zfin = np.full((H, W), -np.inf, np.float32)
     s0 = files[0]["step"]
@@ -79,6 +99,16 @@ def main():
             tarr[j[new], i[new]] = t
         occ[j, i] = True
         np.maximum.at(zmax, (j, i), Z.astype(np.float32))
+        if sol is not None:
+            lin = j * W + i
+            cnt = np.bincount(lin, minlength=H * W).reshape(H, W)
+            top = np.full(H * W, -np.inf, np.float32)
+            np.maximum.at(top, lin, Z.astype(np.float32))
+            ep = top.reshape(H, W) - sol
+            ok = cnt >= 2                                     # un grain seul (projeté) ne compte pas
+            for k_, h_ in enumerate(NIV):
+                nouv = ok & (ep >= h_) & np.isnan(tep[k_])
+                tep[k_][nouv] = t
         if k == len(files) - 1:
             np.maximum.at(zfin, (j, i), Z.astype(np.float32))
         if k % 20 == 0 or k == len(files) - 1:
@@ -96,6 +126,12 @@ def main():
         with np.errstate(all="ignore"):
             tmin = np.nanmin(np.where(np.isfinite(vois), vois, np.inf), axis=0)
         tarr = np.where(ajout & np.isfinite(tmin), tmin, tarr).astype(np.float32)
+        for k_ in range(len(NIV)):                             # même comblement pour les épaisseurs
+            p_ = np.pad(tep[k_], 1, constant_values=np.nan)
+            vois = np.stack([p_[:-2, 1:-1], p_[2:, 1:-1], p_[1:-1, :-2], p_[1:-1, 2:]])
+            with np.errstate(all="ignore"):
+                tm = np.nanmin(np.where(np.isfinite(vois), vois, np.inf), axis=0)
+            tep[k_] = np.where(ajout & np.isnan(tep[k_]) & np.isfinite(tm), tm, tep[k_])
         occ2 = o
     zmax[~np.isfinite(zmax)] = np.nan
     zfin[~np.isfinite(zfin)] = np.nan
@@ -103,7 +139,11 @@ def main():
         log(f"!! seulement {len(files)} fichier(s) de particules: l'empreinte est PARTIELLE (elle ne couvre pas le trajet de la matière) et les instants d'arrivée "
             f"sont inconnus. Aucun bâtiment ni arbre ne sera masqué. Refaire après prep-particules sur toute la simulation (202 fichiers, --stride 10 ou plus).")
         tarr[:] = np.nan
-    np.savez_compressed(os.path.join(env, "alea_empreinte.npz"), occ=occ2, tarr=tarr, zfin=zfin, zmax=zmax, x0=E0, y1=N1, step=s)
+    extra = dict(tep=tep, niveaux=NIV) if sol is not None else {}
+    np.savez_compressed(os.path.join(env, "alea_empreinte.npz"), occ=occ2, tarr=tarr, zfin=zfin, zmax=zmax, x0=E0, y1=N1, step=s, **extra)
+    if sol is not None:
+        for k_, h_ in enumerate(NIV):
+            log(f"  épaisseur >= {h_:g} m atteinte sur {np.isfinite(tep[k_]).sum() * s * s / 1e6:.2f} km2")
     meta["alea_empreinte"] = dict(file="alea_empreinte.npz", fichiers=len(files), dt=a.dt, surface_km2=float(occ2.sum() * s * s / 1e6),
                                   duree_s=float((files[-1]["step"] - s0) * a.dt), created=time.strftime("%Y-%m-%d %H:%M"))
     json.dump(meta, open(os.path.join(env, "env_meta.json"), "w"), indent=1)

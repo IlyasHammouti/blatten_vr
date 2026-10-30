@@ -5,7 +5,7 @@ Pourquoi remplacer Sequence.state (src/scene/blatten_blender.py) : celle-ci fait
 (p0 + v0 tau) et arrière (p1 - v1 (dt - tau)). À mi-chemin, cela revient à 0,5 (p0 + p1) + (dt / 4)(v0 - v1), alors que la
 bonne correction est (dt / 8)(v0 - v1): pour une accélération constante a, l'erreur vaut a dt^2 / 8, la même (de signe opposé)
 qu'un simple fondu linéaire des positions. Hermite est exact pour une accélération constante (erreur d'ordre dt^4 sinon).
-Mesure sur les vraies données: python src/matiere/test_interpolation.py
+Mesure sur les vraies données (faite le 16 oct., script archivé): python archive/src/matiere/test_interpolation.py
 
 Utilisation:  P, V = etat(seq, t)     (même contrat que seq.state(t): repère simulation, Y vertical)
 Retombe sur seq.state(t) quand Hermite n'est pas applicable (hors de la plage des fichiers, nombre de particules différent,

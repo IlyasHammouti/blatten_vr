@@ -1,6 +1,6 @@
 # PLAN V1 : de l'état actuel à la vidéo finale muette
 
-Mis à jour le 15 octobre 2026. **Document de référence unique** (remplace, pour le pilotage, `docs/HANDOVER_ALEA.md` et le handover unifié ;
+Mis à jour le 15 octobre 2026. **Document de référence unique** (remplace, pour le pilotage, `docs/archive/HANDOVER_ALEA.md` et le handover unifié ;
 leurs sections techniques restent valables comme mémoire). Une conversation Claude, une branche (`main`).
 
 ## 0. L'objectif, et la règle qui protège l'objectif
@@ -71,8 +71,8 @@ Renvoyer : la dernière ligne (`meta.json écrit (202 fichier(s)), vmax=...`).
 
 **A3 : FAIT (Claude, 16 oct)**, résultats dans D1 ; interpolation Hermite 10 fois plus précise, branchée dans la scène. Pour mémoire :
 ```
-python src/matiere/analyse_temps.py
-python src/matiere/test_interpolation.py
+python archive/src/matiere/analyse_temps.py
+python archive/src/matiere/test_interpolation.py
 ```
 Renvoyer : les deux résumés collés tels quels.
 

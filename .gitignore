@@ -21,3 +21,8 @@ config.local.json
 # Les résultats de benchmark SONT versionnés (comparaison entre machines): bench_results/*.json
 bench_results/*.jpg
 bench_results/*.png
+
+# Rangement sur la machine (sorties et fichiers devenus inutiles, à supprimer à la main) et sauvegarde de la caméra précédente
+_archive/
+_to_delete/
+camera_precedente.json

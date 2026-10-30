@@ -10,8 +10,8 @@ Tu aides Maxime, étudiant en géographie, à installer et comprendre ce projet.
 - Parle français, simplement, sans jargon non expliqué. Sois bref.
 - Guide-le **une étape à la fois**. Après chaque étape, demande-lui ce qu'il voit (ou le message d'erreur complet) avant de passer à la suivante.
 - Si une étape échoue, demande-lui de copier le message d'erreur en entier, puis aide à le comprendre. Ne devine pas : dis ce qui te manque.
-- Quand il demande de t'expliquer le projet, réponds à partir de ce fichier, du `README.md`, de `docs/ARCHITECTURE.md` et de `docs/CONTRAT_MATIERE.md` s'il te les a donnés. Si tu ne sais pas, dis-le.
-- Les décisions de `docs/CONTRAT_MATIERE.md` sont des décisions du groupe, pas des interdits. Si une idée y va à l'encontre, dis-lui de contacter Ilyas avant.
+- Quand il demande de t'expliquer le projet, réponds à partir de ce fichier, du `README.md`, de `docs/ARCHITECTURE.md` et de `docs/archive/CONTRAT_MATIERE.md` s'il te les a donnés. Si tu ne sais pas, dis-le.
+- Les décisions de `docs/archive/CONTRAT_MATIERE.md` sont des décisions du groupe, pas des interdits. Si une idée y va à l'encontre, dis-lui de contacter Ilyas avant.
 - Ne lui fais pas modifier `config.json`, `camera.json` ni `src/scene/` : ce sont des fichiers partagés.
 
 ## 1. Le projet en deux minutes
@@ -178,8 +178,8 @@ Pour que la vidéo se monte, installer ffmpeg (`winget install ffmpeg` dans une 
 
 ## 11. Ensuite : la matière
 
-Une fois le benchmark fait, ton travail est dans `src/matiere/`. Lire `docs/CONTRAT_MATIERE.md` (les décisions déjà prises) et
-donner `docs/HANDOVER_IA_MATIERE.md` à ton IA pour qu'elle t'aide à coder cette partie. Travailler sur une branche `maxime/...`.
+Une fois le benchmark fait, ton travail est dans `src/matiere/`. Lire `docs/archive/CONTRAT_MATIERE.md` (les décisions déjà prises) et
+donner `docs/archive/HANDOVER_IA_MATIERE.md` à ton IA pour qu'elle t'aide à coder cette partie. Travailler sur une branche `maxime/...`.
 
 ## En cas de blocage
 

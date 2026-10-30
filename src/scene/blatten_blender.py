@@ -96,7 +96,7 @@ CFG = dict(
     bench=False,            # mode benchmark: rend des images test et estime le temps du rendu final (src/bench/bench.py)
     bench_scale=None,       # échelle de la résolution du benchmark (None: 1.0 avec GPU, 0.25 sans)
     bench_no_warm=False,    # benchmark: saute la série "données persistantes" (plus rapide)
-    matiere="defaut",       # "defaut": particules en sphères (build_debris ci-dessous), ou nom d'un module de src/matiere/ (ex. rendu_matiere), voir docs/HANDOVER_ALEA.md
+    matiere="defaut",       # "defaut": particules en sphères (build_debris ci-dessous), ou nom d'un module de src/matiere/ (ex. rendu_matiere), voir docs/archive/HANDOVER_ALEA.md
     env_only=False,         # ENVIRONNEMENT SEUL: ni particules ni zone de rupture (décor d'avant l'événement)
     lite=False,             # version légère: environnement seul + relief visible seulement, enregistrée avec ses images dans render/blatten_env_lite.blend
     cull=None,              # relief VISIBLE seulement (masques de "python blatten.py visible"). None = automatique (si les masques existent
@@ -178,7 +178,7 @@ class Sequence:
             a = a0 if f < 0.5 else a1
             return np.asarray(a[:, :3]), np.asarray(a[:, 3:6])
         # Hermite cubique (positions et vitesses aux deux fichiers): exact pour une accélération constante.
-        # Mesuré sur la série de Johan (test_interpolation.py, écart de 2 s): erreur médiane 0,02 m contre 0,21 m pour l'ancien fondu.
+        # Mesuré sur la série de Johan (archive/src/matiere/test_interpolation.py, écart de 2 s): erreur médiane 0,02 m contre 0,21 m pour l'ancien fondu.
         p0, v0 = np.asarray(a0[:, :3], np.float32), np.asarray(a0[:, 3:6], np.float32)
         p1, v1 = np.asarray(a1[:, :3], np.float32), np.asarray(a1[:, 3:6], np.float32)
         f2, f3 = f * f, f * f * f
@@ -240,7 +240,7 @@ MATIERE = dict(mod=None)   # module de matière externe (src/matiere/<nom>.py), 
 
 
 def load_matiere(root):
-    """Charge src/matiere/<CFG["matiere"]>.py. Interface (voir docs/HANDOVER_ALEA.md):
+    """Charge src/matiere/<CFG["matiere"]>.py. Interface (voir docs/archive/HANDOVER_ALEA.md):
          build(scene, seq, coll, cfg, log, helpers) -> objet principal de la matière (ou None)
          update(scene, t, seq)   appelée à chaque changement d'image, t = temps de simulation en s
     """
@@ -254,7 +254,7 @@ def load_matiere(root):
     spec.loader.exec_module(mod)
     for fn in ("build", "update"):
         if not hasattr(mod, fn):
-            raise SystemExit(f"{path}: fonction {fn}() manquante (interface: docs/HANDOVER_ALEA.md)")
+            raise SystemExit(f"{path}: fonction {fn}() manquante (interface: docs/archive/HANDOVER_ALEA.md)")
     log(f"matière: module externe {path}")
     return mod
 
@@ -666,9 +666,13 @@ def build_env_terrain(env, center, coll, mat):
     return objs
 
 
-def _arrivee(env, E, N, pas=3.0):
-    """Instant (s de simulation) où la matière atteint chaque point (E, N), arrondi par `pas` (regroupement); inf si jamais.
-    Lit alea_empreinte.npz (python blatten.py empreinte-alea). Rend toujours un tableau inf si absent."""
+def _arrivee(env, E, N, pas=3.0, hauteur=None):
+    """Instant (s de simulation) où un objet en (E, N) est balayé; inf si jamais. Lit alea_empreinte.npz (python blatten.py empreinte-alea).
+    Avec la hauteur des objets et CFG["ensevelissement"] > 0: instant où l'épaisseur de matière atteint cette part de la hauteur
+    (un arbre de 20 m disparaît sous 10 m de matière, pas au premier grain); si elle ne l'atteint jamais, instant de la plus grande
+    épaisseur atteinte (l'objet est quand même emporté). Sans les épaisseurs (ancienne empreinte): première arrivée.
+    Les instants sont groupés par `pas` (un objet Blender par groupe), arrondis VERS LE HAUT: un objet ne disparaît jamais avant
+    l'arrivée de la matière (avant le 30 oct., arrondi vers le bas: jusqu'à 3,5 s trop tôt)."""
     out = np.full(len(E), np.inf)
     f = os.path.join(env["dir"], "alea_empreinte.npz")
     if not os.path.exists(f) or CFG.get("no_ensevelis"):
@@ -678,9 +682,22 @@ def _arrivee(env, E, N, pas=3.0):
     i = np.floor((E - x0) / s).astype(np.int64)
     j = np.floor((y1 - N) / s).astype(np.int64)
     ok = (i >= 0) & (i < tarr.shape[1]) & (j >= 0) & (j < tarr.shape[0])
-    v = np.where(ok, tarr[np.clip(j, 0, tarr.shape[0] - 1), np.clip(i, 0, tarr.shape[1] - 1)], np.nan)
+    ic, jc = np.clip(i, 0, tarr.shape[1] - 1), np.clip(j, 0, tarr.shape[0] - 1)
+    v = np.where(ok, tarr[jc, ic], np.nan)
+    ens = float(CFG.get("ensevelissement") or 0.0)
+    if hauteur is not None and ens > 0 and "tep" in z.files:
+        tep, niv = z["tep"], z["niveaux"]
+        req = ens * np.asarray(hauteur, np.float64)
+        k = np.clip(np.searchsorted(niv, req), 0, len(niv) - 1)
+        cand = np.where(ok, tep[k, jc, ic], np.nan)
+        # jamais assez épais: instant du plus haut niveau atteint
+        for kk in range(len(niv) - 1, -1, -1):
+            manque = ok & np.isnan(cand) & (kk < k)
+            if manque.any():
+                cand[manque] = tep[kk, jc[manque], ic[manque]]
+        v = np.where(np.isfinite(cand), cand, v)
     good = np.isfinite(v)
-    out[good] = np.floor(np.maximum(v[good] - 0.5, 0.0) / pas) * pas
+    out[good] = np.ceil(v[good] / pas) * pas
     return out
 
 
@@ -940,8 +957,9 @@ def build_buildings(env, coll):
     if not keep.any():
         log("bâtiments 3D: aucun dans la zone visible")
         return None
-    ta = _arrivee(env, Ec_, Nc_)
     ts = np.concatenate([[0], np.cumsum(nt)])
+    hb = np.array([np.ptp(V[T[ts[k]:ts[k + 1]].ravel(), 2]) if nt[k] else 0.0 for k in range(len(nt))])   # hauteur de chaque bâtiment
+    ta = _arrivee(env, Ec_, Nc_, hauteur=hb)
     mats = [_materiau_mur(), _materiau_toit()]
     nf_tot, objs, nsw = 0, [], 0
     for g in np.unique(ta[keep]):
@@ -1203,7 +1221,7 @@ def build_trees(env, coll, cam):
     bp.inputs["Strength"].default_value, bp.inputs["Distance"].default_value = 0.8, 0.3
     Ln.new(_bruit(5.0, 5.0), bp.inputs["Height"])
     Ln.new(bp.outputs["Normal"], b.inputs["Normal"])
-    ta = _arrivee(env, E, N)
+    ta = _arrivee(env, E, N, hauteur=Hh)
     ob0, nf, nsw = None, 0, 0
     groupes = [(g, zn) for g in np.unique(ta) for zn in ((0, 1) if CFG["wind"] else (0,))]
     for g, zn in groupes:
@@ -1419,7 +1437,7 @@ def build_water(env, coll, cam):
         lg = np.zeros((ns * 2, 3)); lg[:, 0] = w2
         tri = np.concatenate([np.stack([2 * seg, 2 * seg + 1, 2 * seg + 2], 1), np.stack([2 * seg + 1, 2 * seg + 3, 2 * seg + 2], 1)])
         Em = E[seg]; Nm = N[seg]
-        ta = np.tile(_arrivee(env, Em, Nm), 2)
+        ta = np.tile(_arrivee(env, Em, Nm, hauteur=np.full(len(Em), 1.0)), 2)   # rivière: dès 1 m de matière
         V_all.append(verts); T_all.append(tri + off); UV_all.append(uvv); LG_all.append(lg); TA_all.append(ta)
         off += ns * 2
         nseg += len(seg)

@@ -15,6 +15,7 @@ blatten.py : point d'entrée unique du projet Blatten VR 360.
     python blatten.py open [--vue N]  ouvre la scène dans Blender pour se promener
     python blatten.py bench           benchmark: temps de rendu de cette machine
     python blatten.py bench-compare   compare les benchmarks enregistrés (machines, clé de comparabilité)
+    python blatten.py camera [--lv95 E N | --wgs84 LAT LON] [--hauteur 2] [--cap 200]   caméra en coordonnées suisses
     python blatten.py variantes --temps 43 --jeux actuel mixte "mixte poussiere_v2"   même instant, plusieurs jeux de réglages (reglages/)
     python blatten.py render --frames 1 1200   rendu final (garde-fous: voir docs/)
     python blatten.py menu            menu interactif
@@ -1055,6 +1056,132 @@ def cmd_cap(cfg, paths, extra):
     return 0
 
 
+def _npy_valeur(path, r, c):
+    """Une valeur d'un tableau .npy 2D (float32/float64), sans numpy: lecture directe dans le fichier."""
+    import ast
+    import struct
+    with open(path, "rb") as f:
+        if f.read(6) != b"\x93NUMPY":
+            raise ValueError(f"{path}: pas un fichier .npy")
+        major = f.read(2)[0]
+        hl = struct.unpack("<H" if major == 1 else "<I", f.read(2 if major == 1 else 4))[0]
+        h = ast.literal_eval(f.read(hl).decode("latin1"))
+        H, W = h["shape"][:2]
+        code = {"<f4": "<f", "<f8": "<d"}[h["descr"]]
+        size = struct.calcsize(code)
+        r, c = min(max(int(r), 0), H - 1), min(max(int(c), 0), W - 1)
+        idx = c * H + r if h.get("fortran_order") else r * W + c
+        f.seek(f.tell() + idx * size)
+        return struct.unpack(code, f.read(size))[0]
+
+
+def _wgs84_vers_lv95(lat, lon):
+    """Formules approchées de swisstopo (précision ~1 m)."""
+    p, l = (lat * 3600 - 169028.66) / 10000, (lon * 3600 - 26782.5) / 10000
+    E = 2600072.37 + 211455.93 * l - 10938.51 * l * p - 0.36 * l * p * p - 44.54 * l ** 3
+    N = 1200147.07 + 308807.95 * p + 3745.25 * l * l + 76.63 * p * p - 194.56 * l * l * p + 119.79 * p ** 3
+    return E, N
+
+
+# zone haute résolution nécessaire autour de la caméra (anneaux du relief 0,5/1 m et images 50 cm/10 cm de la scène)
+MARGE_RELIEF_05 = 800.0
+MARGE_IMAGE_10 = 1000.0
+
+
+def cmd_camera(cfg, paths, extra):
+    """Position de la caméra en coordonnées suisses (LV95), sans passer par Blender.
+        python blatten.py camera                                    affiche la caméra actuelle (LV95, altitude, couverture haute résolution)
+        python blatten.py camera --lv95 2628474 1140885 [--hauteur 2] [--cap 200]
+        python blatten.py camera --wgs84 46.4205 7.8195 [--hauteur 2] [--cap 200]   (coordonnées lues sur une carte)
+    La hauteur est comptée au-dessus du sol (relief 0,5 m si disponible, sinon 2 m). Le cap (degrés, 0 = nord, 90 = est) oriente la vue de départ.
+    L'ancienne caméra est gardée dans camera_precedente.json. Si la nouvelle position sort de la zone haute résolution, les dalles manquantes
+    sont ajoutées aux listes de téléchargement (data_sources/swisstopo) et la suite à lancer est affichée."""
+    mp = os.path.join(paths.cache, "env", "env_meta.json")
+    if not os.path.exists(mp):
+        sys.exit("Environnement non préparé (env_meta.json): lancer d'abord la préparation du relief (prep-env).")
+    m = _load_json(mp)
+    fc = os.path.join(ROOT, "camera.json")
+    cam = _load_json(fc) if os.path.exists(fc) else {}
+    lv, extra = _option(extra, "--lv95", 2)
+    wg, extra = _option(extra, "--wgs84", 2)
+    hv, extra = _option(extra, "--hauteur", 1)
+    cv, extra = _option(extra, "--cap", 1)
+    dz = m.get("dz", 0.0) if abs(m.get("dz", 0.0)) < 30 else 0.0
+
+    def sol(E, N):
+        for cle in ("dem05", "dem2", "dem8"):
+            d = m.get(cle)
+            f = d and os.path.join(paths.cache, "env", d["file"])
+            if not d or not os.path.exists(f):
+                continue
+            c, r = (E - d["x0"]) / d["step"], (d["y1"] - N) / d["step"]
+            if 0 <= c < d["shape"][1] - 1 and 0 <= r < d["shape"][0] - 1:
+                return _npy_valeur(f, round(r), round(c)) + dz, cle
+        return None, None
+
+    def couverture(E, N):
+        d5 = m.get("dem05")
+        ok5 = bool(d5) and (d5["x0"] + MARGE_RELIEF_05 <= E <= d5["x0"] + d5["shape"][1] * d5["step"] - MARGE_RELIEF_05
+                            and d5["y1"] - d5["shape"][0] * d5["step"] + MARGE_RELIEF_05 <= N <= d5["y1"] - MARGE_RELIEF_05)
+        return ok5
+
+    if not lv and not wg:
+        if not cam.get("cam"):
+            sys.exit("Pas de camera.json.")
+        x, y, z = cam["cam"]
+        E, N = m["scene_E0"] + x, m["scene_N0"] + m["flip"] * y
+        zs, src = sol(E, N)
+        print(f"Caméra actuelle: LV95 E {E:.1f} N {N:.1f}, altitude {z:.1f} m"
+              + (f" ({z - zs:.1f} m au-dessus du sol, relief {src})" if zs is not None else ""))
+        print(f"Cap de la vue de départ: {(-cam.get('rot_deg', [90, 0, 0])[2]) % 360:.0f} degrés; confirmée par le groupe: {bool(cam.get('confirmed'))}")
+        print("Zone haute résolution (relief 0,5 m):", "couvre la caméra" if couverture(E, N) else "NE couvre PAS la caméra")
+        return 0
+    if wg:
+        E, N = _wgs84_vers_lv95(float(wg[0]), float(wg[1]))
+        print(f"WGS84 {wg[0]}, {wg[1]} -> LV95 E {E:.1f} N {N:.1f}")
+    else:
+        E, N = float(lv[0]), float(lv[1])
+    h = float(hv[0]) if hv else float(cam.get("z_sol_plus", 2.0))
+    cap = float(cv[0]) if cv else (-cam.get("rot_deg", [90, 0, -200])[2]) % 360
+    zs, src = sol(E, N)
+    if zs is None:
+        sys.exit(f"LV95 E {E:.0f} N {N:.0f}: hors du relief préparé (dem 0,5/2/8 m). Position trop loin de la vallée?")
+    if os.path.exists(fc):
+        shutil.copy(fc, os.path.join(ROOT, "camera_precedente.json"))
+    nouv = dict(cam=[round(E - m["scene_E0"], 2), round((N - m["scene_N0"]) * m["flip"], 2), round(zs + h, 2)],
+                rot_deg=[90.0, 0.0, round(-cap, 1)], confirmed=False, lv95=[round(E, 1), round(N, 1)], z_sol_plus=h,
+                note=f"Caméra posée le {time.strftime('%Y-%m-%d')} par python blatten.py camera (LV95 E {E:.0f} N {N:.0f}, {h:g} m au-dessus du sol, "
+                     f"relief {src}, cap {cap:.0f}). À valider avec le groupe (confirmed: true).")
+    json.dump(nouv, open(fc, "w", encoding="utf-8"), indent=2, ensure_ascii=False)
+    print(f"camera.json écrit: scène {nouv['cam']}, sol {zs:.1f} m ({src}), cap {cap:.0f} degrés (ancienne caméra: camera_precedente.json)")
+    print("La caméra n'est pas confirmée: le rendu final refusera de partir tant que \"confirmed\" n'est pas true dans camera.json.")
+    if couverture(E, N):
+        print("Zone haute résolution: déjà couverte. Suite: python blatten.py prep-env --hires (images 10 cm recentrées), "
+              "python blatten.py visible, puis une image test.")
+        return 0
+    # dalles de 1 km manquantes autour de la caméra (relief 0,5 m et images 10 cm), ajoutées aux listes avec l'année à deviner
+    ajout = 0
+    for csv, motif, marge in (("swissalti3d_05m.csv", "https://data.geo.admin.ch/ch.swisstopo.swissalti3d/swissalti3d_YYYY_{k}/swissalti3d_YYYY_{k}_0.5_2056_5728.tif", MARGE_RELIEF_05 + 400),
+                              ("swissimage_10cm.csv", "https://data.geo.admin.ch/ch.swisstopo.swissimage-dop10/swissimage-dop10_YYYY_{k}/swissimage-dop10_YYYY_{k}_0.1_2056.tif", MARGE_IMAGE_10)):
+        f = os.path.join(paths.csv, csv)
+        txt = open(f, encoding="utf-8-sig").read() if os.path.exists(f) else ""
+        lignes = []
+        for ek in range(int((E - marge) // 1000), int((E + marge) // 1000) + 1):
+            for nk in range(int((N - marge) // 1000), int((N + marge) // 1000) + 1):
+                k = f"{ek}-{nk}"
+                if f"_{k}" not in txt:
+                    lignes.append(motif.format(k=k))
+        if lignes:
+            with open(f, "a", encoding="utf-8") as fh:
+                fh.write(("" if txt.endswith("\n") or not txt else "\n") + "\n".join(lignes) + "\n")
+            ajout += len(lignes)
+            print(f"  {csv}: {len(lignes)} dalle(s) ajoutée(s)")
+    print(f"La caméra sort de la zone haute résolution: {ajout} dalle(s) à télécharger. Suite, dans l'ordre:\n"
+          "  python blatten.py download --jeux 05m 10cm\n  python blatten.py prep-env --hires\n  python blatten.py visible\n"
+          "  puis une image test (si la caméra a bougé de plus de 500 m: refaire aussi env-complet pour la végétation et les bâtiments).")
+    return 0
+
+
 def cmd_montage(cfg, paths, extra):
     """Refait seulement la vidéo à partir des images déjà rendues (dossier en argument, défaut render/brouillon)."""
     d = next((x for x in extra if not x.startswith("-")), os.path.join("render", "brouillon"))
@@ -1112,7 +1239,7 @@ def cmd_test_clip(cfg, paths, extra):
     clip_dir = os.path.join(paths.cache, "clip", f"f{need[0]}-{need[-1]}_k{a.stride}")
     meta_p = os.path.join(clip_dir, "meta.json")
     if a.reconvert or not os.path.exists(meta_p):
-        origin = [1117.4016956592827, 0.0, -1121.1231332002285]    # repère de la simulation (voir docs/CONTRAT_MATIERE.md)
+        origin = [1117.4016956592827, 0.0, -1121.1231332002285]    # repère de la simulation (voir docs/archive/CONTRAT_MATIERE.md)
         old = _load_json(os.path.join(paths.cache, "meta.json"))
         if old.get("origin"):
             origin = old["origin"]
@@ -1334,7 +1461,7 @@ def cmd_menu(cfg, paths, extra):
 COMMANDS = {
     "status": cmd_status, "setup": cmd_setup, "download": cmd_download, "prep-env": cmd_prep_env, "prep-batiments": cmd_prep_batiments, "prep-vegetation": cmd_prep_vegetation, "env-complet": cmd_env_complet, "visible": cmd_visible,
     "prep-particules": cmd_prep_particules, "terrain": cmd_terrain, "views": cmd_views, "test360": cmd_test360,
-    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "cap": cmd_cap, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
+    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "cap": cmd_cap, "camera": cmd_camera, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
 }
 
 

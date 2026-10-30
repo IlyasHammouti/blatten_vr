@@ -11,7 +11,7 @@ finale (le contraste dépend de l'ortho et de la brume de la vraie scène).
 Prérequis : pip install bpy numpy   (Blender comme module Python; version majeure = celle du projet, 5.2)
 Exemples :
     python banc_test.py --module matiere_roches --t 38 --out roches_t38.png
-    python banc_test.py --module rendu_matiere  --t 38 --out defaut_t38.png     # gabarit (sphères), pour comparer
+    python banc_test.py --module matiere_roches --t 38 --out surface_t38.png   # (le gabarit rendu_matiere est archivé: archive/src/matiere)
     python banc_test.py --module matiere_roches --t 38 --spp 8 --res 640x360 --out rapide.png
 
 Le module est cherché dans le dossier du script puis dans src/matiere/. Temps t en secondes (démarrage ~3 s, dépôt ~40 s).
