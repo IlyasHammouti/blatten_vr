@@ -58,3 +58,19 @@
 - test_interpolation (écart 2 s) : Hermite 0,02 m médiane (pire instant 2,27 m) contre 0,21 m (4,96 m) pour l'ancien fondu ; pas de temps 1,000 s. Hermite branché dans `Sequence.state`.
 - Empreinte complète : 2,99 km2. **La caméra est dans l'empreinte** : matière à < 30 m dès t = 49-50 s, jusqu'à ~20 m au-dessus de la caméra entre 50 et 58 s, puis drainage (rien à < 50 m à t = 201 s). Décision D1 demandée à Ilyas (impact puis noir, ou déplacer la caméra).
 - Cap : rotation Z -150 (centre de l'image au 150 deg, départ 129 deg, dépôt 184 deg).
+
+## 2026-10-30 (rattrapage des scripts, suites des retours de Johan)
+- **Réglages sans valeurs en dur** : `src/reglages.py` + dossier `reglages/` (jeux JSON par section scene/matiere/depot/poussiere, héritage),
+  `--reglages a b`, `--set section.cle=valeur`, trace `reglages_effectifs.json` à côté des images. Le film lit `reglages/film.json` (config.json).
+- **Matière en peau continue** (`src/matiere/surface.py`, modes `surface` et `mixte` de matiere_roches) : Points to SDF Grid (rayon 1,5 x espacement,
+  points isolés exclus), lissage, retrait de 1 m (mesuré: `SDF Grid Offset` > 0 GONFLE), Grid to Mesh 2 m (0,68 M faces à t = 43 s avec adaptivité 0,2),
+  texture qui suit les traceurs (position de départ échantillonnée et floutée), petits blocs 0,4-2 m sur les traceurs à moins de 1,5 m sous la peau.
+  Testé dans le conteneur (bpy 5.2.2, terrain de Johan): lit continu au lieu du lit de graviers; trous restants fermés avec rayon 1,5 et 3 lissages.
+- **Poussière V2** (`reglages/poussiere_v2.json`) : 35 % des sources, bouffées de 35 m qui grandissent jusqu'à 350 m, freinage plus long (25 s), montée
+  réduite (nuage qui suit la vallée), naissance transparente (25 % de densité, opaque à 20 s), extinction 0,03/m. Valeurs de départ, à régler sur SRF.
+- **Disparition** : `empreinte_alea` calcule les instants où l'épaisseur atteint 1 à 35 m (sol d'avant = relief 2 m); la scène masque un objet quand
+  la matière en recouvre la moitié de la hauteur (`ensevelissement`), arrondi vers le haut. Arbre de 20 m: +8 s en moyenne (p90 +15 s).
+- **Caméra** : `python blatten.py camera --lv95|--wgs84`, sol lu dans le relief 0,5 m sans numpy. **Rendu partagé** : `render --de/--a`, `paquet`.
+- **Sol proche** : grain 4-15 cm jusqu'à 40 m de la caméra (`detail_proche`).
+- **Rangement** : `archive/` et `docs/archive/` (voir `archive/LISEZMOI.md`); sur le PC `render/_archive/` et `_archive/`. Commande `test-persistent` retirée.
+- Pas fait : rivières tracées à la main (couche `eau_manuel` du GeoPackage vide), pin du premier plan (D4, modèle à fournir).

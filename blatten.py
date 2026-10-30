@@ -17,7 +17,8 @@ blatten.py : point d'entrée unique du projet Blatten VR 360.
     python blatten.py bench-compare   compare les benchmarks enregistrés (machines, clé de comparabilité)
     python blatten.py camera [--lv95 E N | --wgs84 LAT LON] [--hauteur 2] [--cap 200]   caméra en coordonnées suisses
     python blatten.py variantes --temps 43 --jeux actuel mixte "mixte poussiere_v2"   même instant, plusieurs jeux de réglages (reglages/)
-    python blatten.py render [--de N --a M]   rendu final (garde-fous: voir docs/); --de/--a: une partie du film seulement
+    python blatten.py render [--de N --a M] [--intro-pas 3]   rendu final (garde-fous: voir docs/); --de/--a: une partie du film;
+                                      --intro-pas K: une image sur K pendant les 5 s d'intro (paysage immobile), recopiée
     python blatten.py paquet [--dest DOSSIER] [--de N] [--a M]   dossier autonome pour rendre une partie du film sur un autre PC
     python blatten.py menu            menu interactif
 
@@ -861,6 +862,7 @@ def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ra
         print(f"Images finales écrites dans {out} (render_dir)", flush=True)
     ext = _ext(preset, extra)
     deja = _nettoyer(out, ext)
+    pas_intro, extra = _option(extra, "--intro-pas", 1)
     print(f"Film {preset}: {n} images, {deja} déjà rendues dans {out_rel}; reprise automatique en cas de coupure (relancer la même commande).")
     a = scene_args(cfg, paths) + ["--preset", preset, "--mono", "--render-anim", "--frames", "1", str(n), "--out", out] + extra
     # Par paquets: un Blender neuf tous les PAQUET images repart avec une mémoire (graphique et vive) propre, ce qui évite
@@ -870,6 +872,26 @@ def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ra
     echecs = 0
     rc = 0
     duree_paquet = 0.0
+    # Intro (paysage immobile, seuls l'eau et les arbres proches bougent): --intro-pas K ne rend qu'une image sur K des 5 premières
+    # secondes et recopie chaque image sur les K-1 suivantes (gain: (K-1)/K des 150 images d'intro; l'eau et le vent avancent alors à 30/K images/s).
+    k_intro = int(pas_intro[0]) if pas_intro else 1
+    n_intro = min(n, int(round(float((cfg.get("scene") or {}).get("intro", 0.0)) * int((cfg.get("scene") or {}).get("fps", 30)))))
+    if k_intro > 1 and n_intro > 1 and (PLAGE["de"] or 1) <= n_intro:
+        cles = [i for i in range(1, n_intro + 1, k_intro)]
+        if any(not os.path.exists(os.path.join(out, f"frame_{i:04d}{ext}")) for i in cles):
+            i_ = a.index("--frames")
+            b_args = a[:i_] + ["--frames", "1", str(cles[-1]), "--frame-step", str(k_intro), "--origine", "1"] + a[i_ + 3:]
+            print(f"\n>>> intro: {len(cles)} images clés sur {n_intro} (une sur {k_intro})", flush=True)
+            _attendre_ram(ram_min)
+            run_blender(cfg, SCRIPTS["scene"], b_args, fond=True)
+            _nettoyer(out, ext)
+        for c in cles:
+            src = os.path.join(out, f"frame_{c:04d}{ext}")
+            if os.path.exists(src) and os.path.getsize(src) > 0:
+                for i in range(c + 1, min(c + k_intro, n_intro + 1)):
+                    dst = os.path.join(out, f"frame_{i:04d}{ext}")
+                    if not os.path.exists(dst):
+                        shutil.copy(src, dst)
     if heure_fin:
         print(f"Rendu de nuit: arrêt propre avant {time.strftime('%d/%m %H:%M', time.localtime(heure_fin))}; relancer la même commande pour reprendre.", flush=True)
     de, a_ = max(1, PLAGE["de"] or 1), min(n, PLAGE["a"] or n)

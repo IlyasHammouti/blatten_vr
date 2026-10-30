@@ -1,6 +1,6 @@
 # PLAN V1 : de l'état actuel à la vidéo finale muette
 
-Mis à jour le 15 octobre 2026. **Document de référence unique** (remplace, pour le pilotage, `docs/archive/HANDOVER_ALEA.md` et le handover unifié ;
+Mis à jour le 30 octobre 2026 (tableau du §6 et §9; calendrier détaillé dans la conversation du 30 oct.). **Document de référence unique** (remplace, pour le pilotage, `docs/archive/HANDOVER_ALEA.md` et le handover unifié ;
 leurs sections techniques restent valables comme mémoire). Une conversation Claude, une branche (`main`).
 
 ## 0. L'objectif, et la règle qui protège l'objectif
@@ -142,10 +142,13 @@ Le coût fixe (~40 s par image : reconstruction de la scène) domine. Leviers da
 | Eau (masque tiré de l'ortho, brillance, ondulations) | fait, à vérifier (A6) | retouches si B2 en relève |
 | Ciel couvert, brume | fait | réglage final en C si besoin |
 | Particules (202 fichiers) | converties (stride 5) | fait |
-| Matière A (roches instanciées) | écrite, jamais vue en vraie scène | A5, puis C |
+| Matière | 3 rendus au choix (30 oct.): `roches` (version A, blocs de 3-5 m), `surface` (peau continue autour des traceurs, suggestion de Johan), `mixte` (peau + blocs de 0,4-2 m). Jeux `reglages/surface.json`, `mixte.json` | comparer avec `variantes`, puis recopier le choix dans `reglages/film.json` |
 | Interpolation Hermite | confirmée et branchée | fait |
 | Fenêtre de temps, cap | cap fait ; fenêtre selon D1 | D1 |
-| Poussière | première version (modèle visuel, à régler sur images) | C |
+| Poussière | V1 (16 oct.) et V2 (30 oct.: bouffées moins nombreuses et plus grandes, nuage naissant transparent, `reglages/poussiere_v2.json`) | régler sur les vidéos SRF (transparence, échelle) |
+| Disparition arbres, bâtiments, rivière | à l'épaisseur réelle de matière (moitié de la hauteur, `ensevelissement`), plus jamais avant l'arrivée (30 oct.) | empreinte recalculée à copier sur le PC |
+| Caméra | `python blatten.py camera --lv95 E N` (ou `--wgs84`), hauteur au-dessus du sol, cap; dalles HD manquantes listées | choisir la position (vidéos SRF) avant le 4 nov. |
+| Rendu sur 2 PC | `render --de/--a`, `python blatten.py paquet` (dossier autonome ~2,2 Go) | tester une image chez le frère |
 | Dépôt (fond de vallée recouvert) | les particules au repos forment le dépôt ; trous possibles à stride 5 | à juger sur B2 |
 | Rendu, montage, 360, reprise | fait (C1) | B1, D3 |
 | Crédits | rien | E1 |
@@ -163,4 +166,6 @@ Son ambisonique (chantier d'Ilyas, Reaper + IEM). Stéréo 3D : non prévue (ren
 
 ## 9. Faits vérifiés
 
+- **Confirmé par Johan Gaume (mail du 20 oct. 2026)** : les 202 fichiers sont une simulation réalisée APRÈS l'événement et calée pour le reproduire fidèlement, pas la prédiction (trop volumineuse pour être envoyée). À dire ainsi au colloque et dans les crédits.
+- Johan (20 oct.) : les points MPM sont des traceurs du mouvement, pas des blocs; blocs du dépôt rarement plus de 1 à 2 m; transition d'un écoulement granulaire de glace et de roche vers une lave torrentielle boueuse; poussière à revoir en priorité (transparence, échelle des « champignons »); caméras à placer près des points de vue des vidéos SRF pour comparer.
 - Simulation de Johan Gaume : selon swissinfo, quelques jours avant l'effondrement, l'équipe a modélisé un départ de 10 millions de m3 de roche et de glace, et ses projections de l'étendue ont « étroitement correspondu » à la catastrophe réelle. **Non vérifié** : que les 202 fichiers reçus soient bien ce calcul d'avant l'événement (à confirmer par Johan avant de l'affirmer au colloque).
