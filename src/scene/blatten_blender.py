@@ -122,9 +122,9 @@ CFG = dict(
     reglages=None,          # jeux de réglages nommés (dossier reglages/, voir src/reglages.py), appliqués dans l'ordre
     set=None,               # réglages ponctuels "section.cle=valeur" (après les jeux)
     _regl=None,             # interne: réglages fusionnés {section: {clé: valeur}}, lus par les modules de matière
-    ensevelissement=0.1,    # part de la hauteur d'un arbre ou d'un bâtiment que la matière doit recouvrir pour qu'il disparaisse (0 = au premier grain).
-                            # 0,1 = 2 m de matière pour un arbre de 20 m: une coulée de 50 m/s (et son souffle) couche la forêt bien avant de l'ensevelir.
-                            # Rendu du 30 oct. à 0,5: des arbres restaient debout au milieu de la coulée à t = 43 s
+    ensevelissement=0.0,    # part de la hauteur d'un objet que la matière doit recouvrir pour qu'il disparaisse. 0 = à l'arrivée de la matière
+                            # (arrondie vers le haut: jamais avant). Essais du 30 oct. à 0,5 puis 0,1: des arbres restaient debout dans la coulée à
+                            # t = 43 s là où la nappe est mince (16 % des cellules n'atteignent 1 m qu'après 45 s). Johan: le souffle a couché la forêt.
     format="jpg",           # images du preset final: "jpg" (JPEG qualité 95, environ 1 Mo) ou "png16" (PNG 16 bits sans perte, environ 30 Mo)
 )
 

@@ -70,7 +70,7 @@
   réduite (nuage qui suit la vallée), naissance transparente (25 % de densité, opaque à 20 s), extinction 0,03/m. Valeurs de départ, à régler sur SRF.
 - **Disparition** : `empreinte_alea` calcule les instants où l'épaisseur atteint 1 à 35 m (sol d'avant = relief 2 m, au moins 2 traceurs); la scène
   masque un objet quand la matière en recouvre une part de la hauteur (`ensevelissement`), arrondi vers le haut (avant: vers le bas, jusqu'à 3,5 s trop tôt).
-  Essai à 0,5 sur le PC: arbres debout au milieu de la coulée à t = 43 s (faux: la coulée et son souffle couchent la forêt). Retenu: 0,1 (2 m pour un arbre de 20 m).
+  Essai à 0,5 sur le PC: arbres debout au milieu de la coulée à t = 43 s (faux: la coulée et son souffle couchent la forêt). Puis 0,1: encore des arbres debout là où la nappe est mince. Retenu: 0 (disparition à l'arrivée, arrondie vers le haut), l'option reste pour essayer.
 - **Caméra** : `python blatten.py camera --lv95|--wgs84`, sol lu dans le relief 0,5 m sans numpy. **Rendu partagé** : `render --de/--a`, `paquet`.
 - **Sol proche** : grain 4-15 cm jusqu'à 40 m de la caméra (`detail_proche`).
 - **Rangement** : `archive/` et `docs/archive/` (voir `archive/LISEZMOI.md`); sur le PC `render/_archive/` et `_archive/`. Commande `test-persistent` retirée.
