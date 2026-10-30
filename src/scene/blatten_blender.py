@@ -1792,7 +1792,7 @@ def build_terrain_material(env=None):
         # horizontale de la normale du relief, freinée là où l'eau est plate), qui éclaircissent la surface (rugosité plus basse) et la creusent un peu.
         ECL = float(CFG["eau_reflets"])
         if ECL > 0:
-            den = math("ADD", math("SQRT", math("ADD", math("MULTIPLY", nor.outputs["X"], nor.outputs["X"]), math("MULTIPLY", nor.outputs["Y"], nor.outputs["Y"]))), 0.03)
+            den = math("ADD", math("POWER", math("ADD", math("MULTIPLY", nor.outputs["X"], nor.outputs["X"]), math("MULTIPLY", nor.outputs["Y"], nor.outputs["Y"])), 0.5), 0.03)
             dxy = N.new("ShaderNodeCombineXYZ")
             L.new(math("DIVIDE", nor.outputs["X"], den), dxy.inputs["X"])
             L.new(math("DIVIDE", nor.outputs["Y"], den), dxy.inputs["Y"])
