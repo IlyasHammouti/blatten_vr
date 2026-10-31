@@ -27,6 +27,16 @@ def vignette(f):
     return np.asarray(im, np.float32) / 255.0
 
 
+def _sauver(f, d):
+    """Écriture atomique du cache (un arrêt pendant l'écriture ne le corrompt pas)."""
+    try:
+        tmp = f + ".tmp.npz"
+        np.savez(tmp, **{str(k): v for k, v in d.items()})
+        os.replace(tmp, f)
+    except Exception:
+        pass
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="verif_images")
     ap.add_argument("--dir", required=True)
@@ -52,7 +62,7 @@ def main(argv=None):
     t0 = time.time()
     for i in cles:
         if a.max_secondes and time.time() - t0 > a.max_secondes:
-            np.savez(cache_f, **{str(k): v for k, v in {**cache, **V}.items()})
+            _sauver(cache_f, {**cache, **V})
             print(f"lecture interrompue ({len(V)} images lues), relancer pour continuer")
             return 2
         if i in cache:
@@ -64,10 +74,7 @@ def main(argv=None):
             V[i] = vignette(num[i])
         except Exception as e:
             susp.append(dict(image=i, raison=f"illisible: {e}"))
-    try:
-        np.savez(cache_f, **{str(k): v for k, v in V.items()})
-    except Exception:
-        pass
+    _sauver(cache_f, {**cache, **V})
     ks = [i for i in cles if i in V]
     for i in ks:
         v = V[i]
