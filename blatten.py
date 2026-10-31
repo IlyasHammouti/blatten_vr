@@ -865,6 +865,7 @@ def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ra
         except OSError as e:
             sys.exit(f"Dossier de rendu impossible ({rd}): {e}")
         print(f"Images finales écrites dans {out} (render_dir)", flush=True)
+    out, extra = _dossier_version(out, extra)
     ext = _ext(preset, extra)
     deja = _nettoyer(out, ext)
     pas_intro, extra = _option(extra, "--intro-pas", 1)
@@ -976,7 +977,41 @@ def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ra
         print(f"Plage {de}-{a_} terminée. Le montage se fait une fois toutes les images réunies dans le même dossier.", flush=True)
     elif rc == 0:
         rc = run_blender(cfg, SCRIPTS["montage"], ["--dir", out, "--fps", str(fps_video), "--out", os.path.join(out, f"{preset}.mp4")])
+        if rc == 0:
+            _marquer_termine(out)
     return rc
+
+
+def _marquer_termine(out):
+    try:
+        open(os.path.join(out, "TERMINE.txt"), "w", encoding="utf-8").write(time.strftime("%Y-%m-%d %H:%M") + "\n")
+    except OSError:
+        pass
+
+
+def _dossier_version(base, extra):
+    """Chaque rendu de film a son propre dossier daté dans `base` (base/AAAAMMJJ_HHMM): rien n'est écrasé, on garde la trace
+    de chaque version. Relancer la même commande reprend le dernier rendu NON terminé (pas de TERMINE.txt); une fois terminé,
+    le rendu suivant crée un nouveau dossier.
+        --nouveau          force un nouveau dossier même si le dernier n'est pas fini
+        --version NOM      écrit dans base/NOM (reprise d'une version précise, partage entre PC: même NOM sur chaque PC)"""
+    nouveau = "--nouveau" in extra
+    extra = [x for x in extra if x != "--nouveau"]
+    nom, extra = _option(extra, "--version", 1)
+    os.makedirs(base, exist_ok=True)
+    if nom:
+        d = os.path.join(base, nom[0])
+    else:
+        versions = sorted(x for x in os.listdir(base) if re.fullmatch(r"\d{8}_\d{4}.*", x) and os.path.isdir(os.path.join(base, x)))
+        en_cours = [x for x in versions if not os.path.exists(os.path.join(base, x, "TERMINE.txt"))]
+        if en_cours and not nouveau:
+            d = os.path.join(base, en_cours[-1])
+            print(f"Reprise du rendu en cours: {d}", flush=True)
+        else:
+            d = os.path.join(base, time.strftime("%Y%m%d_%H%M"))
+            print(f"Nouveau rendu: {d} (les rendus précédents sont conservés)", flush=True)
+    os.makedirs(d, exist_ok=True)
+    return d, extra
 
 
 def cmd_render(cfg, paths, extra):
@@ -1074,6 +1109,28 @@ def _option(extra, flag, n=None):
     vals = extra[i + 1:j]
     del extra[i:j]
     return vals, extra
+
+
+def cmd_titre_test(cfg, paths, extra):
+    """Une image de l'intro (image 1 du film) en bande plate HD, pour chaque couleur du titre: render/tests/titre/<date>/<style>/.
+        python blatten.py titre-test [--styles blanc sombre]"""
+    styles, extra = _option(extra, "--styles")
+    styles = styles or ["blanc", "sombre"]
+    base = os.path.join(ROOT, "render", "tests", "titre", time.strftime("%Y%m%d_%H%M"))
+    rc = 0
+    for st in styles:
+        out = os.path.join(base, st)
+        os.makedirs(out, exist_ok=True)
+        print(f"\n>>> titre {st} -> {out}", flush=True)
+        _attendre_ram(7.0)
+        t0 = time.time()
+        r = run_blender(cfg, SCRIPTS["scene"], scene_args(cfg, paths) + ["--preset", "bande", "--mono", "--camera-confirmed",
+                        "--render-frame", "1", "--out", out, "--set", "scene.titre=true", "--set", f"scene.titre_style={st}"] + extra, fond=True)
+        ok = os.path.exists(os.path.join(out, "frame_0001.png"))
+        print(f"{'OK' if ok else 'ÉCHEC'}: titre {st}, {(time.time() - t0) / 60:.1f} min", flush=True)
+        rc = rc or (0 if ok else (r or 1))
+    print(f"\nImages: {base}")
+    return rc
 
 
 def cmd_variantes(cfg, paths, extra):
@@ -1624,7 +1681,7 @@ def cmd_menu(cfg, paths, extra):
 COMMANDS = {
     "status": cmd_status, "setup": cmd_setup, "download": cmd_download, "prep-env": cmd_prep_env, "prep-batiments": cmd_prep_batiments, "prep-vegetation": cmd_prep_vegetation, "env-complet": cmd_env_complet, "visible": cmd_visible,
     "prep-particules": cmd_prep_particules, "terrain": cmd_terrain, "views": cmd_views, "test360": cmd_test360,
-    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "eau-manuel": cmd_eau_manuel, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "cap": cmd_cap, "camera": cmd_camera, "paquet": cmd_paquet, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
+    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "eau-manuel": cmd_eau_manuel, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "titre-test": cmd_titre_test, "cap": cmd_cap, "camera": cmd_camera, "paquet": cmd_paquet, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
 }
 
 

@@ -1,4 +1,10 @@
 {
-  "_doc": "Réglages du FILM (lus par config.json -> scene.reglages). Choix d'Ilyas le 30 oct.: peau continue + blocs (mixte) et poussière V2. À faire évoluer après chaque validation; ne plus toucher pendant le rendu final.",
-  "herite": ["mixte", "poussiere_v2"]
+  "_doc": "Réglages du FILM (lus par config.json -> scene.reglages). Peau continue + blocs (mixte), poussière V2, titre d'intro (CDC du 31 oct.). Ne plus toucher pendant le rendu final.",
+  "herite": [
+    "mixte",
+    "poussiere_v2"
+  ],
+  "scene": {
+    "titre": true
+  }
 }

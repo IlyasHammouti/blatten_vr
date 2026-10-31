@@ -11,11 +11,13 @@
     "matiere": "matiere_roches",
     "t0": 0.0,
     "time_scale": 1.0,
-    "intro": 5.0,
-    "reglages": ["film"]
+    "intro": 8.0,
+    "reglages": [
+      "film"
+    ]
   },
   "film": {
-    "_doc": "PROVISOIRE (décision D1 en attente, voir PLAN_V1.md). 5 s de paysage puis l'événement en temps réel de t = 0 à 48 s: la matière atteint la caméra vers t = 49 s (coulée de 20 m d'épaisseur qui passe sur elle jusqu'à ~60 s). 1590 images à 30 images/s = 53 s. Crédits ajoutés au montage.",
-    "images": 1590
+    "_doc": "CDC du 31 oct. (docs/CDC_V1.md): 8 s de paysage (titre 5 s puis fondu), puis l'événement en temps réel de t = 0 à 53 s, fondu au noir rapide de 52 à 53 s au montage. (8 + 53) x 30 = 1830 images. Outro ajoutée au montage.",
+    "images": 1830
   }
 }

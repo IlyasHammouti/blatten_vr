@@ -127,6 +127,18 @@ CFG = dict(
     ensevelissement=0.0,    # part de la hauteur d'un objet que la matière doit recouvrir pour qu'il disparaisse. 0 = à l'arrivée de la matière
                             # (arrondie vers le haut: jamais avant). Essais du 30 oct. à 0,5 puis 0,1: des arbres restaient debout dans la coulée à
                             # t = 43 s là où la nappe est mince (16 % des cellules n'atteignent 1 m qu'après 45 s). Johan: le souffle a couché la forêt.
+    titre=False,            # INTRO: texte dans le ciel, derrière la crête, pendant les premières secondes du film
+    titre_texte="Blatten, Switzerland\n28 May 2025, 15:24",
+    titre_cap=200.0,        # degrés (0 = nord, 90 = est): direction du texte vue de la caméra (vue de départ)
+    titre_hauteur=7.0,      # degrés: hauteur apparente du bloc de texte
+    titre_cache=0.07,       # part de la hauteur du texte cachée derrière la crête
+    titre_recul=800.0,      # m derrière la crête
+    titre_style="blanc",    # "blanc" (lumineux, discret) ou "sombre" (lettres sombres éclairées par le ciel)
+    titre_emission=1.2,     # intensité du blanc (1 = environ la luminosité du ciel couvert)
+    titre_duree=5.0,        # s de film pendant lesquelles le texte est visible
+    titre_fondu=1.0,        # s de fondu à la fin
+    bande_cap=(105.0, 235.0),   # preset "bande": caps (degrés) des bords gauche et droit de l'image plate
+    bande_haut=(-30.0, 35.0),   # preset "bande": hauteurs (degrés) du bas et du haut de l'image
     format="jpg",           # images du preset final: "jpg" (JPEG qualité 95, environ 1 Mo) ou "png16" (PNG 16 bits sans perte, environ 30 Mo)
 )
 
@@ -134,7 +146,8 @@ PRESETS = {
     "test": dict(res=(1024, 512), samples=16),
     "apercu": dict(res=(1280, 640), samples=8),   # toute la simulation en quelques dizaines de minutes: emprise de l'aléa, pas le réalisme
     "brouillon": dict(res=(1920, 960), samples=16),   # film complet à mi-résolution, pour juger l'ensemble en une nuit
-    "final": dict(res=(3840, 1920), samples=96),   # mono; en stéréo haut/bas l'image fait 3840 x 3840
+    "final": dict(res=(3840, 1920), samples=96),
+    "bande": dict(res=(2560, 1280), samples=16),   # brouillon HD plat: bande de 130 x 65 degrés découpée dans le 360 (départ + événement)   # mono; en stéréo haut/bas l'image fait 3840 x 3840
 }
 
 
@@ -268,6 +281,7 @@ def load_matiere(root):
 @persistent
 def on_frame(scene, *args):
     t = frame_to_time(scene, scene.frame_current)
+    maj_titre(scene, scene.frame_current)
     if CFG["stamp"]:
         scene.render.stamp_note_text = f"t = {t:.0f} s"
     maj_ensevelis(t)
@@ -2120,6 +2134,131 @@ def load_camera_file(here):
         log("camera.json illisible:", e)
 
 
+TITRE = {}   # objet et noeud d'opacité du titre d'intro (mis à jour à chaque image par on_frame)
+
+
+def _dir_cap(cap_deg, haut_deg):
+    c, h = math.radians(cap_deg), math.radians(haut_deg)
+    return Vector((math.sin(c) * math.cos(h), math.cos(c) * math.cos(h), math.sin(h)))
+
+
+def _bvh_relief():
+    """Arbres de recherche (BVH) du relief seul (objets Relief_*), construits une fois: plus rapide et plus sûr que
+    scene.ray_cast sur toute la scène (arbres, bâtiments)."""
+    from mathutils.bvhtree import BVHTree
+    dg = bpy.context.evaluated_depsgraph_get()
+    out = []
+    for ob in bpy.data.objects:
+        if ob.type == "MESH" and ob.name.startswith("Relief_"):
+            try:
+                out.append((BVHTree.FromObject(ob, dg), ob.matrix_world.copy(), ob.matrix_world.inverted()))
+            except Exception as e:
+                log(f"titre: relief {ob.name} ignoré ({e})")
+    return out
+
+
+def _ligne_de_crete(bvhs, cam, cap, depart=400.0):
+    """Hauteur apparente (degrés) et distance (m) de la crête dans la direction `cap`: on balaie du haut vers le bas, le premier
+    rayon qui touche le relief donne la crête. Les rayons partent à `depart` m de la caméra."""
+    def touche(e):
+        d = _dir_cap(cap, e)
+        o = cam + d * depart
+        best = None
+        for bvh, mw, mi in bvhs:
+            lo, ld = mi @ o, (mi.to_3x3() @ d).normalized()
+            hit = bvh.ray_cast(lo, ld, 60000.0)
+            if hit[0] is not None:
+                dd = ((mw @ hit[0]) - cam).length
+                best = dd if best is None else min(best, dd)
+        return best
+
+    e = 45.0
+    while e > -15.0 and touche(e) is None:
+        e -= 0.5
+    if e <= -15.0:
+        return None, None
+    haut, bas = e + 0.5, e
+    for _ in range(12):   # dichotomie
+        m = (haut + bas) / 2
+        if touche(m) is None:
+            haut = m
+        else:
+            bas = m
+    return bas, touche(bas)
+
+
+def build_titre(scene, coll):
+    """Texte d'intro posé dans le ciel au cap CFG["titre_cap"], légèrement caché par la crête d'en face."""
+    cam = scene.camera.location.copy()
+    cu = bpy.data.curves.new("Titre", "FONT")
+    cu.body = CFG["titre_texte"].replace("\\n", "\n")
+    cu.align_x, cu.align_y = "CENTER", "CENTER"
+    cu.size = 1.0
+    ob = bpy.data.objects.new("Titre", cu)
+    coll.objects.link(ob)
+    bpy.context.view_layer.update()
+    w1, h1 = max(ob.dimensions.x, 1e-3), max(ob.dimensions.y, 1e-3)
+    H = CFG["titre_hauteur"]
+    W = H * w1 / h1
+    cap = CFG["titre_cap"]
+    bvhs = _bvh_relief()
+    cretes = [_ligne_de_crete(bvhs, cam, cap + k * W / 2) for k in (-1.0, -0.5, 0.0, 0.5, 1.0)]
+    cretes = [c for c in cretes if c[0] is not None]
+    if not cretes:
+        log("titre: aucune crête trouvée dans cette direction, texte non placé")
+        bpy.data.objects.remove(ob)
+        return
+    e_crete = max(c[0] for c in cretes)
+    dist = max(c[1] for c in cretes) + CFG["titre_recul"]
+    e_centre = e_crete - CFG["titre_cache"] * H + H / 2
+    pos = cam + _dir_cap(cap, e_centre) * dist
+    k = 2 * dist * math.tan(math.radians(H / 2)) / h1
+    ob.scale = (k, k, k)
+    ob.location = pos
+    ob.rotation_euler = (cam - pos).to_track_quat("Z", "Y").to_euler()
+    # matériau: blanc lumineux ou lettres sombres éclairées, brume, puis opacité animée (fondu)
+    mat = bpy.data.materials.new("Titre")
+    mat.use_nodes = True
+    nt = mat.node_tree
+    nt.nodes.clear()
+    outn = nt.nodes.new("ShaderNodeOutputMaterial")
+    if CFG["titre_style"] == "sombre":
+        sh = nt.nodes.new("ShaderNodeBsdfDiffuse")
+        sh.inputs["Color"].default_value = (0.02, 0.02, 0.02, 1)
+    else:
+        sh = nt.nodes.new("ShaderNodeEmission")
+        sh.inputs["Color"].default_value = (1, 1, 1, 1)
+        sh.inputs["Strength"].default_value = CFG["titre_emission"]
+    nt.links.new(sh.outputs[0], outn.inputs["Surface"])
+    apply_height_fog(mat)
+    src = outn.inputs["Surface"].links[0].from_socket
+    tr = nt.nodes.new("ShaderNodeBsdfTransparent")
+    mix = nt.nodes.new("ShaderNodeMixShader")
+    alpha = nt.nodes.new("ShaderNodeValue")
+    alpha.outputs[0].default_value = 1.0
+    nt.links.new(alpha.outputs[0], mix.inputs[0])
+    nt.links.new(tr.outputs[0], mix.inputs[1])
+    nt.links.new(src, mix.inputs[2])
+    nt.links.new(mix.outputs[0], outn.inputs["Surface"])
+    cu.materials.append(mat)
+    ob.visible_shadow = False
+    TITRE.update(obj=ob, alpha=alpha)
+    log(f"titre: cap {cap:g} degrés, crête à {e_crete:.2f} degrés et {dist - CFG['titre_recul']:.0f} m, texte à {dist:.0f} m, "
+        f"{W:.0f} x {H:g} degrés, style {CFG['titre_style']}")
+
+
+def maj_titre(scene, frame):
+    if not TITRE:
+        return
+    fps = scene.render.fps / scene.render.fps_base
+    s = (frame - (CFG["origine"] if CFG["origine"] is not None else scene.frame_start)) / fps
+    a = 1.0 if s <= CFG["titre_duree"] else max(0.0, 1.0 - (s - CFG["titre_duree"]) / max(CFG["titre_fondu"], 1e-3))
+    if CFG["render_time"] is not None:   # image fixe à un instant de l'événement: pas de titre
+        a = 0.0
+    TITRE["alpha"].outputs[0].default_value = a
+    TITRE["obj"].hide_render = a <= 0.0
+
+
 def build_camera(scene, seq):
     st = seq.meta.get("stats", {})
 
@@ -2151,6 +2290,15 @@ def build_camera(scene, seq):
         cd.panorama_type = "EQUIRECTANGULAR"
     else:  # Blender < 4.0
         cd.cycles.panorama_type = "EQUIRECTANGULAR"
+    if CFG["preset"] == "bande":   # bande plate: même projection, limitée en cap et en hauteur (pas de déformation des bords)
+        c0, c1 = CFG["bande_cap"]
+        h0, h1 = CFG["bande_haut"]
+        cam.rotation_euler = (math.pi / 2, 0.0, -math.radians((c0 + c1) / 2))   # rotation z = -cap visé
+        lims = dict(longitude_min=-math.radians((c1 - c0) / 2), longitude_max=math.radians((c1 - c0) / 2),
+                    latitude_min=math.radians(h0), latitude_max=math.radians(h1))
+        for k, v in lims.items():
+            setattr(cd if hasattr(cd, k) else cd.cycles, k, v)
+        log(f"cadre bande: caps {c0:g} à {c1:g} degrés, hauteurs {h0:g} à {h1:g} degrés")
     r = scene.render
     if CFG["stereo"]:
         r.use_multiview = True
@@ -2492,6 +2640,8 @@ def main():
             build_trees(env, coll, scene.camera.location)
         if not CFG["no_water"]:
             build_water(env, coll, scene.camera.location)
+    if CFG["titre"]:
+        build_titre(scene, coll)
     setup_render(scene, out_dir)
     ecrire_reglages(out_dir)
     prepare_viewports(center)
