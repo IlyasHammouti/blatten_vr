@@ -109,7 +109,11 @@ CFG = dict(
     no_water=False,         # pas de rivière animée (python blatten.py prep-eau la prépare)
     no_trees=False,         # ne place pas les arbres (python blatten.py prep-vegetation les prépare)
     wind=True,              # léger balancement des arbres proches (--no-wind pour le couper)
-    wind_dist=1200.0,       # distance (m) jusqu'à laquelle les arbres bougent (au-delà, imperceptible)
+    wind_dist=1200.0,
+    vent_force=0.05,        # amplitude du balancement en cime, en part de la hauteur de l'arbre (0,03 avant le 1er nov.: paysage figé)
+    arbres_couchage=75.0,   # degrés: inclinaison des arbres atteints par le front (couchés vers l'aval). 0 = désactivé
+    arbres_couchage_duree=2.0,    # s pour passer de debout à couché
+    arbres_couchage_avance=1.5,   # s: le souffle couche l'arbre un peu avant l'arrivée de la matière       # distance (m) jusqu'à laquelle les arbres bougent (au-delà, imperceptible)
     tree_ortho=0.5,         # part de la couleur de l'image aérienne dans la couleur des arbres (0 = couleurs d'essence seules)
     tree_dist=4700.0,       # distance maximale des arbres modélisés (m); au-delà l'image aérienne suffit
     border=None,            # (x0, x1, y0, y1) en fraction de l'image: ne rend que ce cadre (zoom d'essai à pleine résolution, coût réduit)
@@ -286,6 +290,7 @@ def on_frame(scene, *args):
     if CFG["stamp"]:
         scene.render.stamp_note_text = f"t = {t:.0f} s"
     maj_ensevelis(t)
+    maj_arbres(t)
     if MATIERE["mod"] is not None:
         MATIERE["mod"].update(scene, t, STATE["seq"])
     else:
@@ -687,7 +692,7 @@ def build_env_terrain(env, center, coll, mat):
     return objs
 
 
-def _arrivee(env, E, N, pas=3.0, hauteur=None):
+def _arrivee(env, E, N, pas=3.0, hauteur=None, force=False):
     """Instant (s de simulation) où un objet en (E, N) est balayé; inf si jamais. Lit alea_empreinte.npz (python blatten.py empreinte-alea).
     Avec la hauteur des objets et CFG["ensevelissement"] > 0: instant où l'épaisseur de matière atteint cette part de la hauteur
     (un arbre de 20 m disparaît sous 10 m de matière, pas au premier grain); si elle ne l'atteint jamais, instant de la plus grande
@@ -696,7 +701,7 @@ def _arrivee(env, E, N, pas=3.0, hauteur=None):
     l'arrivée de la matière (avant le 30 oct., arrondi vers le bas: jusqu'à 3,5 s trop tôt)."""
     out = np.full(len(E), np.inf)
     f = os.path.join(env["dir"], "alea_empreinte.npz")
-    if not os.path.exists(f) or CFG.get("no_ensevelis"):
+    if not os.path.exists(f) or (CFG.get("no_ensevelis") and not force):
         return out
     z = np.load(f)
     tarr, x0, y1, s = z["tarr"], float(z["x0"]), float(z["y1"]), float(z["step"])
@@ -719,6 +724,37 @@ def _arrivee(env, E, N, pas=3.0, hauteur=None):
         v = np.where(np.isfinite(cand), cand, v)
     good = np.isfinite(v)
     out[good] = np.ceil(v[good] / pas) * pas
+    return out
+
+
+def _direction_aval(env, E, N):
+    """Direction horizontale (repère de la scène, normée) dans laquelle le front de matière avance en (E, N): gradient de
+    l'instant d'arrivée (alea_empreinte.npz). Sert à coucher les arbres vers l'aval. (0, 0) hors de la zone atteinte."""
+    f = os.path.join(env["dir"], "alea_empreinte.npz")
+    out = np.zeros((len(E), 2))
+    if not os.path.exists(f):
+        return out
+    z = np.load(f)
+    tarr, x0, y1, s = z["tarr"].astype(np.float64), float(z["x0"]), float(z["y1"]), float(z["step"])
+    fin = np.isfinite(tarr)
+    if not fin.any():
+        return out
+    t = np.where(fin, tarr, np.nanmax(np.where(fin, tarr, np.nan)) + 30.0)
+    try:   # lissage léger (3x3) pour une direction stable d'un arbre à l'autre
+        k = np.ones((3, 3)) / 9.0
+        tp = np.pad(t, 1, mode="edge")
+        t = sum(tp[a:a + t.shape[0], b:b + t.shape[1]] * k[a, b] for a in range(3) for b in range(3))
+    except Exception:
+        pass
+    gj, gi = np.gradient(t)                 # gj: vers le sud (lignes), gi: vers l'est (colonnes)
+    i = np.clip(np.floor((E - x0) / s).astype(np.int64), 0, t.shape[1] - 1)
+    j = np.clip(np.floor((y1 - N) / s).astype(np.int64), 0, t.shape[0] - 1)
+    dE, dN = gi[j, i], -gj[j, i]
+    flip = env["meta"].get("flip", 1.0)
+    vx, vy = dE, flip * dN
+    n = np.hypot(vx, vy)
+    ok = n > 1e-9
+    out[ok, 0], out[ok, 1] = vx[ok] / n[ok], vy[ok] / n[ok]
     return out
 
 
@@ -754,8 +790,14 @@ def _objet_triangles(nom, co, tri, mats, mat_index=None, attrs=None, lisse=False
 
 
 def _vent_modifier(ob):
-    """Léger balancement des arbres: décalage horizontal par un bruit 4D (espace + temps), proportionnel à l'attribut "vent"
-    (nul au pied, maximal en cime). Calculé à chaque image par les nœuds de géométrie, donc dans la vidéo."""
+    """Mouvement des arbres, calculé à chaque image par les nœuds de géométrie (donc dans la vidéo):
+    1. balancement: décalage horizontal par un bruit 4D (espace + temps) de longueur d'onde ~30 m, proportionnel à l'attribut
+       "vent" (nul au pied, maximal en cime);
+    2. frémissement: bruit fin (~3 m) et rapide, plus faible: les branches bougent, plus d'effet de paysage figé;
+    3. couchage vers l'aval à l'arrivée du front (souffle et débris): rotation de l'arbre autour de son pied, d'angle
+       CFG arbres_couchage (degrés) atteint en arbres_couchage_duree s, commencée arbres_couchage_avance s avant la matière.
+       Attributs "haut" (m au-dessus du pied), "tarr" (s de simulation), "dirx", "diry" (direction de l'aval). Le temps de
+       simulation est la valeur "t_sim" du groupe, mise à jour par on_frame."""
     ng = bpy.data.node_groups.get("Vent")
     if ng is None:
         ng = bpy.data.node_groups.new("Vent", "GeometryNodeTree")
@@ -766,40 +808,90 @@ def _vent_modifier(ob):
         sp = N.new("GeometryNodeSetPosition")
         pos = N.new("GeometryNodeInputPosition")
         tm = N.new("GeometryNodeInputSceneTime")
-        na = N.new("GeometryNodeInputNamedAttribute")
-        na.data_type = "FLOAT"
-        na.inputs["Name"].default_value = "vent"
-        vs = N.new("ShaderNodeVectorMath")
-        vs.operation = "SCALE"
-        vs.inputs["Scale"].default_value = 0.035                 # longueur d'onde ~ 30 m: les voisins bougent ensemble
-        L.new(pos.outputs["Position"], vs.inputs[0])
-        wt = N.new("ShaderNodeMath")
-        wt.operation = "MULTIPLY"
-        wt.inputs[1].default_value = 0.45                        # vitesse de variation du vent
-        L.new(tm.outputs["Seconds"], wt.inputs[0])
-        nz = N.new("ShaderNodeTexNoise")
-        nz.noise_dimensions = "4D"
-        nz.inputs["Scale"].default_value = 1.0
-        nz.inputs["Detail"].default_value = 1.0
-        L.new(vs.outputs["Vector"], nz.inputs["Vector"])
-        L.new(wt.outputs["Value"], nz.inputs["W"])
-        c = N.new("ShaderNodeVectorMath")
-        c.operation = "SUBTRACT"
-        c.inputs[1].default_value = (0.5, 0.5, 0.5)
-        L.new(nz.outputs["Color"], c.inputs[0])
-        z = N.new("ShaderNodeVectorMath")
-        z.operation = "MULTIPLY"
-        z.inputs[1].default_value = (2.0, 2.0, 0.3)
-        L.new(c.outputs["Vector"], z.inputs[0])
-        k = N.new("ShaderNodeVectorMath")
-        k.operation = "SCALE"
-        L.new(z.outputs["Vector"], k.inputs[0])
-        L.new(na.outputs["Attribute"], k.inputs["Scale"])
+
+        def attr(nom):
+            na = N.new("GeometryNodeInputNamedAttribute")
+            na.data_type = "FLOAT"
+            na.inputs["Name"].default_value = nom
+            return na.outputs["Attribute"]
+
+        def m(op, a, b=None, c=None):
+            n = N.new("ShaderNodeMath")
+            n.operation = op
+            for k, v in enumerate((a, b, c)):
+                if v is None:
+                    continue
+                if isinstance(v, (int, float)):
+                    n.inputs[k].default_value = float(v)
+                else:
+                    L.new(v, n.inputs[k])
+            return n.outputs[0]
+
+        def vm(op, a, b=None, scale=None):
+            n = N.new("ShaderNodeVectorMath")
+            n.operation = op
+            for k, v in enumerate((a, b)):
+                if v is None:
+                    continue
+                if isinstance(v, tuple):
+                    n.inputs[k].default_value = v
+                else:
+                    L.new(v, n.inputs[k])
+            if scale is not None:
+                if isinstance(scale, (int, float)):
+                    n.inputs["Scale"].default_value = float(scale)
+                else:
+                    L.new(scale, n.inputs["Scale"])
+            return n.outputs["Vector"]
+
+        def bruit(echelle, vitesse, ampl_xy, ampl_z):
+            p = vm("SCALE", pos.outputs["Position"], scale=echelle)
+            w = m("MULTIPLY", tm.outputs["Seconds"], vitesse)
+            nz = N.new("ShaderNodeTexNoise")
+            nz.noise_dimensions = "4D"
+            nz.inputs["Scale"].default_value = 1.0
+            nz.inputs["Detail"].default_value = 1.0
+            L.new(p, nz.inputs["Vector"])
+            L.new(w, nz.inputs["W"])
+            c = vm("SUBTRACT", nz.outputs["Color"], (0.5, 0.5, 0.5))
+            return vm("MULTIPLY", c, (ampl_xy, ampl_xy, ampl_z))
+
+        vent = attr("vent")
+        balance = vm("SCALE", bruit(0.035, 0.45, 2.0, 0.3), scale=vent)
+        fremit = vm("SCALE", bruit(0.33, 2.2, 0.8, 0.4), scale=vent)
+        # couchage
+        tv = N.new("ShaderNodeValue")
+        tv.name = tv.label = "t_sim"
+        tv.outputs[0].default_value = -1000.0
+        dur = max(0.1, float(CFG["arbres_couchage_duree"]))
+        u = m("DIVIDE", m("ADD", m("SUBTRACT", tv.outputs[0], attr("tarr")), float(CFG["arbres_couchage_avance"])), dur)
+        u = m("MINIMUM", m("MAXIMUM", u, 0.0), 1.0)
+        lisse = m("MULTIPLY", m("MULTIPLY", u, u), m("SUBTRACT", 3.0, m("MULTIPLY", u, 2.0)))
+        theta = m("MULTIPLY", lisse, float(np.radians(CFG["arbres_couchage"])))
+        # rotation autour du pied, axe horizontal perpendiculaire à l'aval: (r, h) -> (r cos + h sin, h cos - r sin)
+        h, rp = attr("haut"), attr("rpar")
+        si, cm1 = m("SINE", theta), m("SUBTRACT", m("COSINE", theta), 1.0)
+        dpar = m("ADD", m("MULTIPLY", rp, cm1), m("MULTIPLY", h, si))
+        dz = m("SUBTRACT", m("MULTIPLY", h, cm1), m("MULTIPLY", rp, si))
+        cxyz = N.new("ShaderNodeCombineXYZ")
+        L.new(m("MULTIPLY", dpar, attr("dirx")), cxyz.inputs[0])
+        L.new(m("MULTIPLY", dpar, attr("diry")), cxyz.inputs[1])
+        L.new(dz, cxyz.inputs[2])
+        tot = vm("ADD", vm("ADD", balance, fremit), cxyz.outputs["Vector"])
         L.new(gi.outputs[0], sp.inputs["Geometry"])
-        L.new(k.outputs["Vector"], sp.inputs["Offset"])
+        L.new(tot, sp.inputs["Offset"])
         L.new(sp.outputs["Geometry"], go.inputs[0])
     md = ob.modifiers.new("Vent", "NODES")
     md.node_group = ng
+
+
+def maj_arbres(t):
+    """Temps de simulation pour le couchage des arbres (groupe de nœuds Vent)."""
+    ng = bpy.data.node_groups.get("Vent")
+    if ng is not None and "t_sim" in ng.nodes:
+        n = ng.nodes["t_sim"]
+        if abs(n.outputs[0].default_value - t) > 1e-6:
+            n.outputs[0].default_value = float(t)
 
 
 def _echantillon_ortho(env, E, N):
@@ -1102,8 +1194,8 @@ def _proto_arbre(espece, lod, rng):
     lod 0: détaillé (< 120 m), 1: moyen (< 500 m), 2: lointain (< 1500 m), 3: très lointain (cônes simples)."""
     parts = []
     if espece in (0, 1):                      # conifères à étages (épicéa serré, mélèze plus lâche)
-        T_ = {0: (16, 8, 2, 1), 1: (12, 6, 2, 1)}[espece][lod]
-        n = (12, 8, 5, 4)[lod]
+        T_ = {0: (26, 8, 2, 1), 1: (15, 6, 2, 1)}[espece][lod]     # proches (lod 0): étages plus nombreux et plus irréguliers (1er nov.)
+        n = (18, 8, 5, 4)[lod]
         zlow = 0.15 if espece == 0 else 0.22
         z0 = 0.16 if espece == 0 else 0.20
         expo = 0.95 if espece == 0 else 0.80
@@ -1111,7 +1203,11 @@ def _proto_arbre(espece, lod, rng):
             zb = z0 + (1 - z0) * k / T_
             zt = z0 + (1 - z0) * min(1.0, (k + 1.6) / T_)
             rb = ((1 - zb) ** expo) * (1.0 if espece == 0 else 0.92)
-            parts.append(_bipyramide(zb, zt, rb, n, (0.26, 0.16, 0.10, 0.05)[lod], rng, zlow, rng.random() * 6.28))
+            if lod == 0:                      # branches retombantes, bord dentelé, étages un peu décalés
+                rb *= 1.0 + 0.12 * (rng.random() - 0.5)
+                parts.append(_bipyramide(zb, zt, rb, n, 0.42 if espece == 0 else 0.5, rng, zlow + 0.12, rng.random() * 6.28))
+            else:
+                parts.append(_bipyramide(zb, zt, rb, n, (0.26, 0.16, 0.10, 0.05)[lod], rng, zlow, rng.random() * 6.28))
     elif espece == 4:                         # arbuste (aulne vert): dôme bas, sans tronc
         V, T = _ellipsoide(0.0, 1.0, (8, 6, 5, 4)[lod], (4, 3, 2, 1)[lod], 0.30, rng, 1.0, 0.40)
         return V, T, len(V)
@@ -1121,6 +1217,15 @@ def _proto_arbre(espece, lod, rng):
         n = (10, 8, 5, 5)[lod]
         parts.append(_ellipsoide(zc0, zc1, n, rings, (0.30, 0.20, 0.14, 0.08)[lod], rng, 0.82 if espece == 2 else 1.0,
                                  0.55 if espece == 2 else 0.45))
+        if espece == 3 and lod <= 1:          # feuillus proches: couronne en plusieurs masses (fin de la « boule »)
+            for q in range(4 if lod == 0 else 2):
+                a_ = q * 6.28 / (4 if lod == 0 else 2) + rng.random() * 1.2
+                v_, t_ = _ellipsoide(0.0, 1.0, n, rings, 0.35, rng, 1.0, 0.5)
+                sc_ = rng.uniform(0.5, 0.65)
+                zc_ = rng.uniform(0.35, 0.6)
+                v_ = v_ * np.array([sc_, sc_, sc_ * (zc1 - zc0)])
+                v_ = v_ + np.array([0.42 * np.cos(a_), 0.42 * np.sin(a_), zc0 + (zc1 - zc0) * zc_ - 0.5 * sc_ * (zc1 - zc0)])
+                parts.append((v_, t_))
     V, T = _fusion(parts)
     ntr = len(V)
     if lod < 2:                               # tronc: prisme à 4 pans
@@ -1196,6 +1301,18 @@ def build_trees(env, coll, cam):
     oc = np.where(oc <= 0.04045, oc / 12.92, ((oc + 0.055) / 1.055) ** 2.4)                 # sRGB -> linéaire
     w_oc = np.where(ok_oc, CFG["tree_ortho"], 0.0)
     near = d < CFG["wind_dist"]
+    # arbres sur le passage du front: couchés vers l'aval (même sans disparition), donc animés eux aussi
+    if CFG["arbres_couchage"] > 0:
+        t_cou = _arrivee(env, E, N, pas=0.5, force=True)
+        dir_cou = _direction_aval(env, E, N)
+        t_cou[np.hypot(dir_cou[:, 0], dir_cou[:, 1]) < 0.5] = np.inf
+    else:
+        t_cou = np.full(len(X), np.inf)
+        dir_cou = np.zeros((len(X), 2))
+    sur_passage = np.isfinite(t_cou)
+    if sur_passage.any():
+        log(f"arbres: {int(sur_passage.sum()):,} sur le passage du front, couchés vers l'aval à {CFG['arbres_couchage']:g}°")
+    near = near | sur_passage
     protos = {(e, l, v): _proto_arbre(e, l, np.random.default_rng(1000 * e + 100 * l + v)) for e in range(5) for l in range(4) for v in range(nv_var)}
     mt = bpy.data.materials.new("Arbre")
     mt.use_nodes = True
@@ -1250,6 +1367,7 @@ def build_trees(env, coll, cam):
         if not gsel.any():
             continue
         co_all, tri_all, col_all, vent_all = [], [], [], []
+        haut_all, tarr_all, dirx_all, diry_all, rpar_all = [], [], [], [], []
         off = 0
         for (e, l, v), (PV, PT, ntr) in protos.items():
             sel = (sp == e) & (lod == l) & (var == v) & gsel
@@ -1270,9 +1388,16 @@ def build_trees(env, coll, cam):
             wc = w_oc[sel][:, None, None]
             base = ((1.0 - wc) * esp + wc * cim).copy()
             base[:, ntr:, :] = COULEUR_TRONC[None, None, :]
-            vent = (0.03 * Hh[sel][:, None]) * (gg ** 2)[None, :]                     # amplitude du balancement (m) en cime
+            vent = (float(CFG["vent_force"]) * Hh[sel][:, None]) * (gg ** 2)[None, :]   # amplitude du balancement (m) en cime
             vent[:, ntr:] = 0.0
             vent_all.append(vent.reshape(-1))
+            if zn:
+                haut_all.append(np.maximum(pz, 0.0).reshape(-1))
+                tarr_all.append(np.repeat(np.where(np.isfinite(t_cou[sel]), t_cou[sel], 1e6), k))
+                ox, oy = px * c - py * sn, px * sn + py * c
+                rpar_all.append((ox * dir_cou[sel, 0][:, None] + oy * dir_cou[sel, 1][:, None]).reshape(-1))
+                dirx_all.append(np.repeat(dir_cou[sel, 0], k))
+                diry_all.append(np.repeat(dir_cou[sel, 1], k))
             co_all.append(co.reshape(-1, 3))
             tri_all.append(tri)
             col_all.append(base.reshape(-1, 3))
@@ -1281,7 +1406,9 @@ def build_trees(env, coll, cam):
         tri = np.concatenate(tri_all).astype(np.int32)
         col = np.concatenate(col_all).astype(np.float32)
         ob = _objet_triangles(("Arbres" if not np.isfinite(g) else f"Arbres_t{g:g}") + ("_v" if zn else ""), co, tri, [mt], lisse=True,
-                              scalaires={"vent": np.concatenate(vent_all)} if zn else None)
+                              scalaires={"vent": np.concatenate(vent_all), "haut": np.concatenate(haut_all),
+                                         "tarr": np.concatenate(tarr_all), "dirx": np.concatenate(dirx_all),
+                                         "diry": np.concatenate(diry_all), "rpar": np.concatenate(rpar_all)} if zn else None)
         if zn:
             _vent_modifier(ob)
         ca = ob.data.color_attributes.new("col", "BYTE_COLOR", "POINT")      # 4 octets par sommet au lieu de 16 (mémoire GPU)
