@@ -1,0 +1,11 @@
+{
+  "_doc": "Poussière V3 en 3 étapes (CDC du 31 oct.): fusées sur le versant, champignons à l'impact dans la vallée, nuage qui grossit et se floute. Couleurs d'Ilyas: base #B9AB98, ombre #635B4E. Hérite de poussiere_v2 pour les trainées.",
+  "herite": ["poussiere_v2"],
+  "poussiere": {
+    "modele": "trois_etapes",
+    "albedo": [0.75, 0.64, 0.50],
+    "couleur_absorption": [0.55, 0.46, 0.34],
+    "absorption": 0.25,
+    "densite": 0.035
+  }
+}

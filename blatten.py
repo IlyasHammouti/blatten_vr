@@ -858,7 +858,7 @@ def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ra
     # Les images du rendu FINAL (plusieurs Go) peuvent aller sur un autre disque: clé "render_dir" de config.local.json
     # (exemple "D:/Blatten_render"). Les aperçus et les journaux restent dans render/ du dépôt.
     rd = (cfg.get("render_dir") or "").strip()
-    if rd and preset in ("final", "brouillon"):
+    if rd and preset in ("final", "brouillon", "bande"):
         out = os.path.join(rd, os.path.basename(out_rel))
         try:
             os.makedirs(out, exist_ok=True)
@@ -1022,10 +1022,12 @@ def cmd_render(cfg, paths, extra):
     n, fps = _film(cfg)
     q, extra = _option(extra, "--qualite", 1)
     q = (q or ["final"])[0]
-    if q not in ("final", "brouillon"):
-        sys.exit("--qualite final (HD) ou brouillon (basse définition)")
+    if q not in ("final", "brouillon", "bande"):
+        sys.exit("--qualite final (HD 360), bande (brouillon HD plat 2560x1280) ou brouillon (basse définition)")
     if q == "final":
         return _rendre_film(cfg, paths, "final", os.path.join("render", "final"), n, fps, ["--camera-confirmed"] + extra)
+    if q == "bande":     # brouillon HD plat (1er nov.): même scène et mêmes réglages que le final, cadrage 130 x 65 degrés
+        return _rendre_film(cfg, paths, "bande", os.path.join("render", "film_bande"), n, fps, ["--camera-confirmed"] + extra, paquet=20)
     pas, _ = _option(extra, "--pas", 1)
     nom = "film_brouillon" + (f"_pas{pas[0]}" if pas and pas[0] != "1" else "")
     return _rendre_film(cfg, paths, "brouillon", os.path.join("render", nom), n, fps, ["--camera-confirmed"] + extra, paquet=30)
@@ -1109,6 +1111,32 @@ def _option(extra, flag, n=None):
     vals = extra[i + 1:j]
     del extra[i:j]
     return vals, extra
+
+
+def cmd_test_bande(cfg, paths, extra):
+    """Images fixes du brouillon HD plat (preset bande, réglages du film) à quelques instants de l'événement, avec le temps
+    de rendu de chacune: render/tests/bande/<date>/t<T>s/. Sert à valider l'aspect et estimer la durée du film.
+        python blatten.py test-bande [--temps 15 30 45]"""
+    temps, extra = _option(extra, "--temps")
+    temps = [float(x) for x in (temps or ["15", "30", "45"])]
+    base = os.path.join(ROOT, "render", "tests", "bande", time.strftime("%Y%m%d_%H%M"))
+    rc = 0
+    bilan = []
+    for t in temps:
+        out = os.path.join(base, f"t{t:g}s")
+        os.makedirs(out, exist_ok=True)
+        print(f"\n>>> bande t = {t:g} s -> {out}", flush=True)
+        _attendre_ram(7.0)
+        t0 = time.time()
+        r = run_blender(cfg, SCRIPTS["scene"], scene_args(cfg, paths) + ["--preset", "bande", "--mono", "--camera-confirmed",
+                        "--render-frame", "1", "--render-time", str(t), "--out", out] + extra, fond=True)
+        ok = os.path.exists(os.path.join(out, "frame_0001.png"))
+        bilan.append(dict(t=t, ok=ok, minutes=round((time.time() - t0) / 60, 2)))
+        print(f"{'OK' if ok else 'ÉCHEC'}: t = {t:g} s, {(time.time() - t0) / 60:.1f} min (construction de la scène comprise)", flush=True)
+        rc = rc or (0 if ok else (r or 1))
+    json.dump(bilan, open(os.path.join(base, "bilan.json"), "w", encoding="utf-8"), indent=1)
+    print(f"\nImages: {base}")
+    return rc
 
 
 def cmd_titre_test(cfg, paths, extra):
@@ -1681,7 +1709,7 @@ def cmd_menu(cfg, paths, extra):
 COMMANDS = {
     "status": cmd_status, "setup": cmd_setup, "download": cmd_download, "prep-env": cmd_prep_env, "prep-batiments": cmd_prep_batiments, "prep-vegetation": cmd_prep_vegetation, "env-complet": cmd_env_complet, "visible": cmd_visible,
     "prep-particules": cmd_prep_particules, "terrain": cmd_terrain, "views": cmd_views, "test360": cmd_test360,
-    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "eau-manuel": cmd_eau_manuel, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "titre-test": cmd_titre_test, "cap": cmd_cap, "camera": cmd_camera, "paquet": cmd_paquet, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
+    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "eau-manuel": cmd_eau_manuel, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "titre-test": cmd_titre_test, "test-bande": cmd_test_bande, "cap": cmd_cap, "camera": cmd_camera, "paquet": cmd_paquet, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
 }
 
 

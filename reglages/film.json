@@ -1,11 +1,12 @@
 {
-  "_doc": "Réglages du FILM (lus par config.json -> scene.reglages). Peau continue + blocs (mixte), poussière V2, titre d'intro (CDC du 31 oct.). Ne plus toucher pendant le rendu final.",
+  "_doc": "Réglages du FILM (lus par config.json -> scene.reglages). Peau continue + blocs (mixte), poussière V3 en 3 étapes, titre d'intro sombre, arbres et maisons qui ne disparaissent plus (CDC du 31 oct., décisions du 1er nov.).",
   "herite": [
     "mixte",
-    "poussiere_v2"
+    "poussiere_v3"
   ],
   "scene": {
     "titre": true,
-    "no_ensevelis": true
+    "no_ensevelis": true,
+    "titre_style": "sombre"
   }
 }
