@@ -39,7 +39,7 @@ SR = 48000
 C = 343.0
 
 DEFAUTS = dict(
-    ambiance=0.22, ambiance_fond=0.06,
+    ambiance_db=-30.0, ambiance_fond_db=-42.0,    # niveau RMS de la forêt (dBFS) au calme et sous l'écoulement
     depart=0.9, grondement=0.8, seisme=0.5, impacts=0.7, souffle=0.9,
     distance_ref=1500.0,          # m: distance où le gain de distance vaut 1
     passe_bas_proche=4000.0, passe_bas_loin=350.0,   # Hz: aigus étouffés avec la distance
@@ -200,7 +200,7 @@ def main():
     dist = interp(t, tr["arr"], tr["dist"])
     ener = interp(t, tr["arr"], tr["e"])
     ener[t < tr["arr"].min()] = 0.0
-    gd = np.clip(R["distance_ref"] / np.maximum(dist, 50.0), 0.0, 4.0)
+    gd = np.clip(R["distance_ref"] / np.maximum(dist, 50.0), 0.0, 2.0)
     # proportion d'aigus gardés selon la distance (log entre proche et loin)
     fc = np.exp(np.interp(np.log(np.maximum(dist, 1.0)), np.log([300.0, 3000.0]),
                           np.log([R["passe_bas_proche"], R["passe_bas_loin"]])))
@@ -212,11 +212,6 @@ def main():
 
     lis = lambda nom, c=1: lire(os.path.join(sons, nom), c)
     amb = np.zeros((n, 4), np.float32)
-    # 1. ambiance forêt (stéréo -> W + Y), baisse quand l'écoulement domine
-    foret = boucle(lis("ambiance_foret.wav", 2), n)
-    g_amb = R["ambiance"] + (R["ambiance_fond"] - R["ambiance"]) * np.clip(ener * gd / 1.5, 0, 1)
-    amb[:, 0] += g_amb * 0.5 * (foret[:, 0] + foret[:, 1])
-    amb[:, 1] += g_amb * 0.5 * (foret[:, 0] - foret[:, 1])
     # 2. départ: grand éboulement à l'arrivée du premier son
     t0 = float(tr["arr"].min())
     ton = lis("eboulement_tonnerre.wav")[:, 0]
@@ -243,11 +238,22 @@ def main():
     g_s[t < tr["arr_min"].min()] = 0.0
     sf = boucle(lis("souffle_tempete.wav", 1), n)[:, 0] * R["souffle"] * g_s
     amb += encoder(sf, capm, np.zeros(n), R["cap_face_360"])
+    # écoulement normalisé (crête à -2 dBFS), puis compression douce: le début reste audible
+    amb *= 0.8 / max(np.abs(amb).max(), 1e-6)
+    env = np.sqrt(np.convolve(amb[:, 0] ** 2, np.ones(SR // 10) / (SR // 10), mode="same"))
+    gain = np.clip((np.maximum(env, 1e-4) / 0.25) ** (-0.4), 1.0, 6.0)      # rapport ~1,7:1 sous -12 dBFS, +15 dB au plus
+    amb *= gain[:, None]
+    # 1. ambiance forêt (stéréo -> W + Y), à un niveau fixe en dBFS, baisse sous l'écoulement
+    foret = boucle(lis("ambiance_foret.wav", 2), n)
+    rms = np.sqrt((foret ** 2).mean()) + 1e-9
+    db = R["ambiance_db"] + (R["ambiance_fond_db"] - R["ambiance_db"]) * np.clip(env * gain / 0.2, 0, 1)
+    g_amb = (10 ** (db / 20)) / rms
+    amb[:, 0] += g_amb * 0.5 * (foret[:, 0] + foret[:, 1])
+    amb[:, 1] += g_amb * 0.5 * (foret[:, 0] - foret[:, 1])
+    amb = np.tanh(amb / 0.9) * 0.9            # limiteur doux
     # coupure: fondu de fin du film puis silence (outro)
     fin = np.clip((film - t) / max(R["fondu_fin"], 1e-3), 0, 1)
     amb *= fin[:, None]
-    pk = np.abs(amb).max()
-    amb *= 0.89 / max(pk, 1e-6)
     os.makedirs(a.out, exist_ok=True)
     ecrire(os.path.join(a.out, "son_ambix.wav"), amb)
     st = stereo_depuis(amb, R["cap_face_360"], R["cap_face_bande"])
