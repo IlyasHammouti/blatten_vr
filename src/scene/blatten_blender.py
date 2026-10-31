@@ -152,7 +152,7 @@ PRESETS = {
     "apercu": dict(res=(1280, 640), samples=8),   # toute la simulation en quelques dizaines de minutes: emprise de l'aléa, pas le réalisme
     "brouillon": dict(res=(1920, 960), samples=16),   # film complet à mi-résolution, pour juger l'ensemble en une nuit
     "final": dict(res=(3840, 1920), samples=96),
-    "bande": dict(res=(2560, 1280), samples=32),   # brouillon HD plat: bande de 130 x 65 degrés découpée dans le 360 (départ + événement)   # mono; en stéréo haut/bas l'image fait 3840 x 3840
+    "bande": dict(res=(2560, 1280), samples=24),   # brouillon HD plat: bande de 130 x 65 degrés découpée dans le 360 (départ + événement)   # mono; en stéréo haut/bas l'image fait 3840 x 3840
 }
 
 
