@@ -44,6 +44,9 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(ROOT, "src")
 SCRIPTS = {
     "scene": os.path.join(SRC, "scene", "blatten_blender.py"),
+    "outro": os.path.join(SRC, "scene", "outro.py"),
+    "son": os.path.join(SRC, "audio", "son.py"),
+    "montage_film": os.path.join(SRC, "scene", "montage_film.py"),
     "prep_env": os.path.join(SRC, "environnement", "prep_env.py"),
     "install": os.path.join(SRC, "environnement", "installer_bibliotheques.py"),
     "prep_part": os.path.join(SRC, "matiere", "prep_particules.py"),
@@ -976,10 +979,63 @@ def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ra
     if rc == 0 and (de, a_) != (1, n):
         print(f"Plage {de}-{a_} terminée. Le montage se fait une fois toutes les images réunies dans le même dossier.", flush=True)
     elif rc == 0:
-        rc = run_blender(cfg, SCRIPTS["montage"], ["--dir", out, "--fps", str(fps_video), "--out", os.path.join(out, f"{preset}.mp4")])
+        if preset in ("bande", "final"):     # montage complet: fondu, outro, son
+            rc = _finir_film(cfg, out, "bande" if preset == "bande" else "360", fps_video)
+        else:
+            rc = run_blender(cfg, SCRIPTS["montage"], ["--dir", out, "--fps", str(fps_video), "--out", os.path.join(out, f"{preset}.mp4")])
         if rc == 0:
             _marquer_termine(out)
     return rc
+
+
+def _finir_film(cfg, out, fmt, fps=30):
+    """Outro (Blender), bande son (son.py), puis montage (montage_film.py) dans le dossier du rendu `out`."""
+    d_outro = os.path.join(out, "outro")
+    png = os.path.join(d_outro, f"outro_{fmt}.png")
+    rc = run_blender(cfg, SCRIPTS["outro"], ["--format", fmt, "--out", d_outro])
+    if rc != 0 or not os.path.exists(png):
+        print("!! outro non rendue, montage sans outro", flush=True)
+        png = None
+    d_son = os.path.join(out, "son")
+    rs = subprocess.call([sys.executable, SCRIPTS["son"], "--out", d_son])
+    wav = os.path.join(d_son, "son_stereo.wav" if fmt == "bande" else "son_ambix.wav")
+    if rs != 0 or not os.path.exists(wav):
+        print("!! son non calculé, montage sans son", flush=True)
+        wav = None
+    a = ["--dir", out, "--format", fmt, "--fps", str(fps)] + (["--outro", png] if png else []) + (["--son", wav] if wav else [])
+    return subprocess.call([sys.executable, SCRIPTS["montage_film"]] + a)
+
+
+def cmd_finir(cfg, paths, extra):
+    """Outro, son et montage d'un rendu de film déjà fait (le plus récent si --dir n'est pas donné).
+        python blatten.py finir [--format bande|360] [--dir D:/Blatten_render/film_bande/20261101_0200]"""
+    fmt, extra = _option(extra, "--format", 1)
+    fmt = (fmt or ["bande"])[0]
+    d, extra = _option(extra, "--dir", 1)
+    if d:
+        out = d[0]
+    else:
+        rd = (cfg.get("render_dir") or "").strip() or os.path.join(ROOT, "render")
+        base = os.path.join(rd, "film_bande" if fmt == "bande" else "final")
+        vs = sorted(x for x in os.listdir(base) if re.fullmatch(r"\d{8}_\d{4}.*", x)) if os.path.isdir(base) else []
+        if not vs:
+            sys.exit(f"Aucun rendu dans {base}")
+        out = os.path.join(base, vs[-1])
+    print(f"Montage de {out}", flush=True)
+    return _finir_film(cfg, out, fmt)
+
+
+def cmd_son(cfg, paths, extra):
+    """Bande son seule (AmbiX + stéréo): python blatten.py son [--out dossier]"""
+    o, extra = _option(extra, "--out", 1)
+    out = o[0] if o else os.path.join(ROOT, "render", "son")
+    return subprocess.call([sys.executable, SCRIPTS["son"], "--out", out])
+
+
+def cmd_outro(cfg, paths, extra):
+    """Image de l'outro seule: python blatten.py outro [--format bande|360]"""
+    fmt, extra = _option(extra, "--format", 1)
+    return run_blender(cfg, SCRIPTS["outro"], ["--format", (fmt or ["360"])[0], "--out", os.path.join(ROOT, "render", "outro")])
 
 
 def _marquer_termine(out):
@@ -1709,7 +1765,7 @@ def cmd_menu(cfg, paths, extra):
 COMMANDS = {
     "status": cmd_status, "setup": cmd_setup, "download": cmd_download, "prep-env": cmd_prep_env, "prep-batiments": cmd_prep_batiments, "prep-vegetation": cmd_prep_vegetation, "env-complet": cmd_env_complet, "visible": cmd_visible,
     "prep-particules": cmd_prep_particules, "terrain": cmd_terrain, "views": cmd_views, "test360": cmd_test360,
-    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "eau-manuel": cmd_eau_manuel, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "titre-test": cmd_titre_test, "test-bande": cmd_test_bande, "cap": cmd_cap, "camera": cmd_camera, "paquet": cmd_paquet, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
+    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "eau-manuel": cmd_eau_manuel, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "titre-test": cmd_titre_test, "test-bande": cmd_test_bande, "finir": cmd_finir, "son": cmd_son, "outro": cmd_outro, "cap": cmd_cap, "camera": cmd_camera, "paquet": cmd_paquet, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
 }
 
 

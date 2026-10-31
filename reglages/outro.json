@@ -1,0 +1,11 @@
+{
+  "_doc": "Texte de l'outro (src/scene/outro.py). Une ligne = un texte, ou [texte, taille relative]. Remplacer les [balises]. Ligne vide = espace.",
+  "lignes": [
+    ["[TEXTE DE FIN: message principal]", 1.4],
+    "",
+    "Simulation: Johan Gaume (ETH Zurich / WSL-SLF)",
+    "[Réalisation: noms]",
+    "",
+    ["Sounds: klankbeeld (CC BY 4.0), craigsmith (CC0), via freesound.org", 0.7]
+  ]
+}
