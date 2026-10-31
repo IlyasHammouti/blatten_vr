@@ -124,6 +124,7 @@ CFG = dict(
     reglages=None,          # jeux de réglages nommés (dossier reglages/, voir src/reglages.py), appliqués dans l'ordre
     set=None,               # réglages ponctuels "section.cle=valeur" (après les jeux)
     _regl=None,             # interne: réglages fusionnés {section: {clé: valeur}}, lus par les modules de matière
+    no_ensevelis=False,     # True: aucun arbre ni bâtiment ne disparaît (film V1, décision du 31 oct.: la matière passe dessus)
     ensevelissement=0.0,    # part de la hauteur d'un objet que la matière doit recouvrir pour qu'il disparaisse. 0 = à l'arrivée de la matière
                             # (arrondie vers le haut: jamais avant). Essais du 30 oct. à 0,5 puis 0,1: des arbres restaient debout dans la coulée à
                             # t = 43 s là où la nappe est mince (16 % des cellules n'atteignent 1 m qu'après 45 s). Johan: le souffle a couché la forêt.

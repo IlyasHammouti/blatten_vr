@@ -5,6 +5,7 @@
     "poussiere_v2"
   ],
   "scene": {
-    "titre": true
+    "titre": true,
+    "no_ensevelis": true
   }
 }
