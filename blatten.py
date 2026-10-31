@@ -979,8 +979,10 @@ def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ra
     if rc == 0 and (de, a_) != (1, n):
         print(f"Plage {de}-{a_} terminée. Le montage se fait une fois toutes les images réunies dans le même dossier.", flush=True)
     elif rc == 0:
-        if preset in ("bande", "final"):     # montage complet: fondu, outro, son
-            rc = _finir_film(cfg, out, "bande" if preset == "bande" else "360", fps_video)
+        if preset in ("bande", "final"):     # montage complet: fondu, outro, son (un échec du montage n'invalide pas le rendu)
+            if _finir_film(cfg, out, "bande" if preset == "bande" else "360", fps_video) != 0:
+                print("!! montage en échec: les images sont faites, relancer  python blatten.py finir", flush=True)
+                return 0
         else:
             rc = run_blender(cfg, SCRIPTS["montage"], ["--dir", out, "--fps", str(fps_video), "--out", os.path.join(out, f"{preset}.mp4")])
         if rc == 0:

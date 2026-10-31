@@ -5,14 +5,7 @@ cd /d C:\Dev\blatten-vr
 git fetch -q origin
 git reset -q --hard origin/main
 python -m pip install -q imageio-ffmpeg
-python blatten.py render --qualite bande --pas 2 --intro-pas 2
-if errorlevel 1 goto fin
-git fetch -q origin
-git reset -q --hard origin/main
-python blatten.py finir --format bande
-if errorlevel 1 goto fin
-shutdown /s /t 600 /c "Brouillon HD termine: extinction dans 10 min (shutdown /a pour annuler)"
-:fin
+python blatten.py render --qualite bande --pas 2 --intro-pas 2 && (git fetch -q origin & git reset -q --hard origin/main & python blatten.py finir --format bande && shutdown /s /t 600 /c "Brouillon HD termine: extinction dans 10 min, shutdown /a pour annuler")
 echo Termine.
 exit /b
 )
