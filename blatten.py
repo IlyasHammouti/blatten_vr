@@ -806,11 +806,37 @@ def _ext(preset, extra=()):
     return ".jpg" if preset == "final" and not png16 else ".png"
 
 
+def _images_suspectes(out, ext=".png"):
+    """Numéros des images dont le fichier est vide ou beaucoup plus petit que celui de ses voisines: rendu raté (image noire quand la
+    mémoire vive a manqué, « Calloc returns null » dans le journal). Un PNG noir pèse 0,7 Mo contre 4,6 Mo pour une image normale."""
+    taille = {}
+    for f in glob.glob(os.path.join(out, "frame_*" + ext)):
+        m = re.search(r"frame_(\d+)", os.path.basename(f))
+        if m:
+            taille[int(m.group(1))] = os.path.getsize(f)
+    ks = sorted(taille)
+    mauvaises = []
+    for j, i in enumerate(ks):
+        vois = sorted(taille[x] for x in ks[max(0, j - 3):j] + ks[j + 1:j + 4] if taille[x] > 0)
+        if taille[i] == 0 or (len(vois) >= 2 and taille[i] < 0.3 * vois[len(vois) // 2]):
+            mauvaises.append(i)
+    return mauvaises
+
+
 def _nettoyer(out, ext=".png"):
     os.makedirs(out, exist_ok=True)
     for f in glob.glob(os.path.join(out, "frame_*" + ext)):
         if os.path.getsize(f) == 0:      # image commencée puis interrompue: à refaire
             os.remove(f)
+    mauvaises = _images_suspectes(out, ext)
+    if mauvaises:                         # image noire ou presque: mise de côté pour être refaite
+        coin = os.path.join(out, "_images_ratees")
+        os.makedirs(coin, exist_ok=True)
+        for i in mauvaises:
+            f = os.path.join(out, f"frame_{i:04d}{ext}")
+            if os.path.exists(f):
+                shutil.move(f, os.path.join(coin, time.strftime("%H%M%S_") + os.path.basename(f)))
+        print(f"!! {len(mauvaises)} image(s) ratée(s) mises de côté (_images_ratees) pour être refaites: {mauvaises[:12]}", flush=True)
     return len(glob.glob(os.path.join(out, "frame_*" + ext)))
 
 
@@ -928,6 +954,9 @@ def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ra
             break
         d0 = manquantes[0]
         d1 = min(d0 + (PAQUET - 1) * k_film, a_)
+        suivante = min((i for i in cibles if i > d0 and _faite(i)), default=None)
+        if suivante:                      # ne pas refaire les images déjà rendues au-delà d'un trou
+            d1 = min(d1, suivante - k_film)
         if heure_fin and duree_paquet and time.time() + 1.15 * duree_paquet > heure_fin:
             print(f"\nHeure limite atteinte: le prochain paquet (~{duree_paquet / 60:.0f} min) ne finirait pas à temps. "
                   f"{len(manquantes)} images restantes; relancer la même commande pour reprendre à l'image {d0}.", flush=True)
@@ -1008,6 +1037,42 @@ def _finir_film(cfg, out, fmt, fps=30):
     return subprocess.call([sys.executable, SCRIPTS["montage_film"]] + a)
 
 
+def _reparer_images(out, fmt, k=2):
+    """Refait les images ratées (noires) d'un rendu bande terminé, par suites consécutives, 3 passes au plus."""
+    if fmt != "bande":
+        mv = _images_suspectes(out, ".jpg")
+        if mv:
+            print(f"!! images suspectes (non réparées automatiquement en 360): {mv[:20]}", flush=True)
+        return not mv
+    for passe in range(3):
+        mauvaises = _images_suspectes(out, ".png")
+        if not mauvaises:
+            return True
+        coin = os.path.join(out, "_images_ratees")
+        os.makedirs(coin, exist_ok=True)
+        for j in mauvaises:
+            f = os.path.join(out, f"frame_{j:04d}.png")
+            if os.path.exists(f):
+                shutil.move(f, os.path.join(coin, f"p{passe}_{os.path.basename(f)}"))
+        bases = sorted({1 + ((j - 1) // k) * k for j in mauvaises})
+        suites = []
+        for b in bases:
+            if suites and b == suites[-1][1] + k:
+                suites[-1][1] = b
+            else:
+                suites.append([b, b])
+        print(f"\n>>> réparation (passe {passe + 1}/3): images {bases[:20]}{'...' if len(bases) > 20 else ''}", flush=True)
+        tf = os.path.join(out, "TERMINE.txt")
+        if os.path.exists(tf):
+            os.remove(tf)
+        for d0, d1 in suites:
+            subprocess.call([sys.executable, os.path.join(ROOT, "blatten.py"), "render", "--qualite", "bande", "--pas", str(k),
+                             "--intro-pas", "2", "--version", os.path.basename(os.path.normpath(out)), "--de", str(d0), "--a", str(d1 + k - 1)])
+    ok = not _images_suspectes(out, ".png")
+    _marquer_termine(out)
+    return ok
+
+
 def cmd_finir(cfg, paths, extra):
     """Outro, son et montage d'un rendu de film déjà fait (le plus récent si --dir n'est pas donné).
         python blatten.py finir [--format bande|360] [--dir D:/Blatten_render/film_bande/20261101_0200]"""
@@ -1024,7 +1089,15 @@ def cmd_finir(cfg, paths, extra):
             sys.exit(f"Aucun rendu dans {base}")
         out = os.path.join(base, vs[-1])
     print(f"Montage de {out}", flush=True)
-    return _finir_film(cfg, out, fmt)
+    try:
+        if not _reparer_images(out, fmt):
+            print("!! des images restent suspectes après réparation, voir _images_ratees et verif", flush=True)
+    except Exception:
+        traceback.print_exc()
+    rc = _finir_film(cfg, out, fmt)
+    if rc == 0:
+        _marquer_termine(out)
+    return rc
 
 
 def cmd_son(cfg, paths, extra):
