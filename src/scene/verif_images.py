@@ -80,13 +80,20 @@ def main(argv=None):
         v = V[i]
         if v.std() < 0.01 or v.mean() < 0.02:
             susp.append(dict(image=i, raison="image vide ou uniforme", ecart_type=round(float(v.std()), 4)))
-    d = lambda x, y: float(np.abs(V[x] - V[y]).mean())
+    # écarts par tuile (16 x 8 tuiles de 12 x 12 pixels): un défaut local (morceau de nuage) ne se noie pas dans l'image entière
+    def d(x, y):
+        e = np.abs(V[x] - V[y])
+        return e.reshape(8, 12, 16, 12).mean(axis=(1, 3))
     for j in range(1, len(ks) - 1):
         p, i, s = ks[j - 1], ks[j], ks[j + 1]
         dp, ds, dps = d(p, i), d(i, s), d(p, s)
-        score = min(dp, ds) / (dps + 0.002)
-        if score > a.seuil and min(dp, ds) > 0.006:
-            susp.append(dict(image=i, raison="saut isolé", score=round(score, 2), ecart=round(min(dp, ds), 4)))
+        m = np.minimum(dp, ds)
+        sc = m / (dps + 0.004)
+        sc[m < 0.02] = 0.0
+        k = np.unravel_index(np.argmax(sc), sc.shape)
+        if sc[k] > a.seuil:
+            susp.append(dict(image=i, raison="saut isolé", score=round(float(sc[k]), 2), ecart=round(float(m[k]), 4),
+                             tuile=[int(k[1]), int(k[0])]))
     susp.sort(key=lambda x: x["image"])
     json.dump(dict(images=len(ks), suspectes=susp), open(os.path.join(a.dir, "verif.json"), "w", encoding="utf-8"), indent=1, ensure_ascii=False)
     print(f"{len(ks)} images vérifiées, {len(susp)} suspecte(s)" + ("".join(f"\n  {x['image']}: {x['raison']} {x.get('score', '')}" for x in susp)))
