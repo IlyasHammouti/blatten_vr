@@ -2551,6 +2551,10 @@ def setup_render(scene, out_dir):
         r.border_min_x, r.border_max_x, r.border_min_y, r.border_max_y = b[0], b[1], b[2], b[3]
     scene.cycles.samples = p["samples"]
     scene.cycles.use_denoising = True
+    try:   # débruitage sur le processeur: sur la carte de 6 Go, OIDN manquait de mémoire en fin d'image (1er nov., image 27)
+        scene.cycles.denoising_use_gpu = False
+    except Exception:
+        pass
     scene.cycles.device = "CPU"
     try:  # GPU si disponible
         prefs = bpy.context.preferences.addons["cycles"].preferences
