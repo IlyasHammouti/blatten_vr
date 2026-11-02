@@ -23,6 +23,7 @@ import argparse
 import datetime as _dt
 import json
 import math
+import math as math_
 import os
 import sys
 import time
@@ -107,6 +108,9 @@ CFG = dict(
     no_buildings=False,     # ne place pas les bâtiments 3D (python blatten.py prep-batiments les prépare)
     eau_reflets=0.8,        # reflets qui descendent le courant sur l'eau (0 = aucun, 1 = marqués)
     eau_vitesse=2.0,        # vitesse apparente de ces reflets (m/s)
+    eau_cap_vallee=225.0,   # degrés (0 = nord, 90 = est): sens d'écoulement sur le fond de vallée plat (225 = du nord-est vers le sud-ouest)
+    eau_loin=1.0,           # scintillement à grande échelle, visible de loin, qui descend le courant (0 = aucun)
+    eau_vitesse_loin=8.0,   # m/s: vitesse de ce scintillement (très supérieure au courant réel: de 2 km, 2 m/s ne se verrait pas)
     no_water=False,         # pas de rivière animée (python blatten.py prep-eau la prépare)
     no_trees=False,         # ne place pas les arbres (python blatten.py prep-vegetation les prépare)
     wind=True,              # léger balancement des arbres proches (--no-wind pour le couper)
@@ -141,6 +145,7 @@ CFG = dict(
     titre_hauteur=7.0,      # degrés: hauteur apparente du bloc de texte
     titre_cache=0.07,       # part de la hauteur du texte cachée derrière la crête
     titre_recul=800.0,      # m derrière la crête
+    titre_police="",        # fichier de police (.ttf/.otf) du titre; vide = police par défaut de Blender
     titre_style="blanc",    # "blanc" (lumineux, discret) ou "sombre" (lettres sombres éclairées par le ciel)
     titre_emission=1.2,     # intensité du blanc (1 = environ la luminosité du ciel couvert)
     titre_duree=5.0,        # s de film pendant lesquelles le texte est visible
@@ -1960,10 +1965,15 @@ def build_terrain_material(env=None):
         # horizontale de la normale du relief, freinée là où l'eau est plate), qui éclaircissent la surface (rugosité plus basse) et la creusent un peu.
         ECL = float(CFG["eau_reflets"])
         if ECL > 0:
-            den = math("ADD", math("POWER", math("ADD", math("MULTIPLY", nor.outputs["X"], nor.outputs["X"]), math("MULTIPLY", nor.outputs["Y"], nor.outputs["Y"])), 0.5), 0.03)
+            # sens d'écoulement: pente sur les versants, cap constant (eau_cap_vallee) là où l'eau est plate (fond de vallée)
+            KV = 0.05
+            fl = float(env["meta"].get("flip", 1.0)) if env else 1.0
+            cv = math_.radians(float(CFG["eau_cap_vallee"]))
+            cx, cy = math_.sin(cv), fl * math_.cos(cv)
+            den = math("ADD", math("POWER", math("ADD", math("MULTIPLY", nor.outputs["X"], nor.outputs["X"]), math("MULTIPLY", nor.outputs["Y"], nor.outputs["Y"])), 0.5), KV)
             dxy = N.new("ShaderNodeCombineXYZ")
-            L.new(math("DIVIDE", nor.outputs["X"], den), dxy.inputs["X"])
-            L.new(math("DIVIDE", nor.outputs["Y"], den), dxy.inputs["Y"])
+            L.new(math("DIVIDE", math("ADD", nor.outputs["X"], KV * cx), den), dxy.inputs["X"])
+            L.new(math("DIVIDE", math("ADD", nor.outputs["Y"], KV * cy), den), dxy.inputs["Y"])
             dep = N.new("ShaderNodeVectorMath")
             dep.operation = "SCALE"
             L.new(dxy.outputs["Vector"], dep.inputs[0])
@@ -1985,7 +1995,36 @@ def build_terrain_material(env=None):
                 L.new(sc2.outputs["Vector"], nz_.inputs["Vector"])
                 return nz_.outputs["Fac"]
             refl = mrange(math("ADD", _tache(0.9, 3.0), math("MULTIPLY", _tache(3.1, 7.0), 0.5)), 0.78, 1.0)
-            refl = math("MULTIPLY", math("MULTIPLY", refl, wq), ECL)
+            wcoeur = mrange(wq, 0.6, 1.0)      # le masque manuel n'est pas exact au bord: les reflets restent au coeur de l'eau
+            refl = math("MULTIPLY", math("MULTIPLY", refl, wcoeur), ECL)
+            LOIN = float(CFG["eau_loin"])
+            if LOIN > 0:
+                # scintillement de loin: grandes taches (12 m et 5 m) emportées vite dans le sens du courant, en relief (reflets du ciel
+                # qui varient), de plus en plus marqué avec la distance à la caméra (de près, les petits reflets ci-dessus suffisent)
+                dloin = N.new("ShaderNodeVectorMath")
+                dloin.operation = "SCALE"
+                L.new(dxy.outputs["Vector"], dloin.inputs[0])
+                L.new(math("MULTIPLY", T_eau, float(CFG["eau_vitesse_loin"])), dloin.inputs["Scale"])
+
+                def _loin(echelle, graine):
+                    v0 = N.new("ShaderNodeVectorMath")
+                    v0.operation = "SUBTRACT"
+                    L.new(geo.outputs["Position"], v0.inputs[0])
+                    L.new(dloin.outputs["Vector"], v0.inputs[1])
+                    v1 = N.new("ShaderNodeVectorMath")
+                    v1.operation = "SCALE"
+                    v1.inputs["Scale"].default_value = echelle
+                    L.new(v0.outputs["Vector"], v1.inputs[0])
+                    nz_ = N.new("ShaderNodeTexNoise")
+                    nz_.noise_dimensions = "4D"
+                    nz_.inputs["Detail"].default_value = 2.0
+                    nz_.inputs["W"].default_value = graine
+                    L.new(v1.outputs["Vector"], nz_.inputs["Vector"])
+                    return math("SUBTRACT", nz_.outputs["Fac"], 0.5)
+                camd = N.new("ShaderNodeCameraData")
+                loin = mrange(camd.outputs["View Distance"], 250.0, 1400.0)
+                rel = math("ADD", _loin(0.08, 11.0), math("MULTIPLY", _loin(0.2, 17.0), 0.6))
+                h = math("ADD", h, math("MULTIPLY", math("MULTIPLY", math("MULTIPLY", rel, wcoeur), loin), 1.4 * LOIN))
             h = math("SUBTRACT", h, math("MULTIPLY", refl, 0.08))
             L.new(math("SUBTRACT", math("SUBTRACT", 0.95, math("MULTIPLY", wq, 0.89)), math("MULTIPLY", refl, 0.06)), bsdf.inputs["Roughness"])
         else:
@@ -2348,6 +2387,13 @@ def build_titre(scene, coll):
     cu.body = CFG["titre_texte"].replace("\\n", "\n")
     cu.align_x, cu.align_y = "CENTER", "CENTER"
     cu.size = 1.0
+    pol = str(CFG.get("titre_police") or "").strip()
+    if pol:
+        try:
+            cu.font = bpy.data.fonts.load(pol)
+            log(f"titre: police {pol}")
+        except Exception as e:
+            log(f"titre: police {pol} illisible ({e}), police par défaut")
     ob = bpy.data.objects.new("Titre", cu)
     coll.objects.link(ob)
     bpy.context.view_layer.update()

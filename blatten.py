@@ -46,6 +46,7 @@ SCRIPTS = {
     "scene": os.path.join(SRC, "scene", "blatten_blender.py"),
     "outro": os.path.join(SRC, "scene", "outro.py"),
     "son": os.path.join(SRC, "audio", "son.py"),
+    "test_son": os.path.join(SRC, "audio", "test_son.py"),
     "montage_film": os.path.join(SRC, "scene", "montage_film.py"),
     "prep_env": os.path.join(SRC, "environnement", "prep_env.py"),
     "install": os.path.join(SRC, "environnement", "installer_bibliotheques.py"),
@@ -1270,6 +1271,34 @@ def cmd_test_bande(cfg, paths, extra):
     return rc
 
 
+def cmd_test_eau(cfg, paths, extra):
+    """Eau: sans / avec le scintillement lointain qui descend le courant (sens nord-est vers sud-ouest), et 1 s plus tard, pour voir
+    le déplacement. render/tests/eau/<date>/<nom>/ (bande plate HD, avant l'événement).
+        python blatten.py test-eau [--temps 10]"""
+    temps, extra = _option(extra, "--temps", 1)
+    t0_ = float(temps[0]) if temps else 10.0
+    # l'eau avance avec le numéro d'image (30 images = 1 s), la simulation reste figée à t0_
+    variantes = [("A_sans_scintillement", 1, ["scene.eau_loin=0"]), ("B_avec", 1, []), ("C_avec_plus_1s", 31, [])]
+    base = os.path.join(ROOT, "render", "tests", "eau", time.strftime("%Y%m%d_%H%M"))
+    rc = 0
+    for nom, fr, sets in variantes:
+        out = os.path.join(base, nom)
+        os.makedirs(out, exist_ok=True)
+        print(f"\n>>> {nom} (image {fr}, simulation à {t0_:g} s) -> {out}", flush=True)
+        _attendre_ram(7.0)
+        t1 = time.time()
+        sa = []
+        for x in sets:
+            sa += ["--set", x]
+        r = run_blender(cfg, SCRIPTS["scene"], scene_args(cfg, paths) + ["--preset", "bande", "--mono", "--camera-confirmed",
+                        "--render-frame", str(fr), "--render-time", f"{t0_:g}", "--out", out] + sa + extra, fond=True)
+        ok = os.path.exists(os.path.join(out, f"frame_{fr:04d}.png"))
+        print(f"{'OK' if ok else 'ÉCHEC'}: {nom}, {(time.time() - t1) / 60:.1f} min", flush=True)
+        rc = rc or (0 if ok else (r or 1))
+    print(f"\nImages: {base}")
+    return rc
+
+
 def cmd_test_couleurs(cfg, paths, extra):
     """Même image (la première du film, bande plate HD) avec plusieurs réglages de couleur et de forêt, pour comparer:
     render/tests/couleurs/<date>/<nom>/. A actuel (saturation 0,8), B saturation 1,0, C saturation 1,25, D = B + couronnes x1,3.
@@ -1298,25 +1327,75 @@ def cmd_test_couleurs(cfg, paths, extra):
     return rc
 
 
+POLICES_TITRE = ["georgia", "pala", "constan", "segoeuil", "candara", "times"]
+
+
+def _police_windows(nom):
+    """Chemin d'une police de C:/Windows/Fonts d'après un nom de fichier sans extension (georgia, pala...), ou un chemin complet."""
+    if os.path.isfile(nom):
+        return nom
+    d = os.path.join(os.environ.get("WINDIR", "C:/Windows"), "Fonts")
+    if os.path.isdir(d):
+        for f in os.listdir(d):
+            if os.path.splitext(f)[0].lower() == nom.lower() and f.lower().endswith((".ttf", ".otf")):
+                return os.path.join(d, f)
+    return None
+
+
 def cmd_titre_test(cfg, paths, extra):
-    """Une image de l'intro (image 1 du film) en bande plate HD, pour chaque couleur du titre: render/tests/titre/<date>/<style>/.
-        python blatten.py titre-test [--styles blanc sombre]"""
+    """Une image de l'intro (image 1 du film) en bande plate HD par variante du titre: render/tests/titre/<date>/<variante>/.
+        python blatten.py titre-test [--styles blanc sombre]            couleurs
+        python blatten.py titre-test --polices georgia pala constan     polices (noms de fichiers de C:/Windows/Fonts sans extension), style du film
+    Sans option: les couleurs, ou les polices ci-dessus si le fichier de réglages en choisit déjà une."""
     styles, extra = _option(extra, "--styles")
-    styles = styles or ["blanc", "sombre"]
+    polices, extra = _option(extra, "--polices")
+    if polices is not None and not polices:
+        polices = POLICES_TITRE
+    variantes = []          # (nom, options --set)
+    if polices:
+        for nom in polices:
+            ch = _police_windows(nom)
+            if not ch:
+                print(f"police {nom} introuvable, ignorée", flush=True)
+                continue
+            variantes.append((f"police_{nom}", ["--set", f"scene.titre_police={ch.replace(chr(92), '/')}"]))
+    else:
+        for st in (styles or ["blanc", "sombre"]):
+            variantes.append((st, ["--set", f"scene.titre_style={st}"]))
     base = os.path.join(ROOT, "render", "tests", "titre", time.strftime("%Y%m%d_%H%M"))
     rc = 0
-    for st in styles:
-        out = os.path.join(base, st)
+    for nom, opts in variantes:
+        out = os.path.join(base, nom)
         os.makedirs(out, exist_ok=True)
-        print(f"\n>>> titre {st} -> {out}", flush=True)
+        print(f"\n>>> titre {nom} -> {out}", flush=True)
         _attendre_ram(7.0)
         t0 = time.time()
         r = run_blender(cfg, SCRIPTS["scene"], scene_args(cfg, paths) + ["--preset", "bande", "--mono", "--camera-confirmed",
-                        "--render-frame", "1", "--out", out, "--set", "scene.titre=true", "--set", f"scene.titre_style={st}"] + extra, fond=True)
+                        "--render-frame", "1", "--out", out, "--set", "scene.titre=true"] + opts + extra, fond=True)
         ok = os.path.exists(os.path.join(out, "frame_0001.png"))
-        print(f"{'OK' if ok else 'ÉCHEC'}: titre {st}, {(time.time() - t0) / 60:.1f} min", flush=True)
+        print(f"{'OK' if ok else 'ÉCHEC'}: titre {nom}, {(time.time() - t0) / 60:.1f} min", flush=True)
         rc = rc or (0 if ok else (r or 1))
     print(f"\nImages: {base}")
+    return rc
+
+
+def cmd_test_son(cfg, paths, extra):
+    """Mini vidéo 360 (25 s, sans Blender) pour vérifier que le son tourne avec la tête: bruits de calibrage (avant, gauche,
+    arrière, droite) puis 15 s du vrai son en plein événement. À mettre sur YouTube en non répertorié.
+        python blatten.py test-son [--debut 45] [--duree 15]   -> <render_dir>/tests_son/<date>/test_son_360.mp4"""
+    deb, extra = _option(extra, "--debut", 1)
+    dur, extra = _option(extra, "--duree", 1)
+    rd = (cfg.get("render_dir") or "").strip() or os.path.join(ROOT, "render")
+    out = os.path.join(rd, "tests_son", time.strftime("%Y%m%d_%H%M"))
+    os.makedirs(out, exist_ok=True)
+    d_son = os.path.join(out, "son")
+    if subprocess.call([sys.executable, SCRIPTS["son"], "--out", d_son]) != 0:
+        print("!! son non calculé", flush=True)
+        return 1
+    a = ["--ambix", os.path.join(d_son, "son_ambix.wav"), "--out", out] + (["--debut", deb[0]] if deb else []) + (["--duree", dur[0]] if dur else [])
+    rc = subprocess.call([sys.executable, SCRIPTS["test_son"]] + a)
+    if rc == 0:
+        print(f"\nVidéo de test: {os.path.join(out, 'test_son_360.mp4')}", flush=True)
     return rc
 
 
@@ -1868,7 +1947,7 @@ def cmd_menu(cfg, paths, extra):
 COMMANDS = {
     "status": cmd_status, "setup": cmd_setup, "download": cmd_download, "prep-env": cmd_prep_env, "prep-batiments": cmd_prep_batiments, "prep-vegetation": cmd_prep_vegetation, "env-complet": cmd_env_complet, "visible": cmd_visible,
     "prep-particules": cmd_prep_particules, "terrain": cmd_terrain, "views": cmd_views, "test360": cmd_test360,
-    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "eau-manuel": cmd_eau_manuel, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "titre-test": cmd_titre_test, "test-couleurs": cmd_test_couleurs, "test-bande": cmd_test_bande, "finir": cmd_finir, "son": cmd_son, "outro": cmd_outro, "cap": cmd_cap, "camera": cmd_camera, "paquet": cmd_paquet, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
+    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "eau-manuel": cmd_eau_manuel, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "titre-test": cmd_titre_test, "test-son": cmd_test_son, "test-couleurs": cmd_test_couleurs, "test-eau": cmd_test_eau, "test-bande": cmd_test_bande, "finir": cmd_finir, "son": cmd_son, "outro": cmd_outro, "cap": cmd_cap, "camera": cmd_camera, "paquet": cmd_paquet, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
 }
 
 

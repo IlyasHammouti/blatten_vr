@@ -1,5 +1,7 @@
 # Blatten VR 360
 
+**Feuille de route (à relire avant chaque rendu ou ajout de fonction): [docs/FEUILLE_DE_ROUTE.md](docs/FEUILLE_DE_ROUTE.md)**
+
 Vidéo immersive à 360° de l'avalanche de roche et de glace de Blatten (28 mai 2025, effondrement à 15 h 24 CEST).
 Colloque « Mouvements de terrain : aléas et réponses des sociétés », CNRS Thiais, 3 et 4 décembre 2026.
 Simulation : Johan Gaume (Kang et al. 2026). Diffusion : YouTube 360 par QR code, visionnage individuel sur smartphone.

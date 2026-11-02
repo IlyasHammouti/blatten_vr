@@ -75,7 +75,8 @@ def main(argv=None):
         vids = "[v]"
     sortie = ["-map", vids]
     if a.son and os.path.exists(a.son):
-        cmd += ["-i", a.son]
+        decal = (nums[0] - 1) / a.fps     # film partiel (ex. dernières secondes): le son démarre à l'instant de la première image
+        cmd += (["-ss", f"{decal:.3f}"] if decal > 0 else []) + ["-i", a.son]
         sortie += ["-map", f"{k}:a", "-c:a", "aac", "-b:a", "320k" if a.format == "bande" else "512k", "-shortest"]
     cmd += ["-filter_complex", filt] + sortie
     cmd += ["-c:v", "libx264", "-preset", "slow", "-crf", str(a.crf), "-pix_fmt", "yuv420p", "-movflags", "+faststart", out]

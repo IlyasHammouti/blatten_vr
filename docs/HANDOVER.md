@@ -1,5 +1,7 @@
 # Handover Blatten VR (état au 30 octobre 2026)
 
+**Feuille de route (à relire avant chaque rendu ou ajout de fonction): [FEUILLE_DE_ROUTE.md](FEUILLE_DE_ROUTE.md)**
+
 À donner au début d'une nouvelle conversation Claude, avec le dépôt `github.com/IlyasHammouti/blatten_vr` (branche `main`, public).
 Remplace le handover unifié du 15 octobre (rangé dans `docs/archive/`). Référence de pilotage: `docs/PLAN_V1.md`; mémoire détaillée: `docs/journal/alea.md` et `env.md`.
 
