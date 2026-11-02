@@ -1270,6 +1270,34 @@ def cmd_test_bande(cfg, paths, extra):
     return rc
 
 
+def cmd_test_couleurs(cfg, paths, extra):
+    """Même image (la première du film, bande plate HD) avec plusieurs réglages de couleur et de forêt, pour comparer:
+    render/tests/couleurs/<date>/<nom>/. A actuel (saturation 0,8), B saturation 1,0, C saturation 1,25, D = B + couronnes x1,3.
+        python blatten.py test-couleurs [--temps 0]"""
+    temps, extra = _option(extra, "--temps", 1)
+    variantes = [("A_actuel_sat0.8", []), ("B_sat1.0", ["scene.ortho_saturation=1.0"]), ("C_sat1.25", ["scene.ortho_saturation=1.25"]),
+                 ("D_sat1.0_couronnes1.3", ["scene.ortho_saturation=1.0", "scene.tree_couronne=1.3"])]
+    base = os.path.join(ROOT, "render", "tests", "couleurs", time.strftime("%Y%m%d_%H%M"))
+    rc = 0
+    for nom, sets in variantes:
+        out = os.path.join(base, nom)
+        os.makedirs(out, exist_ok=True)
+        print(f"\n>>> {nom} -> {out}", flush=True)
+        _attendre_ram(7.0)
+        t0 = time.time()
+        args = ["--render-frame", "1"] + (["--render-time", temps[0]] if temps else [])
+        sa = []
+        for x in sets:
+            sa += ["--set", x]
+        r = run_blender(cfg, SCRIPTS["scene"], scene_args(cfg, paths) + ["--preset", "bande", "--mono", "--camera-confirmed"] + args
+                        + ["--out", out] + sa + extra, fond=True)
+        ok = os.path.exists(os.path.join(out, "frame_0001.png"))
+        print(f"{'OK' if ok else 'ÉCHEC'}: {nom}, {(time.time() - t0) / 60:.1f} min", flush=True)
+        rc = rc or (0 if ok else (r or 1))
+    print(f"\nImages: {base}")
+    return rc
+
+
 def cmd_titre_test(cfg, paths, extra):
     """Une image de l'intro (image 1 du film) en bande plate HD, pour chaque couleur du titre: render/tests/titre/<date>/<style>/.
         python blatten.py titre-test [--styles blanc sombre]"""
@@ -1840,7 +1868,7 @@ def cmd_menu(cfg, paths, extra):
 COMMANDS = {
     "status": cmd_status, "setup": cmd_setup, "download": cmd_download, "prep-env": cmd_prep_env, "prep-batiments": cmd_prep_batiments, "prep-vegetation": cmd_prep_vegetation, "env-complet": cmd_env_complet, "visible": cmd_visible,
     "prep-particules": cmd_prep_particules, "terrain": cmd_terrain, "views": cmd_views, "test360": cmd_test360,
-    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "eau-manuel": cmd_eau_manuel, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "titre-test": cmd_titre_test, "test-bande": cmd_test_bande, "finir": cmd_finir, "son": cmd_son, "outro": cmd_outro, "cap": cmd_cap, "camera": cmd_camera, "paquet": cmd_paquet, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
+    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "eau-manuel": cmd_eau_manuel, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "titre-test": cmd_titre_test, "test-couleurs": cmd_test_couleurs, "test-bande": cmd_test_bande, "finir": cmd_finir, "son": cmd_son, "outro": cmd_outro, "cap": cmd_cap, "camera": cmd_camera, "paquet": cmd_paquet, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
 }
 
 

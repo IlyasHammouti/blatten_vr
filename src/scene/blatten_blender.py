@@ -80,6 +80,7 @@ CFG = dict(
     no_env=False,           # True: ignore l'environnement swisstopo (cache/env) et affiche le terrain de Johan
     snow=1.0,               # 0..1, quantité de neige ajoutée par l'altitude (l'image aérienne date de l'été)
     snow_line=2300.0,       # m, début de la neige (28 mai: d'après la capture RTS, neige au-dessus de 2200-2400 m)
+    ortho_saturation=0.8,   # saturation de l'image aérienne dans le rendu (1 = couleurs de l'image; 0,8 jusqu'au 2 nov.: terne sur les prairies)
     ortho_gain=1.0,         # luminosité de l'image aérienne dans le rendu (l'image est déséclairée par la préparation)
     clouds=0.0,             # 0..1, couverture nuageuse procédurale (0 = ciel dégagé)
     time="2025-05-28T15:24:00+02:00",   # instant de l'événement (heure locale), sert au soleil
@@ -114,7 +115,9 @@ CFG = dict(
     arbres_couchage=75.0,   # degrés: inclinaison des arbres atteints par le front (couchés vers l'aval). 0 = désactivé
     arbres_couchage_duree=2.0,    # s pour passer de debout à couché
     arbres_couchage_avance=1.5,   # s: le souffle couche l'arbre un peu avant l'arrivée de la matière       # distance (m) jusqu'à laquelle les arbres bougent (au-delà, imperceptible)
+    couchage_epaisseur=2.0, # m: les arbres ne se couchent que quand la MASSE atteint cette épaisseur (pas au premier grain projeté devant le front); 0 = premier grain
     tree_ortho=0.5,         # part de la couleur de l'image aérienne dans la couleur des arbres (0 = couleurs d'essence seules)
+    tree_couronne=1.0,      # facteur sur le rayon des couronnes (1,3 = forêt plus dense à nombre d'arbres égal, sans mémoire en plus)
     tree_dist=4700.0,       # distance maximale des arbres modélisés (m); au-delà l'image aérienne suffit
     border=None,            # (x0, x1, y0, y1) en fraction de l'image: ne rend que ce cadre (zoom d'essai à pleine résolution, coût réduit)
     no_depot=False,         # matière sans la peau continue sous les roches (src/matiere/depot.py)
@@ -727,6 +730,29 @@ def _arrivee(env, E, N, pas=3.0, hauteur=None, force=False):
     return out
 
 
+def _arrivee_masse(env, E, N, epaisseur, pas=0.5):
+    """Instant où la MASSE (au moins 2 grains dans la cellule de 4 m, épaisseur >= `epaisseur` m au-dessus du sol d'avant l'événement)
+    atteint (E, N); inf si elle n'y arrive jamais (cellule touchée seulement par des grains projetés devant le front).
+    Lit le niveau d'épaisseur de alea_empreinte.npz le plus proche par au-dessus. Sans épaisseurs: première arrivée (_arrivee)."""
+    f = os.path.join(env["dir"], "alea_empreinte.npz")
+    if not os.path.exists(f):
+        return np.full(len(E), np.inf)
+    z = np.load(f)
+    if "tep" not in z.files or epaisseur <= 0:
+        return _arrivee(env, E, N, pas=pas, force=True)
+    niv, tep = z["niveaux"], z["tep"]
+    k = int(np.clip(np.searchsorted(niv, epaisseur), 0, len(niv) - 1))
+    x0, y1, s = float(z["x0"]), float(z["y1"]), float(z["step"])
+    i = np.floor((E - x0) / s).astype(np.int64)
+    j = np.floor((y1 - N) / s).astype(np.int64)
+    ok = (i >= 0) & (i < tep.shape[2]) & (j >= 0) & (j < tep.shape[1])
+    v = np.where(ok, tep[k][np.clip(j, 0, tep.shape[1] - 1), np.clip(i, 0, tep.shape[2] - 1)], np.nan)
+    out = np.full(len(E), np.inf)
+    g = np.isfinite(v)
+    out[g] = np.ceil(v[g] / pas) * pas
+    return out
+
+
 def _direction_aval(env, E, N):
     """Direction horizontale (repère de la scène, normée) dans laquelle le front de matière avance en (E, N): gradient de
     l'instant d'arrivée (alea_empreinte.npz). Sert à coucher les arbres vers l'aval. (0, 0) hors de la zone atteinte."""
@@ -1290,7 +1316,7 @@ def build_trees(env, coll, cam):
     nv_var = 5
     yaw = rng.uniform(0, 2 * np.pi, len(X))
     var = rng.integers(0, nv_var, len(X))
-    R = R * rng.uniform(0.9, 1.1, len(X))      # hauteurs: celles du relevé laser, sans variation
+    R = R * CFG["tree_couronne"] * rng.uniform(0.9, 1.1, len(X))      # hauteurs: celles du relevé laser, sans variation
     Z = Z + np.maximum(0.0, R * pente * 0.9 - 0.12 * Hh) - 0.10     # sur forte pente, la couronne amont ne rentre pas dans le sol
     lod = np.where(d < 120.0, 0, np.where(d < 500.0, 1, np.where(d < 1500.0, 2, 3)))
     tone = rng.uniform(0.85, 1.15, len(X))
@@ -1303,7 +1329,7 @@ def build_trees(env, coll, cam):
     near = d < CFG["wind_dist"]
     # arbres sur le passage du front: couchés vers l'aval (même sans disparition), donc animés eux aussi
     if CFG["arbres_couchage"] > 0:
-        t_cou = _arrivee(env, E, N, pas=0.5, force=True)
+        t_cou = _arrivee_masse(env, E, N, float(CFG["couchage_epaisseur"]), pas=0.5)
         dir_cou = _direction_aval(env, E, N)
         t_cou[np.hypot(dir_cou[:, 0], dir_cou[:, 1]) < 0.5] = np.inf
     else:
@@ -1746,7 +1772,7 @@ def build_terrain_material(env=None):
         dv = math("MINIMUM", vv, math("SUBTRACT", 1.0, vv))
         inside = mrange(math("MINIMUM", du, dv), 0.0, 0.015)
         hs = N.new("ShaderNodeHueSaturation")
-        hs.inputs["Saturation"].default_value = 0.8
+        hs.inputs["Saturation"].default_value = CFG["ortho_saturation"]
         hs.inputs["Value"].default_value = CFG["ortho_gain"]
         L.new(tex.outputs["Color"], hs.inputs["Color"])
         col = mix(inside, col, hs.outputs["Color"])
@@ -1769,7 +1795,7 @@ def build_terrain_material(env=None):
             pdv = math("MINIMUM", psep.outputs["Y"], math("SUBTRACT", 1.0, psep.outputs["Y"]))
             pin = mrange(math("MINIMUM", pdu, pdv), 0.0, min(0.2, 30.0 / pW))   # fondu sur 30 m en bord d'image
             phs = N.new("ShaderNodeHueSaturation")
-            phs.inputs["Saturation"].default_value = 0.8
+            phs.inputs["Saturation"].default_value = CFG["ortho_saturation"]
             phs.inputs["Value"].default_value = CFG["ortho_gain"]
             L.new(pt.outputs["Color"], phs.inputs["Color"])
             col = mix(pin, col, phs.outputs["Color"])
