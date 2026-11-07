@@ -127,6 +127,7 @@ CFG = dict(
     arbres_modeles=False,   # arbres proches détaillés (EZ-Tree, MIT: écorce et feuillage photographiques), voir src/scene/arbres_ez.py
     arbres_modeles_dist=200.0,    # m: distance jusqu'à laquelle les arbres sont détaillés (instances: peu de mémoire)
     arbres_modeles_eclat=2.6,     # couleur du feuillage éclairé / couleur moyenne de la couronne vue d'avion
+    arbres_modeles_vent_dist=300.0,    # m: au-delà, arbres détaillés immobiles (balancement invisible, mise à jour inutile)
     arbres_gain=(1.0, 1.0, 1.0),  # correction (rouge, vert, bleu) des arbres simples LOINTAINS (3 km et plus), mesurée par
                                   # test-arbres: même couleur moyenne que la forêt de l'image aérienne qu'ils recouvrent
     arbres_gain_proche=None,      # idem pour les arbres simples à 500 m et moins (None: arbres_gain); entre les deux: fondu
@@ -1670,7 +1671,7 @@ def _modeles_ez():
     return out
 
 
-def placer_arbres_ez(coll, modeles, X, Y, Z, H, R, sp, yaw, couleurs, t_cou=None, dir_cou=None, ta=None, graine=5):
+def placer_arbres_ez(coll, modeles, X, Y, Z, H, R, sp, yaw, couleurs, t_cou=None, dir_cou=None, ta=None, graine=5, dist=None):
     """Une instance (objet qui partage le maillage de son modèle: peu de mémoire) par arbre proche. Couleur de l'objet =
     couleur visée du feuillage. Vent et couchage: rotation de l'objet autour de son pied, mise à jour par maj_arbres."""
     from mathutils import Quaternion
@@ -1690,7 +1691,10 @@ def placer_arbres_ez(coll, modeles, X, Y, Z, H, R, sp, yaw, couleurs, t_cou=None
         coll.objects.link(ob)
         tc = float(t_cou[i]) if t_cou is not None and np.isfinite(t_cou[i]) else None
         d2 = (float(dir_cou[i][0]), float(dir_cou[i][1])) if dir_cou is not None else (0.0, 0.0)
-        ARBRES_EZ.append([ob, qcap, rng.uniform(0, 2 * np.pi, 4), 0.3 * float(CFG["vent_force"]), tc, d2])
+        ph = rng.uniform(0, 2 * np.pi, 4)
+        amp = 0.3 * float(CFG["vent_force"]) if dist is None or dist[i] < float(CFG["arbres_modeles_vent_dist"]) else 0.0
+        if amp > 0 or tc is not None:      # au loin et hors du passage: arbre fixe (aucune mise à jour par image)
+            ARBRES_EZ.append([ob, qcap, ph, amp, tc, d2])
         if ta is not None and np.isfinite(ta[i]):
             ENSEV.append((float(ta[i]), ob))
     return n
@@ -1800,7 +1804,8 @@ def build_trees(env, coll, cam):
     if CFG["arbres_modeles"]:
         modeles = _modeles_ez()
         if modeles:
-            modele = d < float(CFG["arbres_modeles_dist"])
+            Dm = float(CFG["arbres_modeles_dist"])          # fondu: proportion d'arbres détaillés de 1 à 0 entre 0,85 et 1,15 Dm
+            modele = np.random.default_rng(11).random(len(d)) < np.clip((1.15 * Dm - d) / (0.3 * Dm), 0.0, 1.0)
         if modele.any():
             s_ = modele
             wc = w_oc[s_][:, None]
@@ -1809,7 +1814,7 @@ def build_trees(env, coll, cam):
             coll_ez = bpy.data.collections.new("ArbresDetailles")
             coll.children.link(coll_ez)
             placer_arbres_ez(coll_ez, modeles, X[s_], Y[s_], Z_sol[s_], Hh[s_], R[s_], sp[s_], yaw[s_], coul,
-                             t_cou=t_cou[s_], dir_cou=dir_cou[s_], ta=ta[s_])
+                             t_cou=t_cou[s_], dir_cou=dir_cou[s_], ta=ta[s_], dist=d[s_])
             log(f"arbres détaillés: {int(s_.sum()):,} à moins de {CFG['arbres_modeles_dist']:.0f} m de la caméra (instances)")
     ob0, nf, nsw = None, 0, 0
     groupes = [(g, zn) for g in np.unique(ta) for zn in ((0, 1) if CFG["wind"] else (0,))]

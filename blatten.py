@@ -1446,7 +1446,8 @@ def _gains_arbres(ref, avec, avant=None, seuil=0.02, lignes=None):
     import numpy as np
     autre = ref if avant is None else avant
     w = np.array([0.2126, 0.7152, 0.0722])
-    m = (np.abs(avec - autre).sum(-1) > seuil) & ((ref @ w) < 0.45) & (avec.max(-1) < 0.98) & (ref.max(-1) < 0.98)
+    m = (np.abs(avec - autre).sum(-1) > seuil) & (np.abs(avec - ref).sum(-1) > seuil) & ((ref @ w) < 0.45) \
+        & (avec.max(-1) < 0.98) & (ref.max(-1) < 0.98)
     eps = 1e-4
     ch = lambda X: np.stack([X[..., 0] / (X[..., 1] + eps), X[..., 2] / (X[..., 1] + eps)], -1)
     ombre = (np.abs(ch(avec) - ch(ref)).sum(-1) < 0.08) & ((avec @ w) < (ref @ w))
@@ -1467,13 +1468,13 @@ def cmd_test_arbres(cfg, paths, extra):
       D0, D200, D500, D1000: arbres détaillés jusqu'à 0 (aucun), 200, 500, 1000 m.
     Pour chaque image: temps de rendu. Puis les gains de couleur (rouge, vert, bleu) qui donneraient aux arbres simples (D0)
     et aux arbres détaillés (D200) la couleur moyenne de la forêt de l'image aérienne qu'ils recouvrent: bilan.json.
-        python blatten.py test-arbres [--temps 15] [--distances 0 500]     (le 7 nov.: 0 200 500 1000)"""
+        python blatten.py test-arbres [--temps 15] [--distances 0 1000]     (le 7 nov.: 0 200 500 1000)"""
     import numpy as np
     from PIL import Image
     temps, extra = _option(extra, "--temps", 1)
     t = temps[0] if temps else "15"
     dists, extra = _option(extra, "--distances")
-    dists = [float(x) for x in (dists or ["0", "500"])]
+    dists = [float(x) for x in (dists or ["0", "1000"])]
     variantes = [("R0_sans_arbres", ["scene.no_trees=true"])]
     for dd in dists:
         variantes.append((f"D{dd:g}", [f"scene.arbres_modeles={'true' if dd > 0 else 'false'}", f"scene.arbres_modeles_dist={dd:g}"]))
@@ -1501,16 +1502,22 @@ def cmd_test_arbres(cfg, paths, extra):
         json.dump(bilan, open(os.path.join(base, "bilan.json"), "w", encoding="utf-8"), indent=1)
     ref = imgs.get("R0_sans_arbres")
     if ref is not None and "D0" in imgs:
+        import numpy as np
         H = ref.shape[0]
-        res = dict()
-        for nom, lg in (("simples", None), ("simples_loin", (0, int(H * 0.39))), ("simples_milieu", (int(H * 0.39), int(H * 0.66))),
-                        ("simples_proche", (int(H * 0.66), H))):
-            g, n = _gains_arbres(ref, imgs["D0"], lignes=lg)
-            res[f"gains_{nom}"], res[f"pixels_{nom}"] = g, n
-        for dd in dists:
-            if dd > 0 and f"D{dd:g}" in imgs:
-                g, n = _gains_arbres(ref, imgs[f"D{dd:g}"], avant=imgs["D0"])
-                res[f"gains_detailles_D{dd:g}"], res[f"pixels_detailles_D{dd:g}"] = g, n
+        dmax = max([dd for dd in dists if f"D{dd:g}" in imgs] or [0.0])
+        fin = imgs[f"D{dmax:g}"]
+        res = dict(distance_detail=dmax)
+        # arbres simples tels qu'ils restent dans le film: pixels d'arbres de D0 inchangés dans la variante la plus détaillée
+        garde = np.abs(fin - imgs["D0"]).sum(-1) < 0.01
+        bandes = (("", None), ("_loin", (0, int(H * 0.39))), ("_milieu", (int(H * 0.39), int(H * 0.66))), ("_proche", (int(H * 0.66), H)))
+        for suf, lg in bandes:
+            d0 = np.where(garde[..., None], imgs["D0"], ref)          # hors arbres simples restants: comme la référence
+            g, n = _gains_arbres(ref, d0, lignes=lg)
+            res[f"gains_simples{suf}"], res[f"pixels_simples{suf}"] = g, n
+        if dmax > 0:
+            for suf, lg in bandes:
+                g, n = _gains_arbres(ref, fin, avant=imgs["D0"], lignes=lg)
+                res[f"gains_detailles{suf}"], res[f"pixels_detailles{suf}"] = g, n
         bilan.append(res)
         json.dump(bilan, open(os.path.join(base, "bilan.json"), "w", encoding="utf-8"), indent=1)
         print("\nCouleur: gains (rouge, vert, bleu) qui donneraient aux arbres la couleur moyenne de la forêt de l'image "

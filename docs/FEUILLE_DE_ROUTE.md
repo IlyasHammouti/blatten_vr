@@ -46,7 +46,7 @@ Mise à jour: 7 novembre 2026 (soir, après les tests). **À relire avant chaque
 | 2 | Brouillon HD, 10 dernières s + fondu + outro | `Lancer_brouillon_fin.bat` prêt | Facultatif maintenant que le rendu final peut partir | |
 | 3 | Saturation de l'image satellite et densité de forêt | Décidé le 7 nov.: saturation 1,25 (C), couronnes inchangées | Rien | |
 | 4 | Police du titre | Décidé le 7 nov.: Palatino (`C:/Windows/Fonts/pala.ttf`, présente sur tout Windows) | Rien | |
-| 5 | Arbres et couleur des arbres | `test-arbres` du 7 nov. (bande t = 15 s): temps de rendu (hors construction) +11 % à 200 m, +30 % à 500 m, +48 % à 1 km; mémoire sans souci (instances). Retenu: arbres détaillés EZ-Tree jusqu'à 500 m (6 417 arbres). Couleur mesurée contre la forêt de l'image qu'ils recouvrent: arbres simples 3 à 4 fois trop sombres et trop verts, arbres détaillés 2 fois trop sombres et trop jaunes; gains appliqués à 90 % (`arbres_gain`, `arbres_gain_proche`, `arbres_modeles_gain`), couleurs aberrantes bornées (`_couleur_robuste`) | Vérifier: `Lancer_test_arbres.bat` (3 images, ~5 min), les gains restants doivent être proches de 1 | Paquet |
+| 5 | Arbres et couleur des arbres | Décidé par Ilyas (7 nov.): arbres détaillés EZ-Tree jusqu'à 1000 m au moins (la limite à 500 m se voyait sur le versant d'en face), fondu entre 850 et 1150 m (proportion d'arbres détaillés de 1 à 0, pas de ligne); au-delà, arbres simples avec le même calage de couleur. Coût mesuré à t = 15 s: +48 % de rendu (moins avec la poussière). Vent seulement à moins de 300 m. Couleur: calage sur la forêt de l'image en cours (2 mesures faites) | `Lancer_test_arbres.bat` (sans arbres, simples, détaillés 1000 m: ~6 min), corrections restantes proches de 1 ? | Paquet |
 | 6 | Balancement des arbres | `vent_force` 0,09 dans `film.json` | Juger sur le film | |
 | 7 | Eau: sens d'écoulement et scintillement de loin | Codé. `test-eau` du 7 nov.: le scintillement ne change que 465 pixels sur 3,3 millions (invisible sur une image fixe), sans coût | Gardé tel quel, rien à faire | |
 | 8 | Sol: image aérienne | Décidé le 7 nov.: sol nettoyé (`prep-sol`) seulement près de la caméra, image 10 cm (`ortho_sol: ["ortho_10cm.jpg"]`): plus de taches noires ni de quadrillage sous les pieds; au loin, image d'origine (forêts plus denses et plus sombres, comme avant) | Vérifier le raccord sur `Lancer_test_bande.bat` | Paquet |
@@ -63,6 +63,7 @@ Mise à jour: 7 novembre 2026 (soir, après les tests). **À relire avant chaque
 
 ## Journal court
 
+- 7 nov. (minuit): arbres détaillés jusqu'à 1000 m avec fondu, mesure des couleurs par type d'arbre tel qu'il reste dans le film.
 - 7 nov. (23 h 27, 2e test arbres): calage incomplet (arbres x 1,2 seulement: les couleurs bornées avaient divisé la couleur moyenne par 2; dominante bleue des arbres détaillés). Gains refaits d'après cette mesure, feuillage teinté par la luminosité de la texture. 3e test à faire.
 - 7 nov. (nuit, tests arbres): 500 m retenus; couleur des arbres calée sur l'image (gains mesurés, couleurs bornées).
 - 7 nov. (nuit, suite): couleur des arbres alignée sur l'image du sol (`_ortho_comme_le_sol`, `tree_ortho` 0,85); gains mesurés par `test-arbres` (`Lancer_test_arbres.bat`).
