@@ -128,11 +128,13 @@ CFG = dict(
     arbres_modeles_dist=200.0,    # m: distance jusqu'à laquelle les arbres sont détaillés (instances: peu de mémoire)
     arbres_modeles_eclat=2.6,     # couleur du feuillage éclairé / couleur moyenne de la couronne vue d'avion
     arbres_modeles_vent_dist=300.0,    # m: au-delà, arbres détaillés immobiles (balancement invisible, mise à jour inutile)
+    arbres_modeles_instances=True,     # arbres détaillés en instances de nœuds de géométrie (RAM: ~0,1 Go au lieu de 1,1 Go pour 23 000 arbres)
     arbres_gain=(1.0, 1.0, 1.0),  # correction (rouge, vert, bleu) des arbres simples LOINTAINS (3 km et plus), mesurée par
                                   # test-arbres: même couleur moyenne que la forêt de l'image aérienne qu'ils recouvrent
-    arbres_gain_proche=None,      # idem pour les arbres simples à 500 m et moins (None: arbres_gain); entre les deux: fondu
-    arbres_modeles_gain=(1.0, 1.0, 1.0),   # idem pour les arbres détaillés (à 200 m et moins)
-    arbres_modeles_gain_loin=None,          # arbres détaillés à 1 km et plus (None: arbres_modeles_gain); fondu entre les deux
+    arbres_gain_proche=None,      # idem pour les arbres simples à 1 km et moins (None: arbres_gain); entre les deux: fondu
+                                  # (500 m jusqu'au 8 nov.: la pente compensait en partie la brume absente des arbres)
+    arbres_modeles_gain=(1.0, 1.0, 1.0),   # idem pour les arbres détaillés (à 100 m et moins; 200 m jusqu'au 8 nov.)
+    arbres_modeles_gain_loin=None,          # arbres détaillés à 500 m et plus (None: arbres_modeles_gain); fondu entre les deux
     arbres_simples_ombre=True,    # les arbres simples projettent des ombres (false: l'image aérienne a déjà celles de la forêt)
     arbres_ombrage_bas=0.55,      # assombrissement du bas des couronnes des arbres simples (1 = aucun)
     tree_dist=4700.0,       # distance maximale des arbres modélisés (m); au-delà l'image aérienne suffit
@@ -963,8 +965,8 @@ def _couleur_robuste(oc, ok):
 
 def _gain_distance(d, cle_proche="arbres_gain_proche", cle_loin="arbres_gain", d0=500.0, d1=3000.0):
     """Gain (r, v, b) selon la distance: CFG[cle_proche] à d0 et moins, CFG[cle_loin] à d1 et plus, fondu entre les deux (en
-    logarithme de la distance). Arbres simples: arbres_gain_proche (500 m) et arbres_gain (3 km); arbres détaillés:
-    arbres_modeles_gain (200 m) et arbres_modeles_gain_loin (1 km). Une clé à None prend la valeur de l'autre."""
+    logarithme de la distance). Arbres simples: arbres_gain_proche (1 km) et arbres_gain (3 km); arbres détaillés:
+    arbres_modeles_gain (100 m) et arbres_modeles_gain_loin (500 m). Une clé à None prend la valeur de l'autre."""
     vl, vp = CFG.get(cle_loin), CFG.get(cle_proche)
     gl = np.log(np.maximum(np.asarray(vl if vl is not None else vp, float), 1e-6))
     gp = np.log(np.maximum(np.asarray(vp if vp is not None else vl, float), 1e-6))
@@ -1108,6 +1110,7 @@ def _materiau_mur():
     L.new(win, fm.inputs[0]); L.new(gm.outputs[2], fm.inputs[6])
     fm.inputs[7].default_value = (0.012, 0.016, 0.022, 1.0)
     L.new(fm.outputs[2], b.inputs["Base Color"])
+    apply_height_fog(mt)       # même brume que le sol
     return mt
 
 
@@ -1142,6 +1145,7 @@ def _materiau_toit():
     mm.inputs[0].default_value = 1.0
     L.new(base.outputs["Color"], mm.inputs[6]); L.new(pat, mm.inputs[7])
     L.new(mm.outputs[2], b.inputs["Base Color"])
+    apply_height_fog(mt)       # même brume que le sol
     return mt
 
 
@@ -1489,6 +1493,7 @@ def _materiau_arbres():
     bp.inputs["Strength"].default_value, bp.inputs["Distance"].default_value = 0.75, 0.25
     Ln.new(haut.outputs[0], bp.inputs["Height"])
     Ln.new(bp.outputs["Normal"], b.inputs["Normal"])
+    apply_height_fog(mt)       # même brume que le sol (oubliée jusqu'au 8 nov.: arbres lointains trop sombres et contrastés)
     return mt
 
 
@@ -1518,6 +1523,7 @@ ESPECES_EZ = {
 FEUILLES_EZ = {"pine": ("feuille_pine.png", (0.1182, 0.1805, 0.0308)), "ash": ("feuille_ash.png", (0.1022, 0.2031, 0.0462)),
                "oak": ("feuille_oak.png", (0.1269, 0.2260, 0.0443)), "aspen": ("feuille_ash.png", (0.1022, 0.2031, 0.0462))}
 ARBRES_EZ = []      # [objet, quaternion de cap, phases du vent, amplitude, t d'arrivée du front, direction de l'aval]
+EZ_NOEUDS = []      # groupes de nœuds des arbres détaillés en instances (temps de simulation mis à jour à chaque image)
 _MATS_EZ = {}
 
 
@@ -1554,7 +1560,13 @@ def _mat_feuillage_ez(typ):
     m2 = N.new("ShaderNodeMix")
     m2.data_type, m2.blend_type = "RGBA", "MULTIPLY"
     m2.inputs[0].default_value = 1.0
-    L.new(oi.outputs["Color"], m2.inputs[6])
+    ai = N.new("ShaderNodeAttribute")          # couleur de l'arbre en instance (nœuds): attribut "coul"; objet: couleur d'objet
+    ai.attribute_type, ai.attribute_name = "INSTANCER", "coul"
+    som = N.new("ShaderNodeVectorMath")        # l'une des deux est nulle (modèles des instances: couleur d'objet noire)
+    som.operation = "ADD"
+    L.new(oi.outputs["Color"], som.inputs[0])
+    L.new(ai.outputs["Color"], som.inputs[1])
+    L.new(som.outputs["Vector"], m2.inputs[6])
     cx = N.new("ShaderNodeCombineXYZ")
     for k in range(3):
         L.new(det2.outputs[0], cx.inputs[k])
@@ -1575,7 +1587,7 @@ def _mat_feuillage_ez(typ):
     mx2 = N.new("ShaderNodeMixShader")
     L.new(seuil.outputs[0], mx2.inputs[0])
     L.new(tp.outputs[0], mx2.inputs[1])
-    L.new(mx.outputs[0], mx2.inputs[2])
+    L.new(_brume(nt, mx.outputs[0]), mx2.inputs[2])      # brume du sol, sur la partie opaque seulement
     L.new(mx2.outputs[0], out.inputs["Surface"])
     _MATS_EZ[cle] = mt
     return mt
@@ -1614,6 +1626,7 @@ def _mat_ecorce_ez(typ):
     nm.inputs["Strength"].default_value = 0.8
     L.new(tn.outputs["Color"], nm.inputs["Color"])
     L.new(nm.outputs["Normal"], b.inputs["Normal"])
+    apply_height_fog(mt)
     _MATS_EZ[cle] = mt
     return mt
 
@@ -1677,15 +1690,183 @@ def _modeles_ez():
 
 
 def placer_arbres_ez(coll, modeles, X, Y, Z, H, R, sp, yaw, couleurs, t_cou=None, dir_cou=None, ta=None, graine=5, dist=None):
-    """Une instance (objet qui partage le maillage de son modèle: peu de mémoire) par arbre proche. Couleur de l'objet =
-    couleur visée du feuillage. Vent et couchage: rotation de l'objet autour de son pied, mise à jour par maj_arbres."""
-    from mathutils import Quaternion
+    """Arbres détaillés: instances de nœuds de géométrie (un seul objet de points, voir _groupe_ez). Le 8 nov., un objet
+    Blender par arbre coûtait environ 50 Ko de RAM chacun (23 000 arbres: +1,1 Go, la RAM était pleine); en instances:
+    +0,1 Go mesuré. Réglage arbres_modeles_instances=false, ou échec des nœuds: un objet par arbre (ancienne méthode)."""
+    if CFG["arbres_modeles_instances"]:
+        try:
+            return _placer_arbres_ez_noeuds(coll, modeles, X, Y, Z, H, R, sp, yaw, couleurs, t_cou, dir_cou, ta, graine, dist)
+        except Exception as e:
+            log(f"arbres détaillés: instances impossibles ({e}), un objet par arbre")
+            for ob in [o for o in coll.objects]:
+                bpy.data.objects.remove(ob, do_unlink=True)
+    return _placer_arbres_ez_objets(coll, modeles, X, Y, Z, H, R, sp, yaw, couleurs, t_cou, dir_cou, ta, graine, dist)
+
+
+def _index_modeles_ez(modeles):
+    """Ordre fixe des modèles (essence, variante) -> index 0..n-1 (ordre alphabétique des noms ModeleEZ_00.. = cet ordre)."""
+    return {k: i for i, k in enumerate(sorted(modeles))}
+
+
+def _tirages_ez(n, sp, graine):
+    """Variante de modèle et phases du vent de chaque arbre (mêmes tirages pour les deux méthodes)."""
     rng = np.random.default_rng(graine)
-    n = len(X)
     nvar = {e: len(v) for e, v in ESPECES_EZ.items()}
+    ess = np.array([int(e) if int(e) in nvar else 3 for e in sp], np.int64)
+    var = np.array([int(rng.integers(0, nvar[e])) for e in ess], np.int64)
+    ph = rng.uniform(0, 2 * np.pi, (n, 4))
+    return ess, var, ph
+
+
+def _groupe_ez(coll_modeles):
+    """Nœuds de géométrie des arbres détaillés: une instance du modèle "idx" par point, tournée (cap, vent, couchage) et
+    mise à l'échelle (sca = rayon, rayon, hauteur). Couleur du feuillage: attribut "coul" des instances (lu par le matériau).
+    Vent: deux sinus par axe (phases ph0..ph3, amplitude amp en radians), temps du film (Scene Time). Couchage vers l'aval
+    (dirx, diry) à l'arrivée du front (tc, temps de simulation "t_sim" mis à jour par maj_arbres_ez); arbres ensevelis
+    (ta <= t_sim) retirés. Mêmes formules que l'ancienne version par objets (maj_arbres_ez)."""
+    ng = bpy.data.node_groups.new("ArbresEZ", "GeometryNodeTree")
+    ng.interface.new_socket("Geometry", in_out="INPUT", socket_type="NodeSocketGeometry")
+    ng.interface.new_socket("Geometry", in_out="OUTPUT", socket_type="NodeSocketGeometry")
+    N, L = ng.nodes, ng.links
+    gi, go = N.new("NodeGroupInput"), N.new("NodeGroupOutput")
+    tm = N.new("GeometryNodeInputSceneTime")
+    tv = N.new("ShaderNodeValue")
+    tv.name = tv.label = "t_sim"
+    tv.outputs[0].default_value = -1000.0
+
+    def attr(nom, typ="FLOAT"):
+        na = N.new("GeometryNodeInputNamedAttribute")
+        na.data_type = typ
+        na.inputs["Name"].default_value = nom
+        return na.outputs["Attribute"]
+
+    def m(op, a, b=None):
+        n = N.new("ShaderNodeMath")
+        n.operation = op
+        for k, v in enumerate((a, b)):
+            if v is None:
+                continue
+            if isinstance(v, (int, float)):
+                n.inputs[k].default_value = float(v)
+            else:
+                L.new(v, n.inputs[k])
+        return n.outputs[0]
+
+    def axe_angle(axe, angle):
+        n = N.new("FunctionNodeAxisAngleToRotation")
+        if isinstance(axe, tuple):
+            n.inputs["Axis"].default_value = axe
+        else:
+            L.new(axe, n.inputs["Axis"])
+        L.new(angle, n.inputs["Angle"])
+        return n.outputs["Rotation"]
+
+    def tourne(rot, par):            # par appliquée après rot, axes du monde (= par @ rot en quaternions)
+        n = N.new("FunctionNodeRotateRotation")
+        try:
+            n.rotation_space = "GLOBAL"           # (valeur par défaut; propriété qui pourrait devenir une entrée)
+        except (AttributeError, TypeError):
+            pass
+        L.new(rot, n.inputs["Rotation"])
+        L.new(par, n.inputs["Rotate By"])
+        return n.outputs["Rotation"]
+
+    t_film = tm.outputs["Seconds"]
+
+    def onde(f1, p1, f2, p2):
+        a = m("SINE", m("ADD", m("MULTIPLY", t_film, 2 * math.pi * f1), attr(p1)))
+        b = m("SINE", m("ADD", m("MULTIPLY", t_film, 2 * math.pi * f2), attr(p2)))
+        return m("MULTIPLY", m("ADD", m("MULTIPLY", a, 0.65), m("MULTIPLY", b, 0.35)), attr("amp"))
+
+    rot = axe_angle((0.0, 0.0, 1.0), attr("cap"))
+    if CFG["wind"]:
+        rot = tourne(rot, axe_angle((0.0, 1.0, 0.0), onde(0.19, "ph2", 0.53, "ph3")))
+        rot = tourne(rot, axe_angle((1.0, 0.0, 0.0), onde(0.23, "ph0", 0.61, "ph1")))
+    if CFG["arbres_couchage"] > 0:
+        dur = max(0.1, float(CFG["arbres_couchage_duree"]))
+        u = m("DIVIDE", m("ADD", m("SUBTRACT", tv.outputs[0], attr("tc")), float(CFG["arbres_couchage_avance"])), dur)
+        u = m("MINIMUM", m("MAXIMUM", u, 0.0), 1.0)
+        lisse = m("MULTIPLY", m("MULTIPLY", u, u), m("SUBTRACT", 3.0, m("MULTIPLY", u, 2.0)))
+        th = m("MULTIPLY", lisse, float(np.radians(CFG["arbres_couchage"])))
+        ax = N.new("ShaderNodeCombineXYZ")
+        L.new(m("MULTIPLY", attr("diry"), -1.0), ax.inputs[0])
+        L.new(attr("dirx"), ax.inputs[1])
+        rot = tourne(rot, axe_angle(ax.outputs["Vector"], th))
+    dl = N.new("GeometryNodeDeleteGeometry")          # arbres ensevelis: retirés quand la matière arrive (ta <= t_sim)
+    try:
+        dl.domain = "POINT"                           # (valeur par défaut)
+    except (AttributeError, TypeError):
+        pass
+    L.new(gi.outputs[0], dl.inputs["Geometry"])
+    L.new(m("GREATER_THAN", m("SUBTRACT", tv.outputs[0], attr("ta")), -1e-6), dl.inputs["Selection"])
+    ci = N.new("GeometryNodeCollectionInfo")
+    ci.inputs["Collection"].default_value = coll_modeles
+    ci.inputs["Separate Children"].default_value = True
+    ci.inputs["Reset Children"].default_value = True
+    io = N.new("GeometryNodeInstanceOnPoints")
+    L.new(dl.outputs["Geometry"], io.inputs["Points"])
+    L.new(ci.outputs[0], io.inputs["Instance"])
+    io.inputs["Pick Instance"].default_value = True
+    L.new(attr("idx", "INT"), io.inputs["Instance Index"])
+    L.new(rot, io.inputs["Rotation"])
+    L.new(attr("sca", "FLOAT_VECTOR"), io.inputs["Scale"])
+    L.new(io.outputs["Instances"], go.inputs[0])
+    return ng
+
+
+def _placer_arbres_ez_noeuds(coll, modeles, X, Y, Z, H, R, sp, yaw, couleurs, t_cou, dir_cou, ta, graine, dist):
+    n = len(X)
+    idx_mod = _index_modeles_ez(modeles)
+    cm = bpy.data.collections.new("ModelesEZ")        # pas liée à la scène: les modèles ne sont rendus qu'en instances
+    for (e, v), k in idx_mod.items():
+        ob = bpy.data.objects.new(f"ModeleEZ_{k:02d}", modeles[(e, v)])
+        ob.color = (0.0, 0.0, 0.0, 1.0)              # couleur d'objet nulle: le matériau prend l'attribut "coul" de l'instance
+        cm.objects.link(ob)
+    ess, var, ph = _tirages_ez(n, sp, graine)
+    idx = np.array([idx_mod[(int(e), int(v))] for e, v in zip(ess, var)], np.int32)
+    vd = float(CFG["arbres_modeles_vent_dist"])
+    amp = np.where(np.asarray(dist if dist is not None else np.zeros(n), float) < vd, 0.3 * float(CFG["vent_force"]), 0.0)
+    tc = np.where(np.isfinite(t_cou), t_cou, 1e9) if t_cou is not None else np.full(n, 1e9)
+    dxy = np.asarray(dir_cou, float) if dir_cou is not None else np.zeros((n, 2))
+    tae = np.where(np.isfinite(ta), ta, 1e9) if ta is not None else np.full(n, 1e9)
+    me = bpy.data.meshes.new("ArbresEZ_points")
+    me.vertices.add(n)
+    me.vertices.foreach_set("co", np.stack([X, Y, Z], 1).astype(np.float32).ravel())
+
+    def att(nom, typ, val, cle="value"):
+        a = me.attributes.new(nom, typ, "POINT")
+        a.data.foreach_set(cle, np.ascontiguousarray(val).ravel())
+
+    att("idx", "INT", idx.astype(np.int32))
+    att("cap", "FLOAT", np.asarray(yaw, np.float32))
+    att("sca", "FLOAT_VECTOR", np.stack([R, R, H], 1).astype(np.float32), "vector")
+    att("coul", "FLOAT_COLOR", np.concatenate([np.asarray(couleurs, np.float32)[:, :3], np.ones((n, 1), np.float32)], 1), "color")
+    att("amp", "FLOAT", amp.astype(np.float32))
+    for k in range(4):
+        att(f"ph{k}", "FLOAT", ph[:, k].astype(np.float32))
+    att("tc", "FLOAT", tc.astype(np.float32))
+    att("dirx", "FLOAT", dxy[:, 0].astype(np.float32))
+    att("diry", "FLOAT", dxy[:, 1].astype(np.float32))
+    att("ta", "FLOAT", tae.astype(np.float32))
+    ob = bpy.data.objects.new("ArbresEZ", me)
+    ob.color = (0.0, 0.0, 0.0, 1.0)                  # idem (la couleur d'objet vue par les instances est la sienne)
+    md = ob.modifiers.new("ArbresEZ", "NODES")
+    md.node_group = _groupe_ez(cm)
+    coll.objects.link(ob)
+    EZ_NOEUDS.append(md.node_group)
+    log(f"arbres détaillés: {n:,} instances (nœuds de géométrie), dont {int((amp > 0).sum()):,} au vent et "
+        f"{int((tc < 1e8).sum()):,} sur le passage du front")
+    return n
+
+
+def _placer_arbres_ez_objets(coll, modeles, X, Y, Z, H, R, sp, yaw, couleurs, t_cou=None, dir_cou=None, ta=None, graine=5, dist=None):
+    """Un objet (qui partage le maillage de son modèle) par arbre. Couleur de l'objet = couleur visée du feuillage. Vent et
+    couchage: rotation de l'objet autour de son pied, mise à jour par maj_arbres_ez. ~50 Ko de RAM par arbre."""
+    from mathutils import Quaternion
+    n = len(X)
+    ess, var, phs = _tirages_ez(n, sp, graine)
     for i in range(n):
-        e = int(sp[i]) if int(sp[i]) in nvar else 3
-        me = modeles[(e, int(rng.integers(0, nvar[e])))]
+        me = modeles[(int(ess[i]), int(var[i]))]
         ob = bpy.data.objects.new(f"ArbreEZ_{i}", me)
         ob.location = (float(X[i]), float(Y[i]), float(Z[i]))
         ob.rotation_mode = "QUATERNION"
@@ -1696,7 +1877,7 @@ def placer_arbres_ez(coll, modeles, X, Y, Z, H, R, sp, yaw, couleurs, t_cou=None
         coll.objects.link(ob)
         tc = float(t_cou[i]) if t_cou is not None and np.isfinite(t_cou[i]) else None
         d2 = (float(dir_cou[i][0]), float(dir_cou[i][1])) if dir_cou is not None else (0.0, 0.0)
-        ph = rng.uniform(0, 2 * np.pi, 4)
+        ph = phs[i]
         amp = 0.3 * float(CFG["vent_force"]) if dist is None or dist[i] < float(CFG["arbres_modeles_vent_dist"]) else 0.0
         if amp > 0 or tc is not None:      # au loin et hors du passage: arbre fixe (aucune mise à jour par image)
             ARBRES_EZ.append([ob, qcap, ph, amp, tc, d2])
@@ -1706,7 +1887,12 @@ def placer_arbres_ez(coll, modeles, X, Y, Z, H, R, sp, yaw, couleurs, t_cou=None
 
 
 def maj_arbres_ez(t, t_film):
-    """Vent (léger balancement autour du pied, deux fréquences) et couchage vers l'aval à l'arrivée du front."""
+    """Vent (léger balancement autour du pied, deux fréquences) et couchage vers l'aval à l'arrivée du front. Instances
+    (nœuds): seul le temps de simulation t_sim est à jour à donner, le reste est calculé par les nœuds."""
+    for ng in EZ_NOEUDS:
+        nd = ng.nodes.get("t_sim")
+        if nd is not None and abs(nd.outputs[0].default_value - t) > 1e-6:
+            nd.outputs[0].default_value = float(t)
     if not ARBRES_EZ:
         return
     from mathutils import Quaternion
@@ -1787,7 +1973,7 @@ def build_trees(env, coll, cam):
     oc = np.where(ok_oc[:, None], _ortho_comme_le_sol(oc), 0.0)        # mêmes réglages que l'image posée sur le sol
     oc = _couleur_robuste(oc, ok_oc)                                    # pas d'arbre orange là où l'image montre un toit ou du sol
     w_oc = np.where(ok_oc, CFG["tree_ortho"], 0.0)
-    g_arbres = _gain_distance(d)                                        # calage sur la forêt de l'image (test-arbres)
+    g_arbres = _gain_distance(d, d0=1000.0)                             # calage sur la forêt de l'image (test-arbres)
     near = d < CFG["wind_dist"]
     # arbres sur le passage du front: couchés vers l'aval (même sans disparition), donc animés eux aussi
     if CFG["arbres_couchage"] > 0:
@@ -1815,7 +2001,7 @@ def build_trees(env, coll, cam):
             s_ = modele
             wc = w_oc[s_][:, None]
             coul = ((1.0 - wc) * COULEURS_ARBRES[sp[s_]] + wc * oc[s_]) * tone[s_][:, None] * float(CFG["arbres_modeles_eclat"]) \
-                * _gain_distance(d[s_], "arbres_modeles_gain", "arbres_modeles_gain_loin", 200.0, 1000.0)
+                * _gain_distance(d[s_], "arbres_modeles_gain", "arbres_modeles_gain_loin", 100.0, 500.0)
             coll_ez = bpy.data.collections.new("ArbresDetailles")
             coll.children.link(coll_ez)
             placer_arbres_ez(coll_ez, modeles, X[s_], Y[s_], Z_sol[s_], Hh[s_], R[s_], sp[s_], yaw[s_], coul,
@@ -2655,6 +2841,15 @@ def apply_height_fog(mat):
     nt = mat.node_tree
     out = next(n for n in nt.nodes if n.bl_idname == "ShaderNodeOutputMaterial" and n.is_active_output)
     src = out.inputs["Surface"].links[0].from_socket
+    nt.links.new(_brume(nt, src), out.inputs["Surface"])
+
+
+def _brume(nt, src):
+    """Brume d'altitude (voir apply_height_fog) appliquée au shader src: rend la sortie du mélange (src si pas de brume).
+    Sert aussi aux matériaux découpés par transparence (feuillage): la brume ne touche que la partie opaque, sinon les
+    cartes de feuillage apparaîtraient en rectangles voilés."""
+    if CFG["fog_mode"] != "shader" or (CFG["fog"] <= 0 and CFG["mist"] <= 0):
+        return src
     X = _Nodes(nt)
     geo = nt.nodes.new("ShaderNodeNewGeometry")
     cam = nt.nodes.new("ShaderNodeCameraData")
@@ -2681,7 +2876,7 @@ def apply_height_fog(mat):
     nt.links.new(fog, mx.inputs[0])
     nt.links.new(src, mx.inputs[1])
     nt.links.new(em.outputs["Emission"], mx.inputs[2])
-    nt.links.new(mx.outputs["Shader"], out.inputs["Surface"])
+    return mx.outputs["Shader"]
 
 
 def build_fog(nt):

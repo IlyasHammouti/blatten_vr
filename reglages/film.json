@@ -1,5 +1,5 @@
 {
-  "_doc": "Réglages du FILM (lus par config.json -> scene.reglages). Peau continue + blocs (mixte), poussière V3 en 3 étapes, titre d'intro sombre, arbres et maisons qui ne disparaissent plus (CDC du 31 oct., décisions du 1er nov.). Décisions du 7 nov. après les tests: arbres en grappes, sol nettoyé près de la caméra seulement (image 10 cm), saturation 1,25, titre en Palatino, qualité pleine (96 échantillons), fin gardée jusqu'à 53 s. Arbres (7 nov., test-arbres): détaillés EZ-Tree (gratuit, MIT) jusqu'à 1000 m (décision d'Ilyas: la limite à 500 m se voyait sur le versant d'en face; fondu entre 850 et 1150 m); couleur des arbres tirée de l'image aérienne (mêmes réglages que le sol) et calée sur la forêt de l'image qu'ils recouvrent: gains mesurés (arbres simples 3 à 4 fois trop sombres et trop verts, arbres détaillés 2 fois trop sombres et trop jaunes), appliqués à 90 %; 2e mesure (7 nov., 23 h 27): couleurs bornées = arbres moitié plus sombres, gains refaits (x 2,2 à 2,4); arbres détaillés teintés par la luminosité de la texture (plus de dominante bleue). 3e mesure (8 nov., 0 h): mesure par zones de forêt entières (versant d'en face haut et bas, fond de vallée, pente proche): luminosité à 78-113 % de la photo, arbres détaillés trop verts (rouge relevé, plus sombres au loin), arbres simples sans ombres projetées (déjà dans la photo) et bas des couronnes moins assombri.",
+  "_doc": "Réglages du FILM (lus par config.json -> scene.reglages). Peau continue + blocs (mixte), poussière V3 en 3 étapes, titre d'intro sombre, arbres et maisons qui ne disparaissent plus (CDC du 31 oct., décisions du 1er nov.). Décisions du 7 nov. après les tests: arbres en grappes, sol nettoyé près de la caméra seulement (image 10 cm), saturation 1,25, titre en Palatino, qualité pleine (96 échantillons), fin gardée jusqu'à 53 s. Arbres (7 nov., test-arbres): détaillés EZ-Tree (gratuit, MIT) jusqu'à 1000 m (décision d'Ilyas: la limite à 500 m se voyait sur le versant d'en face; fondu entre 850 et 1150 m); couleur des arbres tirée de l'image aérienne (mêmes réglages que le sol) et calée sur la forêt de l'image qu'ils recouvrent: gains mesurés (arbres simples 3 à 4 fois trop sombres et trop verts, arbres détaillés 2 fois trop sombres et trop jaunes), appliqués à 90 %; 2e mesure (7 nov., 23 h 27): couleurs bornées = arbres moitié plus sombres, gains refaits (x 2,2 à 2,4); arbres détaillés teintés par la luminosité de la texture (plus de dominante bleue). 3e mesure (8 nov., 0 h): mesure par zones de forêt entières (versant d'en face haut et bas, fond de vallée, pente proche): luminosité à 78-113 % de la photo, arbres détaillés trop verts (rouge relevé, plus sombres au loin), arbres simples sans ombres projetées (déjà dans la photo) et bas des couronnes moins assombri. 4e mesure (8 nov., 0 h 14): près et fond de vallée justes en luminosité mais arbres détaillés gris argenté, versant d'en face (950 m) 40 % trop sombre. Cause trouvée: la brume ne s'appliquait pas aux arbres ni aux bâtiments (seulement au sol). Brume ajoutée; gains recalculés avec la brume: arbres détaillés plus verts (rouge/vert 1,41, bleu/vert 1,22, entre le 3e test menthe et le 4e gris), plus sombres au-delà de 500 m; arbres simples presque constants avec la distance (la pente d'avant compensait la brume absente). Arbres détaillés en instances de nœuds de géométrie (RAM).",
   "herite": [
     "mixte",
     "poussiere_v3"
@@ -19,26 +19,26 @@
     "tree_ortho": 0.85,
     "arbres_modeles_dist": 1000.0,
     "arbres_gain": [
-      5.47,
-      4.51,
-      5.5
+      5.24,
+      4.57,
+      5.05
     ],
     "arbres_gain_proche": [
-      8.86,
-      6.97,
-      8.13
+      5.59,
+      4.38,
+      5.56
     ],
     "arbres_modeles_gain": [
-      5.54,
+      5.09,
       3.61,
-      4.78
+      4.39
     ],
     "arbres_simples_ombre": false,
     "arbres_ombrage_bas": 0.8,
     "arbres_modeles_gain_loin": [
-      4.89,
-      3.19,
-      4.21
+      4.19,
+      2.97,
+      3.61
     ]
   }
 }

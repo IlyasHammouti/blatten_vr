@@ -1,6 +1,6 @@
 @echo off
 cd /d C:\Dev\blatten-vr
-title Blatten 360 - test des arbres: detail jusqu a 0, 200, 500, 1000 m et couleurs
+title Blatten 360 - test des arbres: couleurs (sans arbres, arbres simples, detailles jusqu a 1000 m), temps, memoire
 (
 git fetch -q origin
 git reset -q --hard origin/main

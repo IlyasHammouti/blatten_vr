@@ -1485,6 +1485,8 @@ def cmd_test_arbres(cfg, paths, extra):
         os.makedirs(out, exist_ok=True)
         print(f"\n>>> {nom} (t = {t} s) -> {out}", flush=True)
         _attendre_ram(7.0)
+        j = LOG_COURANT.get("chemin")
+        depuis = os.path.getsize(j) if j and os.path.exists(j) else 0
         t0 = time.time()
         sa = ["--set", "scene.ortho_sol=false"]
         for x in sets:
@@ -1494,8 +1496,10 @@ def cmd_test_arbres(cfg, paths, extra):
         f = os.path.join(out, "frame_0001.png")
         ok = os.path.exists(f)
         dt = (time.time() - t0) / 60
-        bilan.append(dict(variante=nom, ok=ok, minutes=round(dt, 2)))
-        print(f"{'OK' if ok else 'ÉCHEC'}: {nom}, {dt:.1f} min (construction comprise)", flush=True)
+        gpu, tot, ram = _sonde_bilan(LOG_COURANT.get("chemin"), depuis if j == LOG_COURANT.get("chemin") else 0)
+        bilan.append(dict(variante=nom, ok=ok, minutes=round(dt, 2), carte_mo_max=gpu, carte_mo_total=tot, ram_libre_min_go=ram))
+        print(f"{'OK' if ok else 'ÉCHEC'}: {nom}, {dt:.1f} min (construction comprise), carte {gpu}/{tot} Mo, "
+              f"RAM libre mini {ram if ram is not None else '?'} Go", flush=True)
         rc = rc or (0 if ok else (r or 1))
         if ok:
             imgs[nom] = _lin_srgb(np.asarray(Image.open(f).convert("RGB")))
