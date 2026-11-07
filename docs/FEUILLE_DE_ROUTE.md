@@ -1,12 +1,12 @@
 # Feuille de route Blatten VR
 
-Mise à jour: 2 novembre 2026. **À relire avant chaque grande étape** (lancer un rendu, ajouter une fonction, envoyer quelque chose à Johan). Claude la relit et la met à jour à chaque étape; Ilyas peut dire "feuille de route" pour la faire afficher.
+Mise à jour: 7 novembre 2026. **À relire avant chaque grande étape** (lancer un rendu, ajouter une fonction, envoyer quelque chose à Johan). Claude la relit et la met à jour à chaque étape; Ilyas peut dire "feuille de route" pour la faire afficher.
 
 ## Dates
 
 | Date | Jalon |
 |---|---|
-| 12 nov. au plus tard | Lancement du rendu 360 de la V1 (le rendu seul demande environ 200 h sur le PC d'Ilyas, moins avec le PC du frère) |
+| 12 nov. au plus tard | Lancement du rendu 360 de la V1 (environ 175 h sur le seul PC d'Ilyas; environ 70 h à deux PC, estimation à confirmer par la vitesse mesurée de la 3060) |
 | 25 nov. | V1 à remettre |
 | 3 et 4 déc. | Colloque CNRS Thiais |
 | ~10 nov. | Gel du réalisme du nuage (Pareto: ce qui n'est pas prêt est abandonné) |
@@ -32,7 +32,7 @@ Mise à jour: 2 novembre 2026. **À relire avant chaque grande étape** (lancer 
 
 1. Son validé en spatial (voir chantier 1).
 2. Mêmes décisions visuelles que le brouillon HD validé (couleurs, forêt, titre, eau, arbres).
-3. Pipeline à deux PC prêt: `python blatten.py paquet` pour le PC du frère, plages `--de/--a` réparties selon la vitesse mesurée de chaque carte.
+3. Rendu à deux PC (docs/RENDU_A_DEUX.md): envoi des images du frère choisi (GitHub recommandé: dépôt privé `blatten-transfert` + jeton, 3 min), puis `Lancer_preparer_duo.bat` (le paquet se teste tout seul), zip donné au frère, `Lancer_rendu_duo.bat`. Le partage entre les PC se règle tout seul.
 4. Licences: sons (klankbeeld CC BY à créditer dans l'outro, G43-01 et G43-02 à confirmer en CC0), modèles d'arbres, images.
 5. Plan B si le temps manque: baisser la résolution ou le nombre d'échantillons plutôt que couper le contenu.
 
@@ -51,10 +51,12 @@ Mise à jour: 2 novembre 2026. **À relire avant chaque grande étape** (lancer 
 | 9 | Nuage de poussière | Réaliste en progrès, pas de "cloches gravitaires" | Test léger (sans environnement) Mantaflow, puis autres outils, avec limite de temps | Gel ~10 nov. |
 | 10 | Précurseurs qui couchent les arbres trop tôt | Corrigé (couchage à ≥ 2 m de matière) | Vérifier visuellement sur le brouillon 2 | |
 | 11 | Herbe | Plus tard, seulement si peu coûteux | Test mémoire après les arbres | |
-| 12 | Pipeline avec le PC du frère | Plus tard | Mesurer sa carte avec `bench`, préparer le `paquet` | 12 nov. |
+| 12 | Rendu à deux PC | Codé et testé le 7 nov. (simulation sur le vrai film, essai complet avec un faux Blender): partage en direct, suivi sur le téléphone (ntfy), montage automatique | Créer le dépôt de transfert et le jeton GitHub; quand les décisions sont figées: `Lancer_preparer_duo.bat`, zip au frère, `Lancer_rendu_duo.bat` | 12 nov. |
 | 13 | Courrier Johan | Réponse UNESCO (forfait) envoyée ou à envoyer | Voir le fil mail | |
 
 ## Décisions en attente d'Ilyas
+
+- Envoi des images du frère: GitHub (recommandé), dossier partagé ou à la main.
 
 - Saturation (A 0,8 / B 1,0 / C 1,25) et couronnes (x1,3 ou non).
 - Police du titre.
@@ -64,4 +66,5 @@ Mise à jour: 2 novembre 2026. **À relire avant chaque grande étape** (lancer 
 
 ## Journal court
 
+- 7 nov.: rendu à deux PC (`paquet`, `duo`, `duo-etat`, `duo-envoyer`, `duo-importer`), docs/RENDU_A_DEUX.md; pas de mise en veille pendant les rendus.
 - 2 nov.: SA3D, `test-son`, brouillon fin, polices, `test-eau`, vent 0,09, eau (cap + loin), feuille de route.

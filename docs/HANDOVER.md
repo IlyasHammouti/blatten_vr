@@ -28,7 +28,7 @@ Remplace le handover unifié du 15 octobre (rangé dans `docs/archive/`). Réfé
 - **Disparition** des arbres, bâtiments et rivière: à l'arrivée de la matière, arrondie vers le haut (avant: jusqu'à 3,5 s trop tôt). Option `ensevelissement` (épaisseurs
   `tep`/`niveaux` dans `alea_empreinte.npz`): essais à 50 % et 10 % de la hauteur écartés, des arbres restaient debout dans la coulée là où la nappe est mince.
 - **Commandes** (`python blatten.py ...` à la racine): `variantes` (même instant, plusieurs jeux; `Lancer_variantes.bat`), `camera --lv95 E N | --wgs84 LAT LON [--hauteur 2] [--cap 200]`,
-  `render [--qualite brouillon] [--pas 2] [--de N --a M] [--intro-pas 3]` (`Lancer_film_brouillon.bat`, `Lancer_film_hd.bat`; temps par paquet dans `chrono.json`), `paquet` (dossier autonome ~2,2 Go pour le PC du frère), `images-finales`, `apercu-alea`, `empreinte-alea`, `montage`.
+  `render [--qualite brouillon] [--pas 2] [--de N --a M] [--intro-pas 3]` (`Lancer_film_brouillon.bat`, `Lancer_film_hd.bat`; temps par paquet dans `chrono.json`), `paquet` + `duo` + `duo-etat` (rendu à deux PC: docs/RENDU_A_DEUX.md), `images-finales`, `apercu-alea`, `empreinte-alea`, `montage`.
 - **Temps mesurés** (t = 43 s, qualité finale, scène complète, RTX 2060): 9 à 10 min par image construction comprise, quelle que soit la matière. GPU jusqu'à 5,6 Go sur 6,1.
   Film: ~175 h sur ce PC seul, ~75 h à deux PC (estimation, PC du frère non testé). `--persistent`: 18 % plus lent, abandonné.
 - **Comparaison du 30 oct. au soir** (`render/variantes/t43s/`: `actuel`, `mixte`, `mixte+poussiere_v2`, plus `mixte_v1_19h`; visionneuse claude.ai « Variantes de rendu Blatten »):
@@ -40,7 +40,7 @@ Remplace le handover unifié du 15 octobre (rangé dans `docs/archive/`). Réfé
 1. **Caméra**: Johan conseille un point de vue proche des vidéos SRF (une montre la lave sortir du nuage). Critère d'Ilyas: le spectateur regarde l'aval / Blatten et est surpris
    par l'événement (son, vision périphérique). Décision visée: 4 novembre. Commande `camera`, puis `download --jeux 05m 10cm`, `prep-env --hires`, `visible`.
 2. **Choix de la matière et réglage de la poussière** sur les vidéos SRF (transparence voulue par Ilyas, échelle des panaches), puis recopier le choix dans `reglages/film.json`.
-3. **PC du frère**: `python blatten.py paquet`, une image test là-bas, puis partage du rendu (`render --de/--a`).
+3. **PC du frère**: rendu à deux PC codé le 7 nov. (docs/RENDU_A_DEUX.md): `Lancer_preparer_duo.bat` (session, paquet en un zip avec Blender, test du paquet), `Lancer_rendu_duo.bat` chez Ilyas, `LANCER_RENDU.bat` chez le frère. Partage dynamique par messages ntfy.sh, images du frère par GitHub (dépôt privé de transfert), dossier partagé ou SwissTransfer.
 4. Pas faits faute d'éléments: rivières tracées à la main (couche `eau_manuel` vide dans `Blatten/QGIS/blatten_alea.gpkg`), pin du premier plan (D4, modèle à fournir).
 5. Son, crédits (formulation à demander à Johan plus tard), montage, QR code, test sur téléphone.
 

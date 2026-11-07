@@ -19,7 +19,9 @@ blatten.py : point d'entrée unique du projet Blatten VR 360.
     python blatten.py variantes --temps 43 --jeux actuel mixte "mixte poussiere_v2"   même instant, plusieurs jeux de réglages (reglages/)
     python blatten.py render [--de N --a M] [--intro-pas 3]   rendu final (garde-fous: voir docs/); --de/--a: une partie du film;
                                       --intro-pas K: une image sur K pendant les 5 s d'intro (paysage immobile), recopiée
-    python blatten.py paquet [--dest DOSSIER] [--de N] [--a M]   dossier autonome pour rendre une partie du film sur un autre PC
+    python blatten.py paquet          rendu à deux PC: prépare la session et le paquet du frère (un seul zip), voir docs/RENDU_A_DEUX.md
+    python blatten.py duo             rend la part de ce PC (Ilyas ou frère), partage en direct, montage final chez Ilyas
+    python blatten.py duo-etat        où en sont les deux PC
     python blatten.py menu            menu interactif
 
 Python 3.8+ suffit (aucune bibliothèque externe). Les réglages sont dans config.json, et ceux
@@ -882,7 +884,18 @@ def _options_nuit(extra, paquet):
 PLAGE = dict(de=None, a=None)
 
 
+def _empecher_veille():
+    """Windows: pas de mise en veille tant que ce programme tourne (l'écran peut s'éteindre); l'effet cesse à sa fermeture."""
+    if os.name == "nt":
+        try:
+            import ctypes
+            ctypes.windll.kernel32.SetThreadExecutionState(0x80000000 | 0x00000001)
+        except Exception:
+            pass
+
+
 def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ram_min=7.0):
+    _empecher_veille()
     extra, paquet, pause, heure_fin = _options_nuit(extra, paquet)
     out = os.path.join(ROOT, out_rel)
     # Les images du rendu FINAL (plusieurs Go) peuvent aller sur un autre disque: clé "render_dir" de config.local.json
@@ -1600,72 +1613,50 @@ def cmd_camera(cfg, paths, extra):
     return 0
 
 
-def cmd_paquet(cfg, paths, extra):
-    """Prépare un dossier autonome pour rendre une partie du film sur un AUTRE PC (frère: RTX 3060 12 Go).
-        python blatten.py paquet [--dest D:/Blatten_paquet] [--de 700] [--a 1590]
-    Copie le code, les particules et l'environnement préparé (~2,2 Go, sans les fichiers bruts swisstopo ni ceux de Johan), écrit
-    config.local.json (chemins relatifs au dossier), Lancer_rendu.bat (plage --de/--a) et LISEZMOI.txt. Reprend une copie interrompue
-    (fichiers déjà copiés à la même taille sautés). Par défaut, la plage est la fin du film (56 %, part mesurée du 3060)."""
-    n, _fps = _film(cfg)
-    dv, extra = _option(extra, "--dest", 1)
-    dev, extra = _option(extra, "--de", 1)
-    av, extra = _option(extra, "--a", 1)
-    dest = os.path.abspath(dv[0] if dv else "D:/Blatten_paquet")
-    de = int(dev[0]) if dev else int(round(n * 0.44)) + 1
-    a_ = int(av[0]) if av else n
-    if not (1 <= de <= a_ <= n):
-        sys.exit(f"Plage invalide: {de} à {a_} (le film a {n} images)")
-    code = os.path.join(dest, "blatten-vr")
-    cache = os.path.join(dest, "cache")
-    # 1. code: fichiers suivis par git (sinon tout sauf rendus et archives)
-    try:
-        fichiers = subprocess.run(["git", "-C", ROOT, "ls-files"], capture_output=True, text=True, check=True).stdout.splitlines()
-    except Exception:
-        fichiers = []
-        for d, sous, fs in os.walk(ROOT):
-            sous[:] = [x for x in sous if x not in (".git", "render", "__pycache__", "_archive", "_to_delete", ".pylibs")]
-            fichiers += [os.path.relpath(os.path.join(d, f), ROOT) for f in fs]
-    a_copier = [(os.path.join(ROOT, f), os.path.join(code, f)) for f in fichiers if os.path.isfile(os.path.join(ROOT, f))]
-    # 2. données: particules, sources de poussière, environnement préparé (pas les maillages du terrain de Johan: inutiles avec l'environnement)
-    for f in sorted(os.listdir(paths.cache)):
-        src = os.path.join(paths.cache, f)
-        if os.path.isfile(src) and (re.match(r"all_particles_\d+\.npy$", f) or f == "meta.json" or f.startswith("poussiere_sources_")):
-            if f == "all_particles_1500.npy":
-                continue
-            a_copier.append((src, os.path.join(cache, f)))
-    env = os.path.join(paths.cache, "env")
-    for d, _sous, fs in os.walk(env):
-        for f in fs:
-            src = os.path.join(d, f)
-            a_copier.append((src, os.path.join(cache, "env", os.path.relpath(src, env))))
-    total = sum(os.path.getsize(sf) for sf, _ in a_copier)
-    print(f"Paquet: {len(a_copier)} fichiers, {total / 1e9:.2f} Go -> {dest}", flush=True)
-    fait = 0
-    for k, (sf, df) in enumerate(a_copier, 1):
-        os.makedirs(os.path.dirname(df), exist_ok=True)
-        if not (os.path.exists(df) and os.path.getsize(df) == os.path.getsize(sf)):
-            shutil.copy2(sf, df)
-        fait += os.path.getsize(sf)
-        if k % 50 == 0 or k == len(a_copier):
-            print(f"  {k}/{len(a_copier)} fichiers, {fait / 1e9:.2f}/{total / 1e9:.2f} Go", flush=True)
-    json.dump({"data_root": "..", "cache_dir": "../cache", "render_dir": ""},
-              open(os.path.join(code, "config.local.json"), "w", encoding="utf-8"), indent=2)
-    with open(os.path.join(code, "Lancer_rendu.bat"), "w", encoding="utf-8", newline="\r\n") as fh:
-        fh.write("@echo off\ncd /d \"%~dp0\"\n(\n"
-                 f"python blatten.py render --de {de} --a {a_} --paquet 10\n"
-                 "echo.\necho Arret. Relancer ce fichier pour reprendre (les images faites sont gardees).\npause\nexit /b\n)\n")
-    with open(os.path.join(dest, "LISEZMOI.txt"), "w", encoding="utf-8", newline="\r\n") as fh:
-        fh.write(f"""Rendu d'une partie du film Blatten 360 (images {de} à {a_} sur {n}).
+_MODULES = {}
 
-1. Installer Blender 5.2.2 (blender.org) et Python 3 (python.org, cocher "Add to PATH").
-2. Copier ce dossier sur un disque avec au moins 5 Go libres (les images font environ 1 Mo chacune).
-3. Double-cliquer blatten-vr\\Lancer_rendu.bat. Au premier lancement, le programme cherche Blender (et le demande s'il ne le trouve pas).
-4. Le rendu s'arrête et reprend sans rien perdre: relancer le même fichier. Fermer la fenêtre pour arrêter.
-5. Les images sont dans blatten-vr\\render\\final (frame_NNNN.jpg). À la fin, envoyer ce dossier (environ {(a_ - de + 1) / 1000:.1f} Go).
-""")
-    print(f"Paquet prêt: {dest} (plage {de}-{a_}). Le copier sur une clé ou un disque; LISEZMOI.txt explique la suite.")
-    print(f"Sur CE PC, rendre l'autre partie: python blatten.py render --de 1 --a {de - 1}")
-    return 0
+
+def _module(nom, chemin):
+    if nom not in _MODULES:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(nom, chemin)
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        _MODULES[nom] = m
+    return _MODULES[nom]
+
+
+def _duo(nom_commande):
+    """Rendu à deux PC: src/partage/duo.py (protocole) et duo_commandes.py (commandes). Mode d'emploi: docs/RENDU_A_DEUX.md."""
+    D = _module("duo", os.path.join(SRC, "partage", "duo.py"))
+    C = _module("duo_commandes", os.path.join(SRC, "partage", "duo_commandes.py"))
+    f = getattr(C, nom_commande)
+    return lambda cfg, paths, extra: f(sys.modules[__name__], D, cfg, paths, extra)
+
+
+def cmd_paquet(cfg, paths, extra):
+    """Prépare le rendu du film 360 à deux PC (Ilyas + frère): session, code figé, paquet du frère en UN zip (code, données,
+    Blender, lanceurs), test du paquet. Voir docs/RENDU_A_DEUX.md.
+        python blatten.py paquet [--transport github|dossier|manuel] [--sans-blender] [--sans-test] [--oui]"""
+    return _duo("cmd_paquet")(cfg, paths, extra)
+
+
+def cmd_duo(cfg, paths, extra):
+    """Rend la part de ce PC (Ilyas: du début, frère: de la fin), partage en direct, montage final sur le PC d'Ilyas.
+        python blatten.py duo [--jusqu-a 07:00] [--tout-rendre]"""
+    return _duo("cmd_duo")(cfg, paths, extra)
+
+
+def cmd_duo_etat(cfg, paths, extra):
+    return _duo("cmd_duo_etat")(cfg, paths, extra)
+
+
+def cmd_duo_envoyer(cfg, paths, extra):
+    return _duo("cmd_duo_envoyer")(cfg, paths, extra)
+
+
+def cmd_duo_importer(cfg, paths, extra):
+    return _duo("cmd_duo_importer")(cfg, paths, extra)
 
 
 def cmd_montage(cfg, paths, extra):
@@ -1947,7 +1938,7 @@ def cmd_menu(cfg, paths, extra):
 COMMANDS = {
     "status": cmd_status, "setup": cmd_setup, "download": cmd_download, "prep-env": cmd_prep_env, "prep-batiments": cmd_prep_batiments, "prep-vegetation": cmd_prep_vegetation, "env-complet": cmd_env_complet, "visible": cmd_visible,
     "prep-particules": cmd_prep_particules, "terrain": cmd_terrain, "views": cmd_views, "test360": cmd_test360,
-    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "eau-manuel": cmd_eau_manuel, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "titre-test": cmd_titre_test, "test-son": cmd_test_son, "test-couleurs": cmd_test_couleurs, "test-eau": cmd_test_eau, "test-bande": cmd_test_bande, "finir": cmd_finir, "son": cmd_son, "outro": cmd_outro, "cap": cmd_cap, "camera": cmd_camera, "paquet": cmd_paquet, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
+    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "eau-manuel": cmd_eau_manuel, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "titre-test": cmd_titre_test, "test-son": cmd_test_son, "test-couleurs": cmd_test_couleurs, "test-eau": cmd_test_eau, "test-bande": cmd_test_bande, "finir": cmd_finir, "son": cmd_son, "outro": cmd_outro, "cap": cmd_cap, "camera": cmd_camera, "paquet": cmd_paquet, "duo": cmd_duo, "duo-etat": cmd_duo_etat, "duo-envoyer": cmd_duo_envoyer, "duo-importer": cmd_duo_importer, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
 }
 
 
