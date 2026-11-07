@@ -83,7 +83,8 @@ CFG = dict(
     snow_line=2300.0,       # m, début de la neige (28 mai: d'après la capture RTS, neige au-dessus de 2200-2400 m)
     ortho_saturation=0.8,   # saturation de l'image aérienne dans le rendu (1 = couleurs de l'image; 0,8 jusqu'au 2 nov.: terne sur les prairies)
     ortho_gain=1.0,         # luminosité de l'image aérienne dans le rendu (l'image est déséclairée par la préparation)
-    ortho_sol=False,        # images aériennes « nettoyées » (prep-sol: cimes et ombres d'arbres remplacées, trame du 10 cm lissée)
+    ortho_sol=False,        # images aériennes « nettoyées » (prep-sol: cimes et ombres d'arbres remplacées, trame du 10 cm lissée):
+                            # true (toutes), false, ou liste de fichiers, ex. ["ortho_10cm.jpg"] = seulement près de la caméra
     clouds=0.0,             # 0..1, couverture nuageuse procédurale (0 = ciel dégagé)
     time="2025-05-28T15:24:00+02:00",   # instant de l'événement (heure locale), sert au soleil
     sky="couvert",          # "couvert" (voile blanc, lumière diffuse, comme le 28 mai 2025) ou "clair" (soleil réel)
@@ -1797,9 +1798,17 @@ def sun_vector(env, center):
     return Vector((math.sin(a) * math.cos(e), flip * math.cos(a) * math.cos(e), math.sin(e)))
 
 
+def _sol_nettoye(nom):
+    """L'image aérienne nom (ex. ortho_10cm.jpg) est-elle prise dans sa version nettoyée ? ortho_sol: true, false ou liste."""
+    v = CFG.get("ortho_sol")
+    if isinstance(v, (list, tuple)):
+        return nom in v
+    return bool(v)
+
+
 def _fichier_ortho(env, nom):
-    """Image aérienne à charger: la version nettoyée par prep-sol (suffixe _sol) si ortho_sol est demandé et qu'elle existe."""
-    if CFG.get("ortho_sol"):
+    """Image aérienne à charger: la version nettoyée par prep-sol (suffixe _sol) si ortho_sol la demande et qu'elle existe."""
+    if _sol_nettoye(nom):
         p = os.path.join(env["dir"], os.path.splitext(nom)[0] + "_sol.jpg")
         if os.path.exists(p):
             return p
@@ -1888,6 +1897,8 @@ def build_terrain_material(env=None):
     rock = mix(fine, (0.17, 0.165, 0.16, 1), (0.27, 0.26, 0.25, 1))
     col = mix(steep, base, rock)
     o = env["meta"].get("ortho") if (env and not CFG["no_ortho"]) else None
+    nettoye = None      # part de la couleur venue d'une image nettoyée (prep-sol), 0 à 1: pas d'assombrissement sous la canopée là
+    tout_nettoye = False
     if o:  # image aérienne SWISSIMAGE projetée à la verticale, fondue vers le procédural hors emprise
         em = env["meta"]
         img = bpy.data.images.load(_fichier_ortho(env, o["file"]))
@@ -1913,7 +1924,11 @@ def build_terrain_material(env=None):
         hs.inputs["Value"].default_value = CFG["ortho_gain"]
         L.new(tex.outputs["Color"], hs.inputs["Color"])
         col = mix(inside, col, hs.outputs["Color"])
-        for pa in ([] if CFG["no_hires"] else em.get("ortho_patches", [])):   # images locales 50 cm, 10 cm (du plus grossier au plus fin)
+        patches = [] if CFG["no_hires"] else em.get("ortho_patches", [])
+        tout_nettoye = all(_sol_nettoye(x["file"]) for x in [o] + patches)
+        if _sol_nettoye(o["file"]) and not tout_nettoye:
+            nettoye = inside
+        for pa in patches:   # images locales 50 cm, 10 cm (du plus grossier au plus fin)
             pimg = bpy.data.images.load(_fichier_ortho(env, pa["file"]))
             pimg.colorspace_settings.name = "sRGB"
             pt = N.new("ShaderNodeTexImage")
@@ -1936,6 +1951,11 @@ def build_terrain_material(env=None):
             phs.inputs["Value"].default_value = CFG["ortho_gain"]
             L.new(pt.outputs["Color"], phs.inputs["Color"])
             col = mix(pin, col, phs.outputs["Color"])
+            if not tout_nettoye:     # cette image recouvre les précédentes: elle décide si le sol est nettoyé ici
+                if _sol_nettoye(pa["file"]):
+                    nettoye = pin if nettoye is None else math("ADD", pin, math("MULTIPLY", nettoye, math("SUBTRACT", 1.0, pin)))
+                elif nettoye is not None:
+                    nettoye = math("MULTIPLY", nettoye, math("SUBTRACT", 1.0, pin))
     # neige : en altitude et sur pentes douces (l'image date de l'été, le 28 mai il y en avait plus haut)
     sl = CFG["snow_line"] if env else 2350.0
     snow_alt = mrange(alt, sl, sl + 400.0)
@@ -1956,8 +1976,8 @@ def build_terrain_material(env=None):
     L.new(comb.outputs["Vector"], strata.inputs["Vector"])
     # sous la canopée, l'image aérienne montre la cime des arbres (déjà modélisés en volume): on la remplace par un sol de forêt sombre
     cmk = env["meta"].get("canopee_masque") if env else None
-    if cmk and env["meta"].get("vegetation") and not CFG["no_trees"] and not CFG.get("ortho_sol") \
-            and os.path.exists(os.path.join(env["dir"], cmk["file"])):        # (ortho_sol: déjà traité dans l'image)
+    if cmk and env["meta"].get("vegetation") and not CFG["no_trees"] and not tout_nettoye \
+            and os.path.exists(os.path.join(env["dir"], cmk["file"])):        # (sol nettoyé: déjà traité dans l'image)
         em_ = env["meta"]
         cimg = bpy.data.images.load(os.path.join(env["dir"], cmk["file"]))
         cimg.colorspace_settings.name = "Non-Color"
@@ -1974,6 +1994,8 @@ def build_terrain_material(env=None):
         csep = N.new("ShaderNodeSeparateColor")
         L.new(ct.outputs["Color"], csep.inputs["Color"])
         under = mrange(csep.outputs["Red"], 0.25, 0.75, 0.0, 0.35)
+        if nettoye is not None:      # pas sur la partie nettoyée (près de la caméra si ortho_sol = ["ortho_10cm.jpg"])
+            under = math("MULTIPLY", under, math("SUBTRACT", 1.0, nettoye))
         sol = N.new("ShaderNodeMix")
         sol.data_type, sol.blend_type = "RGBA", "MULTIPLY"
         sol.inputs[0].default_value = 1.0

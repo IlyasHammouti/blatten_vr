@@ -37,6 +37,11 @@ Remplace le handover unifié du 15 octobre (rangé dans `docs/archive/`). Réfé
 
 ## 3. Ce qui reste (ordre proposé à Ilyas le 30 oct.)
 
+0. **7 nov. (soir)**: tous les tests faits, décisions visuelles prises et écrites dans `reglages/film.json` (journal de docs/FEUILLE_DE_ROUTE.md).
+   Rendu final mesuré: environ 160 h seul, 62 h à deux. Fin du film presque noire à 53 s (caméra dans le nuage), gardée.
+   Prochaines étapes: `Lancer_test_bande.bat` (contrôle des réglages retenus ensemble, raccord du sol nettoyé près de la caméra),
+   choix de l'envoi des images du frère (GitHub), `Lancer_preparer_duo.bat`, `Lancer_rendu_duo.bat`. Outro et son: montage seulement.
+
 1. **Caméra**: Johan conseille un point de vue proche des vidéos SRF (une montre la lave sortir du nuage). Critère d'Ilyas: le spectateur regarde l'aval / Blatten et est surpris
    par l'événement (son, vision périphérique). Décision visée: 4 novembre. Commande `camera`, puis `download --jeux 05m 10cm`, `prep-env --hires`, `visible`.
 2. **Choix de la matière et réglage de la poussière** sur les vidéos SRF (transparence voulue par Ilyas, échelle des panaches), puis recopier le choix dans `reglages/film.json`.

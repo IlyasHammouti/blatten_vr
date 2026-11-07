@@ -1,5 +1,5 @@
 {
-  "_doc": "Réglages du FILM (lus par config.json -> scene.reglages). Peau continue + blocs (mixte), poussière V3 en 3 étapes, titre d'intro sombre, arbres et maisons qui ne disparaissent plus (CDC du 31 oct., décisions du 1er nov.).",
+  "_doc": "Réglages du FILM (lus par config.json -> scene.reglages). Peau continue + blocs (mixte), poussière V3 en 3 étapes, titre d'intro sombre, arbres et maisons qui ne disparaissent plus (CDC du 31 oct., décisions du 1er nov.). Décisions du 7 nov. après les tests: arbres en grappes, sol nettoyé près de la caméra seulement (image 10 cm), saturation 1,25, titre en Palatino, qualité pleine (96 échantillons), fin gardée jusqu'à 53 s.",
   "herite": [
     "mixte",
     "poussiere_v3"
@@ -8,6 +8,10 @@
     "titre": true,
     "no_ensevelis": true,
     "titre_style": "sombre",
-    "vent_force": 0.09
+    "titre_police": "C:/Windows/Fonts/pala.ttf",
+    "vent_force": 0.09,
+    "arbres_grappes": true,
+    "ortho_sol": ["ortho_10cm.jpg"],
+    "ortho_saturation": 1.25
   }
 }
