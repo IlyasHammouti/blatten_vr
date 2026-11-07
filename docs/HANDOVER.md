@@ -41,6 +41,12 @@ Remplace le handover unifié du 15 octobre (rangé dans `docs/archive/`). Réfé
    par l'événement (son, vision périphérique). Décision visée: 4 novembre. Commande `camera`, puis `download --jeux 05m 10cm`, `prep-env --hires`, `visible`.
 2. **Choix de la matière et réglage de la poussière** sur les vidéos SRF (transparence voulue par Ilyas, échelle des panaches), puis recopier le choix dans `reglages/film.json`.
 3. **PC du frère**: rendu à deux PC codé le 7 nov. (docs/RENDU_A_DEUX.md): `Lancer_preparer_duo.bat` (session, paquet en un zip avec Blender, test du paquet), `Lancer_rendu_duo.bat` chez Ilyas, `LANCER_RENDU.bat` chez le frère. Partage dynamique par messages ntfy.sh, images du frère par GitHub (dépôt privé de transfert), dossier partagé ou SwissTransfer.
+   Simulation: le PC d'Ilyas s'arrête vers l'image 970 à 1150 (t = 32 à 38 s), la fin du film (poussière, la plus lourde) va à la 3060 (12 Go).
+   Carte de 6 Go pleine sur une image (« out of memory » dans le journal de Blender): le PC qui la rend se limite tout seul et laisse
+   les images suivantes à l'autre (annonce `lim` dans son état; sans ça, les deux PC pouvaient s'attendre à la fin). `--max-image N` à la main.
+   Réglage `scene.rendu_tuile` (1024 ou 512): moins de mémoire sur la carte; `test-final` l'essaie tout seul si la carte est pleine.
+   Essai de fumée du 7 nov. (bpy dans le conteneur, données factices): matériau du sol et de l'eau, titre, réglages de rendu, forêt
+   complète (toutes les distances, grappes et lisses): aucune erreur.
 4. Pas faits faute d'éléments: rivières tracées à la main (couche `eau_manuel` vide dans `Blatten/QGIS/blatten_alea.gpkg`), pin du premier plan (D4, modèle à fournir).
 5. Son, crédits (formulation à demander à Johan plus tard), montage, QR code, test sur téléphone.
 

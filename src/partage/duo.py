@@ -118,13 +118,15 @@ def reste_autre(autre, maintenant, vit_autre):
     return r
 
 
-def choisir(ordre, pas, faits, autre, sens, K, vit_moi, vit_autre, maintenant, vivant, limite=None):
+def choisir(ordre, pas, faits, autre, sens, K, vit_moi, vit_autre, maintenant, vivant, limite=None, limite_autre=None):
     """Prochain paquet de ce PC.
         ordre   images à calculer (ordre du film)     pas   {image: pas}
         faits   images déjà présentes sur ce PC       autre état de l'autre PC (decoder()), ou None
         sens    +1: on part du début, -1: de la fin    K     taille maximale d'un paquet
         vit_*   images par heure (None si inconnu)     vivant: l'autre PC rend en ce moment
-        limite  fonction image -> bool qui restreint le choix (frère sans aucune nouvelle d'Ilyas)
+        limite  fonction image -> bool qui restreint le choix (frère sans aucune nouvelle d'Ilyas, --max-image, carte pleine)
+        limite_autre  images que l'autre PC peut prendre (il a annoncé une limite): celles qu'il ne peut pas faire ne sont
+                jamais laissées à l'attente (sinon les deux PC s'attendraient)
     Rend (images, raison): raison "paquet", "attendre" (l'autre finira plus tôt en les faisant lui-même) ou "rien"."""
     pris = set(faits)
     R = 0.0
@@ -147,6 +149,8 @@ def choisir(ordre, pas, faits, autre, sens, K, vit_moi, vit_autre, maintenant, v
         x = vit_moi * (R + G) / (vit_moi + vit_autre)
         cands = {0, kmax, max(0, min(kmax, int(x))), max(0, min(kmax, int(x) + 1))}
         k = min(cands, key=lambda c: (round(duree(c), 6), -c))
+        if limite_autre is not None:
+            k = max(k, min(kmax, sum(1 for f in dispo if not limite_autre(f))))
     if k == 0:
         return [], "attendre"
     idx = {f: i for i, f in enumerate(ordre)}
@@ -206,7 +210,21 @@ def decoder(m):
         return None
     return dict(role=m.get("r"), etat=m.get("etat", "?"), fait=set(deplages(m.get("fait"))), cours=set(deplages(m.get("cours"))),
                 envoye=set(deplages(m.get("envoye"))), tc=m.get("tc"), t_cours_serveur=m.get("tcs"), vit=m.get("vit"),
-                gpu=m.get("gpu"), ec=m.get("ec"), maj=m.get("maj", 0), t=m.get("t", 0), msg=m.get("msg"), n=m.get("n"))
+                gpu=m.get("gpu"), ec=m.get("ec"), maj=m.get("maj", 0), t=m.get("t", 0), msg=m.get("msg"), n=m.get("n"),
+                lim=tuple(m["lim"]) if isinstance(m.get("lim"), (list, tuple)) and len(m["lim"]) == 2 else None)
+
+
+def borne_fn(lim):
+    """(première, dernière) image qu'un PC accepte de prendre -> fonction image -> bool (None: pas de limite)."""
+    if not lim:
+        return None
+    lo, hi = int(lim[0]), int(lim[1])
+    return lambda f: lo <= f <= hi
+
+
+def memoire_pleine(txt):
+    """Le journal de Blender montre-t-il une carte graphique à court de mémoire ?"""
+    return bool(re.search(r"out of [a-z ]{0,40}memory|CUDA_ERROR_OUT_OF_MEMORY|OPTIX_ERROR_[A-Z_]*OUT_OF_MEMORY", txt or "", re.I))
 
 
 class Canal:

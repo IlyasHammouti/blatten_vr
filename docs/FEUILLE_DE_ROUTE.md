@@ -32,7 +32,7 @@ Mise à jour: 7 novembre 2026. **À relire avant chaque grande étape** (lancer 
 
 1. Son validé en spatial (voir chantier 1).
 2. Mêmes décisions visuelles que le brouillon HD validé (couleurs, forêt, titre, eau, arbres).
-2 bis. `test-final` fait (`Lancer_tests_soir.bat`): la carte de 6 Go tient-elle au moment le plus lourd ? Durée du film acceptable à deux ? Réglage de vitesse retenu (A, B ou C) recopié dans `reglages/film.json`.
+2 bis. `test-final` fait (`Lancer_tests_soir.bat` ou `Lancer_tous_les_tests.bat`): durée du film acceptable à deux ? Réglage de vitesse retenu (A, B ou C) recopié dans `reglages/film.json`. Mémoire: à deux PC, la fin du film (après t = 32 à 38 s) va à la 3060 de 12 Go; une carte pleine sur la 2060 à 43 ou 53 s ne bloque donc pas (le PC d'Ilyas laisse ces images au frère tout seul). Si la carte est pleine dès 15 s: tuiles `scene.rendu_tuile` (essayées toutes seules par `test-final`).
 2 ter. Si le sol nettoyé est retenu (`scene.ortho_sol`): `python blatten.py prep-sol` lancé AVANT le paquet (sinon le rendu final s'arrête: images manquantes).
 3. Rendu à deux PC (docs/RENDU_A_DEUX.md): envoi des images du frère choisi (GitHub recommandé: dépôt privé `blatten-transfert` + jeton, 3 min), puis `Lancer_preparer_duo.bat` (le paquet se teste tout seul), zip donné au frère, `Lancer_rendu_duo.bat`. Le partage entre les PC se règle tout seul.
 4. Licences: sons (klankbeeld CC BY à créditer dans l'outro, G43-01 et G43-02 à confirmer en CC0), modèles d'arbres, images.
@@ -53,7 +53,7 @@ Mise à jour: 7 novembre 2026. **À relire avant chaque grande étape** (lancer 
 | 9 | Nuage de poussière | Réaliste en progrès, pas de "cloches gravitaires". Vu le 7 nov. dans le brouillon: vers t = 39-43 s, bord droit du nuage en rideau vertical strié; à partir de ~45 s la caméra est dans le nuage (image grise jusqu'à la fin) | Hors V1 (Pareto): pas de nouvelle simulation avant le rendu final | Gel ~10 nov. |
 | 10 | Précurseurs qui couchent les arbres trop tôt | Corrigé (couchage à ≥ 2 m de matière) | Vérifier visuellement sur le brouillon 2 | |
 | 11 | Herbe | Plus tard, seulement si peu coûteux | Test mémoire après les arbres | |
-| 12 | Rendu à deux PC | Codé et testé le 7 nov. (simulation sur le vrai film, essai complet avec un faux Blender): partage en direct, suivi sur le téléphone (ntfy), montage automatique | Créer le dépôt de transfert et le jeton GitHub; quand les décisions sont figées: `Lancer_preparer_duo.bat`, zip au frère, `Lancer_rendu_duo.bat` | 12 nov. |
+| 12 | Rendu à deux PC | Codé et testé le 7 nov. (simulation sur le vrai film, essai complet avec un faux Blender): partage en direct, suivi sur le téléphone (ntfy), montage automatique. Carte pleine: le PC se limite tout seul, l'autre fait la fin (blocage mutuel trouvé en simulation et corrigé) | Créer le dépôt de transfert et le jeton GitHub; quand les décisions sont figées: `Lancer_preparer_duo.bat`, zip au frère, `Lancer_rendu_duo.bat` | 12 nov. |
 | 13 | Courrier Johan | Réponse UNESCO (forfait) envoyée ou à envoyer | Voir le fil mail | |
 
 ## Décisions en attente d'Ilyas
@@ -72,4 +72,5 @@ Mise à jour: 7 novembre 2026. **À relire avant chaque grande étape** (lancer 
 
 - 7 nov.: rendu à deux PC (`paquet`, `duo`, `duo-etat`, `duo-envoyer`, `duo-importer`), docs/RENDU_A_DEUX.md; pas de mise en veille pendant les rendus.
 - 7 nov. (soir): `test-final`, arbres en grappes, `prep-sol`, `test-aspect`, `Lancer_tests_rapides.bat` et `Lancer_tests_soir.bat`.
+- 7 nov. (nuit): essai de fumée dans Blender (sol, eau, titre, réglages de rendu, forêt complète): aucune erreur. Plan B mémoire: `scene.rendu_tuile`, `duo` qui laisse les images trop lourdes à l'autre PC, `--max-image`. `Lancer_tous_les_tests.bat` (les deux lots à la suite).
 - 2 nov.: SA3D, `test-son`, brouillon fin, polices, `test-eau`, vent 0,09, eau (cap + loin), feuille de route.

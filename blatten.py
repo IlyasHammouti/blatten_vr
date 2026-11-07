@@ -1368,6 +1368,10 @@ def cmd_test_final(cfg, paths, extra):
         print(f"{'OK' if ok else 'ÉCHEC'}: {nom} t = {t:g} s: {dt:.1f} min (construction comprise), carte {gpu}/{tot} Mo, "
               f"RAM libre mini {ram if ram is not None else '?'} Go", flush=True)
         json.dump(bilan, open(os.path.join(base, "bilan.json"), "w", encoding="utf-8"), indent=1)
+        if nom == "A_film" and (not ok or (tot and gpu >= 0.97 * tot)):
+            # carte pleine (ou échec): même instant avec des tuiles de 1024 pixels, qui prennent moins de mémoire
+            print(f"   carte pleine ou échec à t = {t:g} s: essai supplémentaire avec des tuiles de 1024 pixels", flush=True)
+            essais.append(("D_tuiles_1024", t, ["scene.rendu_tuile=1024"]))
     A = sorted((b["t"], b["minutes"]) for b in bilan if b["variante"] == "A_film" and b["ok"])
     if len(A) >= 2:
         try:
@@ -1383,6 +1387,10 @@ def cmd_test_final(cfg, paths, extra):
             json.dump(bilan, open(os.path.join(base, "bilan.json"), "w", encoding="utf-8"), indent=1)
         except Exception as e:
             print("estimation impossible:", e)
+    if any(not b.get("ok", True) or (b.get("carte_mo_total") and b["carte_mo_max"] >= 0.97 * b["carte_mo_total"])
+           for b in bilan if b.get("variante") == "A_film" and b.get("t", 0) > 35):
+        print("\nÀ deux PC, la fin du film (après t = 30 à 38 s selon les vitesses) revient au PC du frère (carte de 12 Go). Si la "
+              "carte d'ici manque de mémoire sur une image, ce PC laisse tout seul les images suivantes au frère.", flush=True)
     print(f"\nImages et bilan: {base}")
     return 0 if all(b.get("ok", True) for b in bilan) else 1
 

@@ -152,6 +152,7 @@ CFG = dict(
     rendu_seuil=None,           # seuil de bruit de l'échantillonnage adaptatif (None: défaut de Blender, 0,01); plus grand = plus rapide
     rendu_pas_volumes=None,     # pas de calcul de la poussière (None: 1,5); 3 = deux fois moins de pas, plus rapide, un peu plus de bruit
     rendu_rebonds=None,         # rebonds de lumière au plus (None: défaut de Blender, 12)
+    rendu_tuile=None,           # taille des tuiles de rendu en pixels (None: 2048, défaut de Blender); 1024 ou 512 = moins de mémoire sur la carte
     titre_style="blanc",    # "blanc" (lumineux, discret) ou "sombre" (lettres sombres éclairées par le ciel)
     titre_emission=1.2,     # intensité du blanc (1 = environ la luminosité du ciel couvert)
     titre_duree=5.0,        # s de film pendant lesquelles le texte est visible
@@ -2762,8 +2763,11 @@ def setup_render(scene, out_dir):
             scene.cycles.volume_step_rate = float(CFG["rendu_pas_volumes"])
         if CFG["rendu_rebonds"]:
             scene.cycles.max_bounces = int(CFG["rendu_rebonds"])
+        if CFG["rendu_tuile"]:    # tampons de l'image découpés: moins de mémoire sur la carte, débruitage sur l'image entière
+            scene.cycles.use_auto_tile = True
+            scene.cycles.tile_size = int(CFG["rendu_tuile"])
         log(f"rendu: {scene.cycles.samples} échantillons, seuil adaptatif {scene.cycles.adaptive_threshold:g}, pas des volumes "
-            f"{scene.cycles.volume_step_rate:g}, rebonds {scene.cycles.max_bounces}")
+            f"{scene.cycles.volume_step_rate:g}, rebonds {scene.cycles.max_bounces}, tuiles {scene.cycles.tile_size}")
     except Exception as e:
         log("réglages de vitesse:", e)
     scene.cycles.use_denoising = True

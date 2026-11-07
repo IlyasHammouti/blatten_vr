@@ -107,6 +107,7 @@ les `.bat` du PC d'Ilyas.
 | « Arrivée des images bloquée » (GitHub) | jeton expiré ou mal copié | refaire un jeton, relancer `Lancer_preparer_duo.bat` (nouvelle session) ou passer à l'envoi à la main (`ENVOYER_IMAGES.bat` chez le frère) |
 | Ton PC attend des images du frère qui n'arrivent pas | envoi à la main pas encore fait, ou PC du frère éteint avant l'envoi | lui demander `ENVOYER_IMAGES.bat`. En dernier recours: `python blatten.py duo --tout-rendre` (ton PC refait tout ce qui manque) |
 | « Les données ont changé » | une commande `prep-...` lancée pendant le rendu | remettre les données, ou refaire un paquet (nouvelle session) |
+| « Carte graphique pleine » | la carte de 6 Go manque de mémoire sur une image lourde (poussière) | rien: ce PC laisse tout seul cette image et les suivantes à l'autre PC, attend, puis monte le film. Si l'autre PC ne rend pas (notification « images bloquées »), le relancer |
 | Le frère doit recevoir un nouveau paquet | nouvelle session préparée | chaque session a son propre sujet de messages: un ancien paquet n'interfère pas, il ne sert plus |
 
 ## Comment ça marche
@@ -120,6 +121,9 @@ les `.bat` du PC d'Ilyas.
 - **Choix d'un paquet**: images libres les plus proches de son bout du film (ni faites, ni prises par l'autre). Taille
   12, réduite à la fin pour que les deux PC finissent ensemble, compte tenu des 3 min de préparation de scène par
   paquet. Si les deux annoncent les mêmes images au même moment, le premier arrivé les garde.
+- **Carte pleine**: si le journal de Blender montre un manque de mémoire de la carte, ce PC annonce une limite (images qu'il
+  accepte encore) et l'autre PC prend tout ce qui est au-delà, sans jamais l'attendre pour ces images. Simulation: Ilyas
+  s'arrête de lui-même vers t = 32 à 38 s; la fin du film, la plus lourde, revient de toute façon à la 3060 (12 Go).
 - **Lots**: chaque paquet du frère devient un zip (images + manifeste). Il part par GitHub (fichier joint d'une release
   du dépôt de transfert) ou par le dossier partagé, et il est réessayé jusqu'à ce qu'il passe. Les images rendues
   pendant une coupure sont rattrapées au redémarrage.
@@ -133,7 +137,7 @@ les `.bat` du PC d'Ilyas.
 | Commande | Où | Rôle |
 |---|---|---|
 | `python blatten.py paquet [--transport github\|dossier\|manuel] [--sans-blender] [--sans-test] [--paquet-images 12] [--intro-pas 2]` | Ilyas | prépare la session, le paquet du frère et le teste (`Lancer_preparer_duo.bat`) |
-| `python blatten.py duo [--jusqu-a HH:MM] [--tout-rendre]` | les deux | rend la part de ce PC; chez Ilyas, importe et monte (`Lancer_rendu_duo.bat`, `LANCER_RENDU.bat`) |
+| `python blatten.py duo [--jusqu-a HH:MM] [--tout-rendre] [--max-image N] [--min-image N]` | les deux | rend la part de ce PC; chez Ilyas, importe et monte (`Lancer_rendu_duo.bat`, `LANCER_RENDU.bat`). `--max-image`: ce PC ne prend pas les images après N |
 | `python blatten.py duo-etat` | les deux | état des deux PC (`Lancer_etat_duo.bat`, `ETAT.bat`) |
 | `python blatten.py duo-envoyer` | frère | un seul zip de toutes ses images, ouvre SwissTransfer (`ENVOYER_IMAGES.bat`) |
 | `python blatten.py duo-importer CHEMIN` | Ilyas | importe un zip ou un dossier d'images du frère à la main |

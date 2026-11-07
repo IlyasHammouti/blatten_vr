@@ -78,6 +78,16 @@ def _lire_json(p, defaut):
         return defaut
 
 
+def _lire_depuis(p, pos):
+    """Texte ajouté à un fichier (journal de Blender) depuis la position pos (octets)."""
+    try:
+        with open(p, "rb") as f:
+            f.seek(pos)
+            return f.read().decode("utf-8", "replace")
+    except Exception:
+        return ""
+
+
 def _ecrire_json(p, d):
     tmp = p + ".part"
     with open(tmp, "w", encoding="utf-8") as f:
@@ -827,9 +837,11 @@ def _zip_final_frere(D, s, out):
 
 def cmd_duo(B, D, cfg, paths, extra):
     """Rend la part de CE PC du film 360 (PC d'Ilyas ou du frère, reconnu tout seul), en partageant avec l'autre PC.
-        python blatten.py duo [--session ID] [--jusqu-a 07:00] [--tout-rendre] [--sans-montage]
+        python blatten.py duo [--session ID] [--jusqu-a 07:00] [--tout-rendre] [--sans-montage] [--max-image N] [--min-image N]
     --jusqu-a HH:MM  s'arrête proprement avant cette heure (l'autre PC peut alors prendre la suite)
     --tout-rendre    (PC d'Ilyas) ne compte plus sur les images du frère: rend tout ce qui manque ici
+    --max-image N    ce PC ne prend que les images jusqu'à N (les suivantes, plus lourdes, sont laissées à l'autre PC);
+                     --min-image N: à partir de N. Fait tout seul si la carte graphique manque de mémoire en cours de rendu.
     Relancer la même commande reprend là où on en était."""
     s, extra = charger_session(B, cfg, extra)
     role = s["_role"]
@@ -839,6 +851,8 @@ def cmd_duo(B, D, cfg, paths, extra):
     tout_rendre = "--tout-rendre" in extra
     sans_montage = "--sans-montage" in extra or os.environ.get("BLATTEN_DUO_SANS_MONTAGE") == "1"
     extra = [x for x in extra if x not in ("--tout-rendre", "--sans-montage")]
+    lim_max, extra = B._option(extra, "--max-image", 1)
+    lim_min, extra = B._option(extra, "--min-image", 1)
     jq, extra = B._option(extra, "--jusqu-a", 1)
     heure_fin = None
     if jq:
@@ -861,9 +875,16 @@ def cmd_duo(B, D, cfg, paths, extra):
     ratio = float(s.get("vitesse_frere") or VITESSE_FRERE)
     ratio = ratio if maitre else 1.0 / ratio          # vitesse de l'autre / la mienne, avant toute mesure
     coupure = int(round(len(ordre) / (1.0 + float(s.get("vitesse_frere") or VITESSE_FRERE))))   # part d'Ilyas estimée
+    try:
+        lim = [int(lim_min[0]) if lim_min else 1, int(lim_max[0]) if lim_max else n]
+    except ValueError:
+        sys.exit("--max-image et --min-image attendent un numéro d'image (ex. --max-image 1400)")
+    lim = lim if lim != [1, n] else None
     log("=" * 70)
     log(f"Rendu à deux, session {s['session']}: {nom}, sens {'début -> fin' if maitre else 'fin -> début'}")
     log(f"Film: {n} images, {len(ordre)} à calculer. Images: {out}")
+    if lim:
+        log(f"Ce PC ne prend que les images {lim[0]} à {lim[1]} (les autres sont laissées à l'autre PC).")
     # vérifications de départ
     ec = D.empreinte_code(racine)
     if ec != s.get("empreinte_code"):
@@ -896,7 +917,7 @@ def cmd_duo(B, D, cfg, paths, extra):
     if libre < 4:
         log(f"!! seulement {libre:.1f} Go libres: prévoir au moins 4 Go")
     _empecher_veille()
-    E = dict(etat="demarrage", cours=[], tc=None, tcs=None, vit=None, envoye=set())
+    E = dict(etat="demarrage", cours=[], tc=None, tcs=None, vit=None, envoye=set(), lim=lim)
     lots_etat = _lire_json(os.path.join(s["_lots"], "lots.json"), {}) if not maitre else {}
     for info in lots_etat.values():
         if info.get("envoye"):
@@ -917,6 +938,8 @@ def cmd_duo(B, D, cfg, paths, extra):
                  vit=round(E["vit"], 3) if E["vit"] else None, gpu=gpu, ec=ec[:8], n=len(f))
         if not maitre:
             m["envoye"] = D.plages(E["envoye"])
+        if E["lim"]:
+            m["lim"] = E["lim"]
         if msg:
             m["msg"] = msg
         return m
@@ -994,13 +1017,24 @@ def cmd_duo(B, D, cfg, paths, extra):
                 vm = va / ratio
             if va is None and vm:
                 va = vm * ratio
-            limite = None
+            conds = []
             if not maitre and autre is None:                  # aucune nouvelle d'Ilyas: on s'en tient à la part estimée du frère
-                limite = (lambda f: idx[f] >= coupure)
+                conds.append(lambda f: idx[f] >= coupure)
+            if E["lim"]:                                      # --max-image / --min-image, ou carte graphique pleine
+                conds.append(D.borne_fn(E["lim"]))
+            limite = (lambda f: all(c(f) for c in conds)) if conds else None
             viv = vivant and vue is not None
-            images, raison = D.choisir(ordre, pas, faits, vue, sens, K, vm, va, maintenant, viv, limite)
+            lim_autre = D.borne_fn((vue or {}).get("lim"))
+            images, raison = D.choisir(ordre, pas, faits, vue, sens, K, vm, va, maintenant, viv, limite, lim_autre)
+            par_limite = False
             if raison == "rien" and limite and D.choisir(ordre, pas, faits, vue, sens, K, vm, va, maintenant, viv)[0]:
-                raison = "attendre"
+                raison, par_limite = "attendre", True
+                if E["lim"] and not vivant:
+                    hors = [f for f in ordre if f not in faits and f not in ((autre or {}).get("fait") or set())]
+                    alerter("limite", f"{nom}: images bloquées", f"Il reste {len(hors)} images ({D.plages(hors)[:60]}) que ce PC "
+                            f"ne prend pas (limite: images {E['lim'][0]} à {E['lim'][1]}) et {D.NOMS[autre_role]} ne rend pas. "
+                            f"Relancer {D.NOMS[autre_role]}. Ou fermer et relancer la fenêtre de ce PC: la limite saute (mais la "
+                            "carte peut de nouveau manquer de mémoire).", 4, 6 * 3600)
             if images and heure_fin:
                 duree_h = (D.SURCOUT_H + len(images) / vm) if vm else None
                 if duree_h and time.time() + 1.1 * duree_h * 3600 > heure_fin:
@@ -1040,6 +1074,8 @@ def cmd_duo(B, D, cfg, paths, extra):
                 B._attendre_ram(7.0)
                 pouls = D.Pouls(lambda: publier() if time.time() - E.get("pub", 0) > D.POULS / 2 else None)
                 pouls.start()
+                jl = B.LOG_COURANT.get("chemin")
+                pos_j = os.path.getsize(jl) if jl and os.path.exists(jl) else 0
                 t0 = time.time()
                 try:
                     _rendre_paquet(B, cfg, paths, racine, cfg_scene, out, images, p)
@@ -1052,6 +1088,23 @@ def cmd_duo(B, D, cfg, paths, extra):
                 faits2 = _images(out, ordre_set)
                 nouvelles = [f for f in images if f in faits2]
                 E.update(cours=[], tc=None, tcs=None)
+                manquees = [f for f in images if f not in faits2]
+                if manquees and D.memoire_pleine(_lire_depuis(B.LOG_COURANT.get("chemin"), pos_j)):
+                    # carte graphique pleine: les images à partir de celle-ci (plus lourdes en allant vers mon autre bout) sont
+                    # laissées à l'autre PC; ce PC continue avec ce qui reste de son côté, puis attend et monte le film
+                    lo, hi = E["lim"] or [1, n]
+                    if maitre:
+                        hi = min(hi, min(manquees) - 1)
+                    else:
+                        lo = max(lo, max(manquees) + 1)
+                    E["lim"] = [lo, hi]
+                    txt = (f"Carte graphique pleine (mémoire) sur l'image {min(manquees) if maitre else max(manquees)}: ce PC ne prend "
+                           f"plus que les images {lo} à {hi}, les autres sont laissées à {D.NOMS[autre_role]}.")
+                    log("!! " + txt)
+                    canal.prevenir(f"{nom}: carte graphique pleine", txt, 4, ["warning"])
+                    publier("rend" if nouvelles else "attente")
+                    if not nouvelles:
+                        continue
                 if nouvelles:
                     v = len(nouvelles) / max(dt / 3600.0, 1e-6)
                     E["vit"] = v if E["vit"] is None else 0.3 * E["vit"] + 0.7 * v
@@ -1098,7 +1151,9 @@ def cmd_duo(B, D, cfg, paths, extra):
             if raison == "attendre":
                 if E["etat"] != "attente" or time.time() - E.get("pub", 0) > D.POULS:
                     publier("attente")
-                    log(f"L'autre PC finira plus vite les {len([f for f in ordre if f not in faits])} images restantes: j'attends.")
+                    reste_ = len([f for f in ordre if f not in faits])
+                    log(f"Les {reste_} images restantes sont hors de la part de ce PC: j'attends l'autre PC." if par_limite else
+                        f"L'autre PC finira plus vite les {reste_} images restantes: j'attends.")
                 time.sleep(min(D.ATTENTE, 120))
                 continue
             if maitre:
@@ -1213,7 +1268,8 @@ def cmd_duo_etat(B, D, cfg, paths, extra):
         vit = f"{e['vit']:.1f} images/h" if e.get("vit") else "vitesse ?"
         cours = f", en cours: {D.plages(e['cours'])}" if e["cours"] else ""
         print(f"  {D.NOMS[r]:16s} {e['etat']:9s} {len(e['fait'] & ordre_set):5d} images faites{cours}, {vit}, "
-              f"nouvelles il y a {il_y_a}" + (f", {e['gpu']}" if e.get("gpu") else ""))
+              f"nouvelles il y a {il_y_a}" + (f", {e['gpu']}" if e.get("gpu") else "")
+              + (f", ne prend que les images {e['lim'][0]} à {e['lim'][1]}" if e.get("lim") else ""))
     tous = set()
     for e in etats.values():
         if e:
