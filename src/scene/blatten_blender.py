@@ -127,8 +127,9 @@ CFG = dict(
     arbres_modeles=False,   # arbres proches détaillés (EZ-Tree, MIT: écorce et feuillage photographiques), voir src/scene/arbres_ez.py
     arbres_modeles_dist=200.0,    # m: distance jusqu'à laquelle les arbres sont détaillés (instances: peu de mémoire)
     arbres_modeles_eclat=2.6,     # couleur du feuillage éclairé / couleur moyenne de la couronne vue d'avion
-    arbres_gain=(1.0, 1.0, 1.0),  # correction (rouge, vert, bleu) des arbres simples, mesurée par test-arbres: même couleur
-                                  # moyenne que la forêt de l'image aérienne qu'ils recouvrent
+    arbres_gain=(1.0, 1.0, 1.0),  # correction (rouge, vert, bleu) des arbres simples LOINTAINS (3 km et plus), mesurée par
+                                  # test-arbres: même couleur moyenne que la forêt de l'image aérienne qu'ils recouvrent
+    arbres_gain_proche=None,      # idem pour les arbres simples à 500 m et moins (None: arbres_gain); entre les deux: fondu
     arbres_modeles_gain=(1.0, 1.0, 1.0),   # idem pour les arbres détaillés
     tree_dist=4700.0,       # distance maximale des arbres modélisés (m); au-delà l'image aérienne suffit
     border=None,            # (x0, x1, y0, y1) en fraction de l'image: ne rend que ce cadre (zoom d'essai à pleine résolution, coût réduit)
@@ -940,6 +941,31 @@ def maj_arbres(t):
             n.outputs[0].default_value = float(t)
 
 
+def _couleur_robuste(oc, ok):
+    """Couleur des arbres lue dans l'image, sans valeurs aberrantes: teinte à 70 % celle de la forêt de la région (médiane de
+    tous les arbres), à 30 % celle de l'image au pied de l'arbre; luminosité de l'image bornée entre 0,6 et 1,6 fois la
+    médiane. Évite les arbres orange ou gris là où le point lu dans l'image tombe sur un toit, un chemin ou une ombre."""
+    oc = np.asarray(oc, np.float64)
+    if not np.any(ok):
+        return oc
+    w = np.array([0.2126, 0.7152, 0.0722])
+    med = np.median(oc[ok], axis=0)
+    Lm = max(float(med @ w), 1e-6)
+    L = np.maximum(oc @ w, 1e-6)
+    teinte = 0.7 * (med / Lm)[None, :] + 0.3 * (oc / L[:, None])
+    out = teinte * (Lm * np.clip(L / Lm, 0.6, 1.6))[:, None]
+    return np.where(ok[:, None], out, oc)
+
+
+def _gain_distance(d):
+    """Gain (r, v, b) des arbres simples selon la distance: arbres_gain_proche à 500 m et moins, arbres_gain à 3 km et plus,
+    fondu entre les deux (en logarithme de la distance)."""
+    gl = np.log(np.maximum(np.asarray(CFG["arbres_gain"], float), 1e-6))
+    gp = np.log(np.maximum(np.asarray(CFG["arbres_gain_proche"] or CFG["arbres_gain"], float), 1e-6))
+    t = np.clip((np.log(np.maximum(np.asarray(d, float), 1.0)) - np.log(500.0)) / (np.log(3000.0) - np.log(500.0)), 0.0, 1.0)
+    return np.exp(gp[None, :] * (1.0 - t[:, None]) + gl[None, :] * t[:, None])
+
+
 def _ortho_comme_le_sol(c):
     """Couleurs (linéaires, (n, 3)) lues dans l'image aérienne, passées par les mêmes réglages que l'image posée sur le sol
     (nœud Teinte/Saturation: saturation x ortho_saturation bornée à 1, valeur x ortho_gain, teinte inchangée). Sans cela,
@@ -1738,7 +1764,9 @@ def build_trees(env, coll, cam):
     oc = np.where(ok_oc[:, None], oc, 0.0).astype(np.float64)
     oc = np.where(oc <= 0.04045, oc / 12.92, ((oc + 0.055) / 1.055) ** 2.4)                 # sRGB -> linéaire
     oc = np.where(ok_oc[:, None], _ortho_comme_le_sol(oc), 0.0)        # mêmes réglages que l'image posée sur le sol
+    oc = _couleur_robuste(oc, ok_oc)                                    # pas d'arbre orange là où l'image montre un toit ou du sol
     w_oc = np.where(ok_oc, CFG["tree_ortho"], 0.0)
+    g_arbres = _gain_distance(d)                                        # calage sur la forêt de l'image (test-arbres)
     near = d < CFG["wind_dist"]
     # arbres sur le passage du front: couchés vers l'aval (même sans disparition), donc animés eux aussi
     if CFG["arbres_couchage"] > 0:
@@ -1797,7 +1825,7 @@ def build_trees(env, coll, cam):
             esp = np.broadcast_to(COULEURS_ARBRES[e][None, None, :], (nt, k, 3)) * shade * tone[sel][:, None, None]
             cim = oc[sel][:, None, :] * ((0.55 + 0.45 * gg) * PO)[None, :, None] * tone[sel][:, None, None]
             wc = w_oc[sel][:, None, None]
-            base = ((1.0 - wc) * esp + wc * cim) * np.asarray(CFG["arbres_gain"], float)[None, None, :]
+            base = ((1.0 - wc) * esp + wc * cim) * g_arbres[sel][:, None, :]
             base[:, ntr:, :] = COULEUR_TRONC[None, None, :]
             vent = (float(CFG["vent_force"]) * Hh[sel][:, None]) * (gg ** 2)[None, :]   # amplitude du balancement (m) en cime
             vent[:, ntr:] = 0.0

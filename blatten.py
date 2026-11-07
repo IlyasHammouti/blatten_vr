@@ -1439,14 +1439,21 @@ def _lin_srgb(a):
     return np.where(a <= 0.04045, a / 12.92, ((a + 0.055) / 1.055) ** 2.4)
 
 
-def _gains_arbres(ref, avec, avant=None, seuil=0.02):
-    """Gains (r, v, b) qui donnent aux pixels où les arbres 3D apparaissent (avec vs ref, ou avec vs avant) la couleur
-    moyenne de l'image aérienne en dessous (ref: rendu sans arbres). Ciel et pixels saturés exclus. Rend (gains, nb pixels)."""
+def _gains_arbres(ref, avec, avant=None, seuil=0.02, lignes=None):
+    """Gains (r, v, b) qui donnent aux pixels de feuillage des arbres 3D (avec vs ref, ou avec vs avant) la couleur moyenne de
+    l'image aérienne en dessous (ref: rendu sans arbres). Exclus: ciel, pixels saturés, et ombres portées (pixels plus
+    sombres de même teinte que l'image). lignes=(début, fin): seulement ces lignes de l'image. Rend (gains, nb pixels)."""
     import numpy as np
     autre = ref if avant is None else avant
-    diff = np.abs(avec - autre).sum(-1) > seuil
-    lum_ref = ref @ np.array([0.2126, 0.7152, 0.0722])
-    m = diff & (lum_ref < 0.45) & (avec.max(-1) < 0.98) & (ref.max(-1) < 0.98)
+    w = np.array([0.2126, 0.7152, 0.0722])
+    m = (np.abs(avec - autre).sum(-1) > seuil) & ((ref @ w) < 0.45) & (avec.max(-1) < 0.98) & (ref.max(-1) < 0.98)
+    eps = 1e-4
+    ch = lambda X: np.stack([X[..., 0] / (X[..., 1] + eps), X[..., 2] / (X[..., 1] + eps)], -1)
+    ombre = (np.abs(ch(avec) - ch(ref)).sum(-1) < 0.08) & ((avec @ w) < (ref @ w))
+    m &= ~ombre
+    if lignes:
+        m[:lignes[0]] = False
+        m[lignes[1]:] = False
     if m.sum() < 500:
         return None, int(m.sum())
     g = ref[m].mean(0) / np.maximum(avec[m].mean(0), 1e-6)
@@ -1460,13 +1467,13 @@ def cmd_test_arbres(cfg, paths, extra):
       D0, D200, D500, D1000: arbres détaillés jusqu'à 0 (aucun), 200, 500, 1000 m.
     Pour chaque image: temps de rendu. Puis les gains de couleur (rouge, vert, bleu) qui donneraient aux arbres simples (D0)
     et aux arbres détaillés (D200) la couleur moyenne de la forêt de l'image aérienne qu'ils recouvrent: bilan.json.
-        python blatten.py test-arbres [--temps 15] [--distances 0 200 500 1000]"""
+        python blatten.py test-arbres [--temps 15] [--distances 0 500]     (le 7 nov.: 0 200 500 1000)"""
     import numpy as np
     from PIL import Image
     temps, extra = _option(extra, "--temps", 1)
     t = temps[0] if temps else "15"
     dists, extra = _option(extra, "--distances")
-    dists = [float(x) for x in (dists or ["0", "200", "500", "1000"])]
+    dists = [float(x) for x in (dists or ["0", "500"])]
     variantes = [("R0_sans_arbres", ["scene.no_trees=true"])]
     for dd in dists:
         variantes.append((f"D{dd:g}", [f"scene.arbres_modeles={'true' if dd > 0 else 'false'}", f"scene.arbres_modeles_dist={dd:g}"]))
@@ -1494,15 +1501,23 @@ def cmd_test_arbres(cfg, paths, extra):
         json.dump(bilan, open(os.path.join(base, "bilan.json"), "w", encoding="utf-8"), indent=1)
     ref = imgs.get("R0_sans_arbres")
     if ref is not None and "D0" in imgs:
-        g0, n0 = _gains_arbres(ref, imgs["D0"])
-        res = dict(gains_arbres_simples=g0, pixels_arbres_simples=n0)
-        if "D200" in imgs:
-            g1, n1 = _gains_arbres(ref, imgs["D200"], avant=imgs["D0"])
-            res.update(gains_arbres_detailles=g1, pixels_arbres_detailles=n1)
+        H = ref.shape[0]
+        res = dict()
+        for nom, lg in (("simples", None), ("simples_loin", (0, int(H * 0.39))), ("simples_milieu", (int(H * 0.39), int(H * 0.66))),
+                        ("simples_proche", (int(H * 0.66), H))):
+            g, n = _gains_arbres(ref, imgs["D0"], lignes=lg)
+            res[f"gains_{nom}"], res[f"pixels_{nom}"] = g, n
+        for dd in dists:
+            if dd > 0 and f"D{dd:g}" in imgs:
+                g, n = _gains_arbres(ref, imgs[f"D{dd:g}"], avant=imgs["D0"])
+                res[f"gains_detailles_D{dd:g}"], res[f"pixels_detailles_D{dd:g}"] = g, n
         bilan.append(res)
         json.dump(bilan, open(os.path.join(base, "bilan.json"), "w", encoding="utf-8"), indent=1)
-        print(f"\nCouleur: gains à appliquer pour retrouver la forêt de l'image aérienne: arbres simples {g0}"
-              + (f", arbres détaillés {res.get('gains_arbres_detailles')}" if "D200" in imgs else ""), flush=True)
+        print("\nCouleur: gains (rouge, vert, bleu) qui donneraient aux arbres la couleur moyenne de la forêt de l'image "
+              "aérienne qu'ils recouvrent (1 = déjà juste):", flush=True)
+        for k, v in res.items():
+            if k.startswith("gains_"):
+                print(f"  {k[6:]:22s} {v}", flush=True)
     print(f"\nImages et bilan: {base}")
     return rc
 
