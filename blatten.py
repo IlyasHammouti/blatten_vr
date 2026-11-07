@@ -1433,6 +1433,80 @@ def cmd_test_aspect(cfg, paths, extra):
     return rc
 
 
+def _lin_srgb(a):
+    import numpy as np
+    a = np.asarray(a, np.float64) / 255.0
+    return np.where(a <= 0.04045, a / 12.92, ((a + 0.055) / 1.055) ** 2.4)
+
+
+def _gains_arbres(ref, avec, avant=None, seuil=0.02):
+    """Gains (r, v, b) qui donnent aux pixels où les arbres 3D apparaissent (avec vs ref, ou avec vs avant) la couleur
+    moyenne de l'image aérienne en dessous (ref: rendu sans arbres). Ciel et pixels saturés exclus. Rend (gains, nb pixels)."""
+    import numpy as np
+    autre = ref if avant is None else avant
+    diff = np.abs(avec - autre).sum(-1) > seuil
+    lum_ref = ref @ np.array([0.2126, 0.7152, 0.0722])
+    m = diff & (lum_ref < 0.45) & (avec.max(-1) < 0.98) & (ref.max(-1) < 0.98)
+    if m.sum() < 500:
+        return None, int(m.sum())
+    g = ref[m].mean(0) / np.maximum(avec[m].mean(0), 1e-6)
+    return [round(float(x), 3) for x in g], int(m.sum())
+
+
+def cmd_test_arbres(cfg, paths, extra):
+    """Arbres détaillés (jusqu'à quelle distance ?) et couleur des arbres face à l'image aérienne, sur une image fixe
+    (bande HD plate, réglages du film, sol d'origine partout): render/tests/arbres/<date>/.
+      R0 sans arbres: référence, la forêt telle que l'image aérienne la montre;
+      D0, D200, D500, D1000: arbres détaillés jusqu'à 0 (aucun), 200, 500, 1000 m.
+    Pour chaque image: temps de rendu. Puis les gains de couleur (rouge, vert, bleu) qui donneraient aux arbres simples (D0)
+    et aux arbres détaillés (D200) la couleur moyenne de la forêt de l'image aérienne qu'ils recouvrent: bilan.json.
+        python blatten.py test-arbres [--temps 15] [--distances 0 200 500 1000]"""
+    import numpy as np
+    from PIL import Image
+    temps, extra = _option(extra, "--temps", 1)
+    t = temps[0] if temps else "15"
+    dists, extra = _option(extra, "--distances")
+    dists = [float(x) for x in (dists or ["0", "200", "500", "1000"])]
+    variantes = [("R0_sans_arbres", ["scene.no_trees=true"])]
+    for dd in dists:
+        variantes.append((f"D{dd:g}", [f"scene.arbres_modeles={'true' if dd > 0 else 'false'}", f"scene.arbres_modeles_dist={dd:g}"]))
+    base = os.path.join(ROOT, "render", "tests", "arbres", time.strftime("%Y%m%d_%H%M"))
+    bilan, imgs, rc = [], {}, 0
+    for nom, sets in variantes:
+        out = os.path.join(base, nom)
+        os.makedirs(out, exist_ok=True)
+        print(f"\n>>> {nom} (t = {t} s) -> {out}", flush=True)
+        _attendre_ram(7.0)
+        t0 = time.time()
+        sa = ["--set", "scene.ortho_sol=false"]
+        for x in sets:
+            sa += ["--set", x]
+        r = run_blender(cfg, SCRIPTS["scene"], scene_args(cfg, paths) + ["--preset", "bande", "--mono", "--camera-confirmed",
+                        "--render-frame", "1", "--render-time", t, "--out", out] + sa + extra, fond=True)
+        f = os.path.join(out, "frame_0001.png")
+        ok = os.path.exists(f)
+        dt = (time.time() - t0) / 60
+        bilan.append(dict(variante=nom, ok=ok, minutes=round(dt, 2)))
+        print(f"{'OK' if ok else 'ÉCHEC'}: {nom}, {dt:.1f} min (construction comprise)", flush=True)
+        rc = rc or (0 if ok else (r or 1))
+        if ok:
+            imgs[nom] = _lin_srgb(np.asarray(Image.open(f).convert("RGB")))
+        json.dump(bilan, open(os.path.join(base, "bilan.json"), "w", encoding="utf-8"), indent=1)
+    ref = imgs.get("R0_sans_arbres")
+    if ref is not None and "D0" in imgs:
+        g0, n0 = _gains_arbres(ref, imgs["D0"])
+        res = dict(gains_arbres_simples=g0, pixels_arbres_simples=n0)
+        if "D200" in imgs:
+            g1, n1 = _gains_arbres(ref, imgs["D200"], avant=imgs["D0"])
+            res.update(gains_arbres_detailles=g1, pixels_arbres_detailles=n1)
+        bilan.append(res)
+        json.dump(bilan, open(os.path.join(base, "bilan.json"), "w", encoding="utf-8"), indent=1)
+        print(f"\nCouleur: gains à appliquer pour retrouver la forêt de l'image aérienne: arbres simples {g0}"
+              + (f", arbres détaillés {res.get('gains_arbres_detailles')}" if "D200" in imgs else ""), flush=True)
+    print(f"\nImages et bilan: {base}")
+    return rc
+
+
 def cmd_test_couleurs(cfg, paths, extra):
     """Même image (la première du film, bande plate HD) avec plusieurs réglages de couleur et de forêt, pour comparer:
     render/tests/couleurs/<date>/<nom>/. A actuel (saturation 0,8), B saturation 1,0, C saturation 1,25, D = B + couronnes x1,3.
@@ -2059,7 +2133,7 @@ def cmd_menu(cfg, paths, extra):
 COMMANDS = {
     "status": cmd_status, "setup": cmd_setup, "download": cmd_download, "prep-env": cmd_prep_env, "prep-batiments": cmd_prep_batiments, "prep-vegetation": cmd_prep_vegetation, "env-complet": cmd_env_complet, "visible": cmd_visible,
     "prep-particules": cmd_prep_particules, "terrain": cmd_terrain, "views": cmd_views, "test360": cmd_test360,
-    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "eau-manuel": cmd_eau_manuel, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "titre-test": cmd_titre_test, "test-son": cmd_test_son, "test-couleurs": cmd_test_couleurs, "test-eau": cmd_test_eau, "test-final": cmd_test_final, "prep-sol": cmd_prep_sol, "test-aspect": cmd_test_aspect, "test-bande": cmd_test_bande, "finir": cmd_finir, "son": cmd_son, "outro": cmd_outro, "cap": cmd_cap, "camera": cmd_camera, "paquet": cmd_paquet, "duo": cmd_duo, "duo-etat": cmd_duo_etat, "duo-envoyer": cmd_duo_envoyer, "duo-importer": cmd_duo_importer, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
+    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "eau-manuel": cmd_eau_manuel, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "titre-test": cmd_titre_test, "test-son": cmd_test_son, "test-couleurs": cmd_test_couleurs, "test-eau": cmd_test_eau, "test-final": cmd_test_final, "prep-sol": cmd_prep_sol, "test-aspect": cmd_test_aspect, "test-arbres": cmd_test_arbres, "test-bande": cmd_test_bande, "finir": cmd_finir, "son": cmd_son, "outro": cmd_outro, "cap": cmd_cap, "camera": cmd_camera, "paquet": cmd_paquet, "duo": cmd_duo, "duo-etat": cmd_duo_etat, "duo-envoyer": cmd_duo_envoyer, "duo-importer": cmd_duo_importer, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
 }
 
 

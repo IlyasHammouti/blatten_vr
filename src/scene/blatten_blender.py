@@ -127,6 +127,9 @@ CFG = dict(
     arbres_modeles=False,   # arbres proches détaillés (EZ-Tree, MIT: écorce et feuillage photographiques), voir src/scene/arbres_ez.py
     arbres_modeles_dist=200.0,    # m: distance jusqu'à laquelle les arbres sont détaillés (instances: peu de mémoire)
     arbres_modeles_eclat=2.6,     # couleur du feuillage éclairé / couleur moyenne de la couronne vue d'avion
+    arbres_gain=(1.0, 1.0, 1.0),  # correction (rouge, vert, bleu) des arbres simples, mesurée par test-arbres: même couleur
+                                  # moyenne que la forêt de l'image aérienne qu'ils recouvrent
+    arbres_modeles_gain=(1.0, 1.0, 1.0),   # idem pour les arbres détaillés
     tree_dist=4700.0,       # distance maximale des arbres modélisés (m); au-delà l'image aérienne suffit
     border=None,            # (x0, x1, y0, y1) en fraction de l'image: ne rend que ce cadre (zoom d'essai à pleine résolution, coût réduit)
     no_depot=False,         # matière sans la peau continue sous les roches (src/matiere/depot.py)
@@ -937,6 +940,21 @@ def maj_arbres(t):
             n.outputs[0].default_value = float(t)
 
 
+def _ortho_comme_le_sol(c):
+    """Couleurs (linéaires, (n, 3)) lues dans l'image aérienne, passées par les mêmes réglages que l'image posée sur le sol
+    (nœud Teinte/Saturation: saturation x ortho_saturation bornée à 1, valeur x ortho_gain, teinte inchangée). Sans cela,
+    les arbres gardaient les couleurs brutes de l'image quand le sol était plus saturé: deux verts qui ne collent pas."""
+    s, g = float(CFG["ortho_saturation"]), float(CFG["ortho_gain"])
+    c = np.asarray(c, np.float64)
+    if s == 1.0 and g == 1.0:
+        return c
+    v = c.max(1)
+    mn = c.min(1)
+    sat = np.where(v > 1e-9, (v - mn) / np.maximum(v, 1e-9), 0.0)
+    k = np.where(sat > 1e-6, np.clip(sat * s, 0.0, 1.0) / np.maximum(sat, 1e-9), 0.0)
+    return (v[:, None] - (v[:, None] - c) * k[:, None]) * g
+
+
 def _echantillon_ortho(env, E, N):
     """Couleur (sRGB 0..1) de l'image aérienne aux points (E, N): images locales 10 cm, 50 cm, puis l'image 2 m. NaN si hors de toutes."""
     m = env["meta"]
@@ -1719,6 +1737,7 @@ def build_trees(env, coll, cam):
     ok_oc = np.isfinite(oc[:, 0])
     oc = np.where(ok_oc[:, None], oc, 0.0).astype(np.float64)
     oc = np.where(oc <= 0.04045, oc / 12.92, ((oc + 0.055) / 1.055) ** 2.4)                 # sRGB -> linéaire
+    oc = np.where(ok_oc[:, None], _ortho_comme_le_sol(oc), 0.0)        # mêmes réglages que l'image posée sur le sol
     w_oc = np.where(ok_oc, CFG["tree_ortho"], 0.0)
     near = d < CFG["wind_dist"]
     # arbres sur le passage du front: couchés vers l'aval (même sans disparition), donc animés eux aussi
@@ -1745,7 +1764,8 @@ def build_trees(env, coll, cam):
         if modele.any():
             s_ = modele
             wc = w_oc[s_][:, None]
-            coul = ((1.0 - wc) * COULEURS_ARBRES[sp[s_]] + wc * oc[s_]) * tone[s_][:, None] * float(CFG["arbres_modeles_eclat"])
+            coul = ((1.0 - wc) * COULEURS_ARBRES[sp[s_]] + wc * oc[s_]) * tone[s_][:, None] * float(CFG["arbres_modeles_eclat"]) \
+                * np.asarray(CFG["arbres_modeles_gain"], float)[None, :]
             coll_ez = bpy.data.collections.new("ArbresDetailles")
             coll.children.link(coll_ez)
             placer_arbres_ez(coll_ez, modeles, X[s_], Y[s_], Z_sol[s_], Hh[s_], R[s_], sp[s_], yaw[s_], coul,
@@ -1777,7 +1797,7 @@ def build_trees(env, coll, cam):
             esp = np.broadcast_to(COULEURS_ARBRES[e][None, None, :], (nt, k, 3)) * shade * tone[sel][:, None, None]
             cim = oc[sel][:, None, :] * ((0.55 + 0.45 * gg) * PO)[None, :, None] * tone[sel][:, None, None]
             wc = w_oc[sel][:, None, None]
-            base = ((1.0 - wc) * esp + wc * cim).copy()
+            base = ((1.0 - wc) * esp + wc * cim) * np.asarray(CFG["arbres_gain"], float)[None, None, :]
             base[:, ntr:, :] = COULEUR_TRONC[None, None, :]
             vent = (float(CFG["vent_force"]) * Hh[sel][:, None]) * (gg ** 2)[None, :]   # amplitude du balancement (m) en cime
             vent[:, ntr:] = 0.0

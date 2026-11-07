@@ -15,6 +15,7 @@
       "ortho_10cm.jpg"
     ],
     "ortho_saturation": 1.25,
-    "arbres_modeles": true
+    "arbres_modeles": true,
+    "tree_ortho": 0.85
   }
 }
