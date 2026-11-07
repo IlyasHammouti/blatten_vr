@@ -83,6 +83,7 @@ CFG = dict(
     snow_line=2300.0,       # m, début de la neige (28 mai: d'après la capture RTS, neige au-dessus de 2200-2400 m)
     ortho_saturation=0.8,   # saturation de l'image aérienne dans le rendu (1 = couleurs de l'image; 0,8 jusqu'au 2 nov.: terne sur les prairies)
     ortho_gain=1.0,         # luminosité de l'image aérienne dans le rendu (l'image est déséclairée par la préparation)
+    ortho_sol=False,        # images aériennes « nettoyées » (prep-sol: cimes et ombres d'arbres remplacées, trame du 10 cm lissée)
     clouds=0.0,             # 0..1, couverture nuageuse procédurale (0 = ciel dégagé)
     time="2025-05-28T15:24:00+02:00",   # instant de l'événement (heure locale), sert au soleil
     sky="couvert",          # "couvert" (voile blanc, lumière diffuse, comme le 28 mai 2025) ou "clair" (soleil réel)
@@ -146,6 +147,11 @@ CFG = dict(
     titre_cache=0.07,       # part de la hauteur du texte cachée derrière la crête
     titre_recul=800.0,      # m derrière la crête
     titre_police="",        # fichier de police (.ttf/.otf) du titre; vide = police par défaut de Blender
+    arbres_grappes=True,        # feuillus, pins cembro et arbustes en grappes (silhouette irrégulière, creux ombrés); False: couronnes lisses (avant le 7 nov.)
+    rendu_echantillons=None,    # échantillons par pixel (None: ceux du preset, 96 en final)
+    rendu_seuil=None,           # seuil de bruit de l'échantillonnage adaptatif (None: défaut de Blender, 0,01); plus grand = plus rapide
+    rendu_pas_volumes=None,     # pas de calcul de la poussière (None: 1,5); 3 = deux fois moins de pas, plus rapide, un peu plus de bruit
+    rendu_rebonds=None,         # rebonds de lumière au plus (None: défaut de Blender, 12)
     titre_style="blanc",    # "blanc" (lumineux, discret) ou "sombre" (lettres sombres éclairées par le ciel)
     titre_emission=1.2,     # intensité du blanc (1 = environ la luminosité du ciel couvert)
     titre_duree=5.0,        # s de film pendant lesquelles le texte est visible
@@ -1211,6 +1217,36 @@ def _ellipsoide(z0, z1, n, rings, jit, rng, rmax, fmax):
     return V, np.array(T, np.int32)
 
 
+def _couronne_grappes(zc0, zc1, rmax, nb, rx, rz, n, rings, jit, rng, noyau=0.78):
+    """Couronne faite de nb grappes (petits ellipsoïdes bosselés) posées sur l'enveloppe, autour d'un noyau qui bouche les trous:
+    silhouette irrégulière et creux ombrés, au lieu d'un ballon lisse. Coordonnées du prototype (x, y en rayons de couronne,
+    z en hauteur d'arbre); rz: hauteur d'une grappe / sa largeur, dans ces coordonnées. Rend (parties, ombre par sommet)."""
+    zm, az = 0.5 * (zc0 + zc1), 0.5 * (zc1 - zc0)
+    parts, ombres = [], []
+
+    def ombre(v):           # 1 sur l'enveloppe (dehors, éclairé), 0,5 au coeur de la couronne
+        e = np.sqrt((v[:, 0] / rmax) ** 2 + (v[:, 1] / rmax) ** 2 + ((v[:, 2] - zm) / max(az, 1e-6)) ** 2)
+        return np.clip(0.50 + 0.55 * (e - 0.45) / 0.55, 0.50, 1.0)
+    if noyau:
+        v, t = _ellipsoide(zm - az * noyau, zm + az * noyau, max(6, n), max(2, rings), jit * 0.5, rng, rmax * noyau, 0.5)
+        parts.append((v, t))
+        ombres.append(np.full(len(v), 0.5))
+    # grappes réparties sur l'enveloppe (plus nombreuses en haut et sur les côtés que dessous)
+    u = np.clip(1.0 - 2.0 * (np.arange(nb) + rng.uniform(0.2, 0.8, nb)) / nb, -0.6, 0.97)
+    phi = np.arange(nb) * 2.39996 + rng.uniform(0, 6.28)          # angle d'or: grappes bien réparties
+    for i in range(nb):
+        sn = np.sqrt(1 - u[i] ** 2)
+        prof = rng.uniform(0.62, 0.86)
+        cx, cy = rmax * sn * np.cos(phi[i]) * prof, rmax * sn * np.sin(phi[i]) * prof
+        cz = zm + az * u[i] * prof
+        r = rx * rng.uniform(0.75, 1.25)
+        v, t = _ellipsoide(-1.0, 1.0, n, rings, jit, rng, 1.0, rng.uniform(0.4, 0.6))
+        v = v * np.array([r, r, r * rz]) + np.array([cx, cy, cz])
+        parts.append((v, t))
+        ombres.append(ombre(v))
+    return parts, np.concatenate(ombres)
+
+
 def _fusion(parts):
     V, T, off = [], [], 0
     for v, t in parts:
@@ -1221,8 +1257,47 @@ def _fusion(parts):
 
 
 def _proto_arbre(espece, lod, rng):
-    """Un arbre simplifié, rayon de couronne 1, hauteur 1, pied en z = 0. Rend (sommets, triangles, indice de tronc).
-    lod 0: détaillé (< 120 m), 1: moyen (< 500 m), 2: lointain (< 1500 m), 3: très lointain (cônes simples)."""
+    """Un arbre simplifié, rayon de couronne 1, hauteur 1, pied en z = 0. Rend (sommets, triangles, indice de tronc, ombre par
+    sommet). lod 0: détaillé (< 120 m), 1: moyen (< 500 m), 2: lointain (< 1500 m), 3: très lointain (cônes simples)."""
+    if CFG.get("arbres_grappes", True) and espece in (2, 3, 4) and lod <= 1:      # au-delà de 500 m: 10 pixels, inutile (mémoire)
+        return _proto_grappes(espece, lod, rng)
+    V, T, ntr = _proto_arbre_lisse(espece, lod, rng)
+    return V, T, ntr, np.ones(len(V))
+
+
+def _proto_grappes(espece, lod, rng):
+    """Feuillu (3), pin cembro (2) ou arbuste (4) en grappes. Même encombrement que les couronnes lisses."""
+    nb = {0: 26, 1: 9}[lod]
+    n, rings = {0: (8, 3), 1: (6, 2)}[lod]
+    if espece == 4:                                   # aulne vert: dôme bas, sans tronc
+        parts, om = _couronne_grappes(0.0, 0.9, 1.0, max(3, nb - 4), 0.42, 0.55, n, rings, 0.30, rng, noyau=0.7)
+        V, T = _fusion(parts)
+        V[:, 2] = np.maximum(V[:, 2], 0.0)
+        return V, T, len(V), om
+    # rz: grappes à peu près rondes dans le monde (hauteur ~0,75 x largeur), pour des proportions courantes (R/H 0,35 et 0,23)
+    zc0, zc1, rx, rz = (0.22, 1.0, 0.34, 0.19) if espece == 2 else (0.30, 1.0, 0.44, 0.27)
+    if lod == 0:                                      # de près: plus de grappes, plus petites
+        rx, rz = rx * 0.8, rz * 0.8
+    parts, om = _couronne_grappes(zc0, zc1, 0.82 if espece == 2 else 1.0, nb, rx, rz, n, rings, 0.30, rng, noyau=0.84)
+    V, T = _fusion(parts)
+    ntr = len(V)
+    if lod < 2:                                       # tronc: prisme à 4 pans, jusque dans la couronne
+        a = np.linspace(0, 2 * np.pi, 4, endpoint=False)
+        r0, ht = 0.07, zc0 + 0.25 * (zc1 - zc0)
+        tv = np.concatenate([np.stack([r0 * np.cos(a), r0 * np.sin(a), np.zeros(4)], 1),
+                             np.stack([r0 * 0.6 * np.cos(a), r0 * 0.6 * np.sin(a), np.full(4, ht)], 1)])
+        tt = []
+        for i in range(4):
+            j = (i + 1) % 4
+            tt += [(i, j, 4 + i), (j, 4 + j, 4 + i)]
+        V = np.concatenate([V, tv])
+        T = np.concatenate([T, np.array(tt, np.int32) + ntr])
+        om = np.concatenate([om, np.ones(8)])
+    return V, T, ntr, om
+
+
+def _proto_arbre_lisse(espece, lod, rng):
+    """Couronnes lisses (avant le 7 nov.); conifères à étages."""
     parts = []
     if espece in (0, 1):                      # conifères à étages (épicéa serré, mélèze plus lâche)
         T_ = {0: (26, 8, 2, 1), 1: (15, 6, 2, 1)}[espece][lod]     # proches (lod 0): étages plus nombreux et plus irréguliers (1er nov.)
@@ -1271,6 +1346,94 @@ def _proto_arbre(espece, lod, rng):
         V = np.concatenate([V, tv])
         T = np.concatenate([T, np.array(tt, np.int32) + ntr])
     return V, T, ntr
+
+
+def _materiau_arbres():
+    """Matériau des arbres: couleur par sommet (attribut col), grain d'aiguilles, plaques de teinte, relief."""
+    mt = bpy.data.materials.new("Arbre")
+    mt.use_nodes = True
+    nt_ = mt.node_tree
+    b = nt_.nodes["Principled BSDF"]
+    b.inputs["Roughness"].default_value = 0.92
+    at = nt_.nodes.new("ShaderNodeAttribute")
+    at.attribute_name, at.attribute_type = "col", "GEOMETRY"
+    # grain d'aiguilles (bruit fin) et plaques de teinte (bruit large), en coordonnées du monde, + relief: casse l'aspect lisse des volumes
+    Nn, Ln = nt_.nodes, nt_.links
+    po = Nn.new("ShaderNodeNewGeometry")
+    def _bruit(sc, det):
+        t = Nn.new("ShaderNodeTexNoise")
+        t.inputs["Scale"].default_value, t.inputs["Detail"].default_value = sc, det
+        Ln.new(po.outputs["Position"], t.inputs["Vector"])
+        return t.outputs["Fac"]
+    def _plage(src, lo, hi):
+        r = Nn.new("ShaderNodeMapRange")
+        r.inputs["From Min"].default_value, r.inputs["From Max"].default_value = 0.25, 0.75
+        r.inputs["To Min"].default_value, r.inputs["To Max"].default_value = lo, hi
+        Ln.new(src, r.inputs["Value"])
+        return r.outputs["Result"]
+    grain = _bruit(2.2, 7.0)
+    plaque = _bruit(0.12, 3.0)
+    mx1 = Nn.new("ShaderNodeMix")
+    mx1.data_type, mx1.blend_type = "RGBA", "MULTIPLY"
+    mx1.inputs[0].default_value = 1.0
+    Ln.new(at.outputs["Color"], mx1.inputs[6])
+    g3 = Nn.new("ShaderNodeCombineColor")
+    for ch in ("Red", "Green", "Blue"):
+        Ln.new(_plage(grain, 0.55, 1.35), g3.inputs[ch])
+    Ln.new(g3.outputs["Color"], mx1.inputs[7])
+    mx2 = Nn.new("ShaderNodeMix")
+    mx2.data_type, mx2.blend_type = "RGBA", "MULTIPLY"
+    mx2.inputs[0].default_value = 1.0
+    Ln.new(mx1.outputs[2], mx2.inputs[6])
+    p3 = Nn.new("ShaderNodeCombineColor")
+    Ln.new(_plage(plaque, 0.85, 1.12), p3.inputs["Red"])
+    Ln.new(_plage(plaque, 0.88, 1.10), p3.inputs["Green"])
+    Ln.new(_plage(plaque, 0.80, 1.05), p3.inputs["Blue"])
+    Ln.new(p3.outputs["Color"], mx2.inputs[7])
+    # amas de feuilles et d'aiguilles: cellules de ~30 cm bombées, interstices sombres (lisible de près, s'efface au loin)
+    vo = Nn.new("ShaderNodeTexVoronoi")
+    vo.feature = "F1"
+    vo.inputs["Scale"].default_value = 3.0
+    vo.inputs["Randomness"].default_value = 1.0
+    dist = Nn.new("ShaderNodeVectorMath")            # cellules déformées par un bruit: amas irréguliers, pas des écailles
+    dist.operation = "MULTIPLY_ADD"
+    dist.inputs[1].default_value = (0.35, 0.35, 0.35)
+    bv = Nn.new("ShaderNodeTexNoise")
+    bv.inputs["Scale"].default_value, bv.inputs["Detail"].default_value = 1.1, 2.0
+    Ln.new(po.outputs["Position"], bv.inputs["Vector"])
+    Ln.new(bv.outputs["Color"], dist.inputs[0])
+    Ln.new(po.outputs["Position"], dist.inputs[2])
+    Ln.new(dist.outputs[0], vo.inputs["Vector"])
+    creux = Nn.new("ShaderNodeMapRange")
+    creux.inputs["From Min"].default_value, creux.inputs["From Max"].default_value = 0.15, 0.80
+    creux.inputs["To Min"].default_value, creux.inputs["To Max"].default_value = 1.06, 0.72
+    Ln.new(vo.outputs["Distance"], creux.inputs["Value"])
+    mx3 = Nn.new("ShaderNodeMix")
+    mx3.data_type, mx3.blend_type = "RGBA", "MULTIPLY"
+    mx3.inputs[0].default_value = 1.0
+    Ln.new(mx2.outputs[2], mx3.inputs[6])
+    c3 = Nn.new("ShaderNodeCombineColor")
+    for ch in ("Red", "Green", "Blue"):
+        Ln.new(creux.outputs["Result"], c3.inputs[ch])
+    Ln.new(c3.outputs["Color"], mx3.inputs[7])
+    Ln.new(mx3.outputs[2], b.inputs["Base Color"])
+    dome = Nn.new("ShaderNodeMath")
+    dome.operation = "SUBTRACT"
+    dome.inputs[0].default_value = 1.0
+    Ln.new(vo.outputs["Distance"], dome.inputs[1])
+    haut = Nn.new("ShaderNodeMath")
+    haut.operation = "ADD"
+    Ln.new(dome.outputs[0], haut.inputs[0])
+    fin = Nn.new("ShaderNodeMath")
+    fin.operation = "MULTIPLY"
+    fin.inputs[1].default_value = 0.35
+    Ln.new(_bruit(5.0, 5.0), fin.inputs[0])
+    Ln.new(fin.outputs[0], haut.inputs[1])
+    bp = Nn.new("ShaderNodeBump")
+    bp.inputs["Strength"].default_value, bp.inputs["Distance"].default_value = 0.75, 0.25
+    Ln.new(haut.outputs[0], bp.inputs["Height"])
+    Ln.new(bp.outputs["Normal"], b.inputs["Normal"])
+    return mt
 
 
 def build_trees(env, coll, cam):
@@ -1345,51 +1508,7 @@ def build_trees(env, coll, cam):
         log(f"arbres: {int(sur_passage.sum()):,} sur le passage du front, couchés vers l'aval à {CFG['arbres_couchage']:g}°")
     near = near | sur_passage
     protos = {(e, l, v): _proto_arbre(e, l, np.random.default_rng(1000 * e + 100 * l + v)) for e in range(5) for l in range(4) for v in range(nv_var)}
-    mt = bpy.data.materials.new("Arbre")
-    mt.use_nodes = True
-    nt_ = mt.node_tree
-    b = nt_.nodes["Principled BSDF"]
-    b.inputs["Roughness"].default_value = 0.92
-    at = nt_.nodes.new("ShaderNodeAttribute")
-    at.attribute_name, at.attribute_type = "col", "GEOMETRY"
-    # grain d'aiguilles (bruit fin) et plaques de teinte (bruit large), en coordonnées du monde, + relief: casse l'aspect lisse des volumes
-    Nn, Ln = nt_.nodes, nt_.links
-    po = Nn.new("ShaderNodeNewGeometry")
-    def _bruit(sc, det):
-        t = Nn.new("ShaderNodeTexNoise")
-        t.inputs["Scale"].default_value, t.inputs["Detail"].default_value = sc, det
-        Ln.new(po.outputs["Position"], t.inputs["Vector"])
-        return t.outputs["Fac"]
-    def _plage(src, lo, hi):
-        r = Nn.new("ShaderNodeMapRange")
-        r.inputs["From Min"].default_value, r.inputs["From Max"].default_value = 0.25, 0.75
-        r.inputs["To Min"].default_value, r.inputs["To Max"].default_value = lo, hi
-        Ln.new(src, r.inputs["Value"])
-        return r.outputs["Result"]
-    grain = _bruit(2.2, 7.0)
-    plaque = _bruit(0.12, 3.0)
-    mx1 = Nn.new("ShaderNodeMix")
-    mx1.data_type, mx1.blend_type = "RGBA", "MULTIPLY"
-    mx1.inputs[0].default_value = 1.0
-    Ln.new(at.outputs["Color"], mx1.inputs[6])
-    g3 = Nn.new("ShaderNodeCombineColor")
-    for ch in ("Red", "Green", "Blue"):
-        Ln.new(_plage(grain, 0.55, 1.35), g3.inputs[ch])
-    Ln.new(g3.outputs["Color"], mx1.inputs[7])
-    mx2 = Nn.new("ShaderNodeMix")
-    mx2.data_type, mx2.blend_type = "RGBA", "MULTIPLY"
-    mx2.inputs[0].default_value = 1.0
-    Ln.new(mx1.outputs[2], mx2.inputs[6])
-    p3 = Nn.new("ShaderNodeCombineColor")
-    Ln.new(_plage(plaque, 0.85, 1.12), p3.inputs["Red"])
-    Ln.new(_plage(plaque, 0.88, 1.10), p3.inputs["Green"])
-    Ln.new(_plage(plaque, 0.80, 1.05), p3.inputs["Blue"])
-    Ln.new(p3.outputs["Color"], mx2.inputs[7])
-    Ln.new(mx2.outputs[2], b.inputs["Base Color"])
-    bp = Nn.new("ShaderNodeBump")
-    bp.inputs["Strength"].default_value, bp.inputs["Distance"].default_value = 0.8, 0.3
-    Ln.new(_bruit(5.0, 5.0), bp.inputs["Height"])
-    Ln.new(bp.outputs["Normal"], b.inputs["Normal"])
+    mt = _materiau_arbres()
     ta = _arrivee(env, E, N, hauteur=Hh)
     ob0, nf, nsw = None, 0, 0
     groupes = [(g, zn) for g in np.unique(ta) for zn in ((0, 1) if CFG["wind"] else (0,))]
@@ -1400,7 +1519,7 @@ def build_trees(env, coll, cam):
         co_all, tri_all, col_all, vent_all = [], [], [], []
         haut_all, tarr_all, dirx_all, diry_all, rpar_all = [], [], [], [], []
         off = 0
-        for (e, l, v), (PV, PT, ntr) in protos.items():
+        for (e, l, v), (PV, PT, ntr, PO) in protos.items():
             sel = (sp == e) & (lod == l) & (var == v) & gsel
             if not sel.any():
                 continue
@@ -1413,9 +1532,9 @@ def build_trees(env, coll, cam):
             k = len(PV)
             tri = (PT[None, :, :] + (np.arange(nt) * k + off)[:, None, None]).reshape(-1, 3)
             gg = np.clip(PV[:, 2], 0, 1)
-            shade = (0.55 + 0.45 * gg)[None, :, None]                     # bas de la couronne plus sombre
+            shade = ((0.55 + 0.45 * gg) * PO)[None, :, None]              # bas de la couronne et creux entre grappes plus sombres
             esp = np.broadcast_to(COULEURS_ARBRES[e][None, None, :], (nt, k, 3)) * shade * tone[sel][:, None, None]
-            cim = oc[sel][:, None, :] * (0.55 + 0.45 * gg)[None, :, None] * tone[sel][:, None, None]
+            cim = oc[sel][:, None, :] * ((0.55 + 0.45 * gg) * PO)[None, :, None] * tone[sel][:, None, None]
             wc = w_oc[sel][:, None, None]
             base = ((1.0 - wc) * esp + wc * cim).copy()
             base[:, ntr:, :] = COULEUR_TRONC[None, None, :]
@@ -1677,6 +1796,18 @@ def sun_vector(env, center):
     return Vector((math.sin(a) * math.cos(e), flip * math.cos(a) * math.cos(e), math.sin(e)))
 
 
+def _fichier_ortho(env, nom):
+    """Image aérienne à charger: la version nettoyée par prep-sol (suffixe _sol) si ortho_sol est demandé et qu'elle existe."""
+    if CFG.get("ortho_sol"):
+        p = os.path.join(env["dir"], os.path.splitext(nom)[0] + "_sol.jpg")
+        if os.path.exists(p):
+            return p
+        if CFG["preset"] == "final":      # film final: deux PC doivent avoir exactement les mêmes images
+            raise SystemExit(f"ortho_sol demandé mais {os.path.basename(p)} absent: lancer python blatten.py prep-sol avant le paquet")
+        log(f"!! ortho_sol demandé mais {os.path.basename(p)} absent (python blatten.py prep-sol): image d'origine")
+    return os.path.join(env["dir"], nom)
+
+
 def build_terrain_material(env=None):
     """Terrain réaliste sans texture externe : couleur selon l'altitude (forêt, alpage, roche),
     roche sur les pentes raides, neige sur les pentes douces en altitude, micro-relief par bruit.
@@ -1758,7 +1889,7 @@ def build_terrain_material(env=None):
     o = env["meta"].get("ortho") if (env and not CFG["no_ortho"]) else None
     if o:  # image aérienne SWISSIMAGE projetée à la verticale, fondue vers le procédural hors emprise
         em = env["meta"]
-        img = bpy.data.images.load(os.path.join(env["dir"], o["file"]))
+        img = bpy.data.images.load(_fichier_ortho(env, o["file"]))
         img.colorspace_settings.name = "sRGB"
         tex = N.new("ShaderNodeTexImage")
         tex.image, tex.interpolation, tex.extension = img, "Linear", "EXTEND"
@@ -1782,7 +1913,7 @@ def build_terrain_material(env=None):
         L.new(tex.outputs["Color"], hs.inputs["Color"])
         col = mix(inside, col, hs.outputs["Color"])
         for pa in ([] if CFG["no_hires"] else em.get("ortho_patches", [])):   # images locales 50 cm, 10 cm (du plus grossier au plus fin)
-            pimg = bpy.data.images.load(os.path.join(env["dir"], pa["file"]))
+            pimg = bpy.data.images.load(_fichier_ortho(env, pa["file"]))
             pimg.colorspace_settings.name = "sRGB"
             pt = N.new("ShaderNodeTexImage")
             pt.image, pt.interpolation, pt.extension = pimg, "Linear", "EXTEND"
@@ -1824,7 +1955,8 @@ def build_terrain_material(env=None):
     L.new(comb.outputs["Vector"], strata.inputs["Vector"])
     # sous la canopée, l'image aérienne montre la cime des arbres (déjà modélisés en volume): on la remplace par un sol de forêt sombre
     cmk = env["meta"].get("canopee_masque") if env else None
-    if cmk and env["meta"].get("vegetation") and not CFG["no_trees"] and os.path.exists(os.path.join(env["dir"], cmk["file"])):
+    if cmk and env["meta"].get("vegetation") and not CFG["no_trees"] and not CFG.get("ortho_sol") \
+            and os.path.exists(os.path.join(env["dir"], cmk["file"])):        # (ortho_sol: déjà traité dans l'image)
         em_ = env["meta"]
         cimg = bpy.data.images.load(os.path.join(env["dir"], cmk["file"]))
         cimg.colorspace_settings.name = "Non-Color"
@@ -2621,7 +2753,19 @@ def setup_render(scene, out_dir):
         b = CFG["border"]
         r.use_border, r.use_crop_to_border = True, True
         r.border_min_x, r.border_max_x, r.border_min_y, r.border_max_y = b[0], b[1], b[2], b[3]
-    scene.cycles.samples = p["samples"]
+    scene.cycles.samples = int(CFG["rendu_echantillons"] or p["samples"])
+    try:      # réglages de vitesse (test-final): appliqués après la poussière, qui pose son propre pas de volumes
+        if CFG["rendu_seuil"]:
+            scene.cycles.use_adaptive_sampling = True
+            scene.cycles.adaptive_threshold = float(CFG["rendu_seuil"])
+        if CFG["rendu_pas_volumes"]:
+            scene.cycles.volume_step_rate = float(CFG["rendu_pas_volumes"])
+        if CFG["rendu_rebonds"]:
+            scene.cycles.max_bounces = int(CFG["rendu_rebonds"])
+        log(f"rendu: {scene.cycles.samples} échantillons, seuil adaptatif {scene.cycles.adaptive_threshold:g}, pas des volumes "
+            f"{scene.cycles.volume_step_rate:g}, rebonds {scene.cycles.max_bounces}")
+    except Exception as e:
+        log("réglages de vitesse:", e)
     scene.cycles.use_denoising = True
     try:   # débruitage sur le processeur: sur la carte de 6 Go, OIDN manquait de mémoire en fin d'image (1er nov., image 27)
         scene.cycles.denoising_use_gpu = False

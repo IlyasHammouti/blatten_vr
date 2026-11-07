@@ -1312,6 +1312,119 @@ def cmd_test_eau(cfg, paths, extra):
     return rc
 
 
+def _sonde_bilan(chemin, depuis):
+    """Pic de mémoire de la carte (Mo), mémoire totale (Mo) et RAM libre minimale (Go) relevés par la sonde dans le journal,
+    à partir de l'octet `depuis`."""
+    gpu, tot, ram = 0, 0, None
+    try:
+        with open(chemin, encoding="utf-8", errors="replace") as f:
+            f.seek(depuis)
+            for l in f:
+                m = re.search(r"\[sonde\] GPU\(index, Mo utilisés, Mo total\): \d+, (\d+), (\d+)", l)
+                if m:
+                    gpu, tot = max(gpu, int(m.group(1))), int(m.group(2))
+                m = re.search(r"RAM libre: ([\d.]+) Go", l)
+                if m:
+                    ram = float(m.group(1)) if ram is None else min(ram, float(m.group(1)))
+    except OSError:
+        pass
+    return gpu, tot, ram
+
+
+def cmd_test_final(cfg, paths, extra):
+    """Une image FINALE (3840x1920, réglages du film) aux instants les plus lourds: temps, pic de mémoire de la carte, RAM libre
+    minimale; puis deux réglages plus rapides au moment le plus lourd, à comparer à l'oeil. Donne une estimation du film entier.
+        python blatten.py test-final [--temps 15 43 53] [--sans-variantes]
+    -> render/tests/final/<date>/<variante>_t<T>s/frame_0001.jpg et bilan.json"""
+    temps, extra = _option(extra, "--temps")
+    temps = [float(x) for x in (temps or ["15", "43", "53"])]
+    sans_var = "--sans-variantes" in extra
+    extra = [x for x in extra if x != "--sans-variantes"]
+    lourd = max(temps)
+    essais = [("A_film", t, []) for t in temps]
+    if not sans_var:
+        essais += [("B_volumes_rapides", lourd, ["scene.rendu_pas_volumes=3"]),
+                   ("C_rapide", lourd, ["scene.rendu_pas_volumes=3", "scene.rendu_echantillons=64", "scene.rendu_seuil=0.02"])]
+    base = os.path.join(ROOT, "render", "tests", "final", time.strftime("%Y%m%d_%H%M"))
+    bilan = []
+    for nom, t, sets in essais:
+        out = os.path.join(base, f"{nom}_t{t:g}s")
+        os.makedirs(out, exist_ok=True)
+        print(f"\n>>> image finale {nom}, t = {t:g} s -> {out}", flush=True)
+        _attendre_ram(7.0)
+        j = LOG_COURANT.get("chemin")
+        depuis = os.path.getsize(j) if j and os.path.exists(j) else 0
+        t0 = time.time()
+        sa = []
+        for x in sets:
+            sa += ["--set", x]
+        r = run_blender(cfg, SCRIPTS["scene"], scene_args(cfg, paths) + ["--preset", "final", "--mono", "--camera-confirmed",
+                        "--render-frame", "1", "--render-time", f"{t:g}", "--out", out] + sa + extra, fond=True)
+        dt = (time.time() - t0) / 60
+        ok = os.path.exists(os.path.join(out, "frame_0001.jpg")) and os.path.getsize(os.path.join(out, "frame_0001.jpg")) > 200000
+        gpu, tot, ram = _sonde_bilan(LOG_COURANT.get("chemin"), depuis if j == LOG_COURANT.get("chemin") else 0)
+        bilan.append(dict(variante=nom, t=t, ok=ok, minutes=round(dt, 2), carte_mo_max=gpu, carte_mo_total=tot,
+                          ram_libre_min_go=ram, reglages=sets))
+        print(f"{'OK' if ok else 'ÉCHEC'}: {nom} t = {t:g} s: {dt:.1f} min (construction comprise), carte {gpu}/{tot} Mo, "
+              f"RAM libre mini {ram if ram is not None else '?'} Go", flush=True)
+        json.dump(bilan, open(os.path.join(base, "bilan.json"), "w", encoding="utf-8"), indent=1)
+    A = sorted((b["t"], b["minutes"]) for b in bilan if b["variante"] == "A_film" and b["ok"])
+    if len(A) >= 2:
+        try:
+            import numpy as np
+            n, fps = _film(cfg)
+            n_intro = int(round(float((cfg.get("scene") or {}).get("intro", 8.0)) * fps))
+            ts, ms = [a for a, _ in A], [max(0.5, m - 1.0) for _, m in A]     # ~1 min de construction de scène retirée
+            evt = np.interp(np.arange(n - n_intro) / fps, ts, ms).sum()
+            tot_min = evt + (n_intro // 2) * float(np.interp(0.0, ts, ms))   # intro: une image sur deux, paysage seul
+            print(f"\nEstimation du film final ({n - n_intro} images de l'événement + {n_intro // 2} de l'intro): {tot_min / 60:.0f} h "
+                  f"sur ce PC seul, environ {tot_min / 60 / 2.6:.0f} h à deux si la 3060 va 1,6 fois plus vite.", flush=True)
+            bilan.append(dict(estimation_heures_seul=round(tot_min / 60, 1), estimation_heures_a_deux=round(tot_min / 60 / 2.6, 1)))
+            json.dump(bilan, open(os.path.join(base, "bilan.json"), "w", encoding="utf-8"), indent=1)
+        except Exception as e:
+            print("estimation impossible:", e)
+    print(f"\nImages et bilan: {base}")
+    return 0 if all(b.get("ok", True) for b in bilan) else 1
+
+
+def cmd_prep_sol(cfg, paths, extra):
+    """Images aériennes « nettoyées » pour le sol (src/scene/prep_sol.py): cimes et ombres des arbres remplacées (fini le sol noir
+    sous les arbres 3D), trame de l'image 10 cm lissée. Écrit ortho_*_sol.jpg à côté des originaux (inchangés). Utilisées par la
+    scène si scene.ortho_sol vaut true.     python blatten.py prep-sol [--sombre 0.72] [--lisse 1.0]"""
+    env = os.path.join(paths.cache, "env")
+    return subprocess.call([sys.executable, os.path.join(SRC, "scene", "prep_sol.py"), "--env", env] + extra)
+
+
+def cmd_test_aspect(cfg, paths, extra):
+    """Arbres et sol, avant / après les changements du 7 nov., même image (bande plate HD, avant l'arrivée de la poussière):
+    render/tests/aspect/<date>/<nom>/. A avant (couronnes lisses, image aérienne d'origine), B arbres en grappes, C arbres en
+    grappes + sol nettoyé (prep-sol). Le sol nettoyé demande d'avoir lancé python blatten.py prep-sol.
+        python blatten.py test-aspect [--temps 20]"""
+    temps, extra = _option(extra, "--temps", 1)
+    t = temps[0] if temps else "20"
+    variantes = [("A_avant", ["scene.arbres_grappes=false", "scene.ortho_sol=false"]),
+                 ("B_arbres_grappes", ["scene.arbres_grappes=true", "scene.ortho_sol=false"]),
+                 ("C_arbres_grappes_sol_nettoye", ["scene.arbres_grappes=true", "scene.ortho_sol=true"])]
+    base = os.path.join(ROOT, "render", "tests", "aspect", time.strftime("%Y%m%d_%H%M"))
+    rc = 0
+    for nom, sets in variantes:
+        out = os.path.join(base, nom)
+        os.makedirs(out, exist_ok=True)
+        print(f"\n>>> {nom} (t = {t} s) -> {out}", flush=True)
+        _attendre_ram(7.0)
+        t0 = time.time()
+        sa = []
+        for x in sets:
+            sa += ["--set", x]
+        r = run_blender(cfg, SCRIPTS["scene"], scene_args(cfg, paths) + ["--preset", "bande", "--mono", "--camera-confirmed",
+                        "--render-frame", "1", "--render-time", t, "--out", out] + sa + extra, fond=True)
+        ok = os.path.exists(os.path.join(out, "frame_0001.png"))
+        print(f"{'OK' if ok else 'ÉCHEC'}: {nom}, {(time.time() - t0) / 60:.1f} min", flush=True)
+        rc = rc or (0 if ok else (r or 1))
+    print(f"\nImages: {base}")
+    return rc
+
+
 def cmd_test_couleurs(cfg, paths, extra):
     """Même image (la première du film, bande plate HD) avec plusieurs réglages de couleur et de forêt, pour comparer:
     render/tests/couleurs/<date>/<nom>/. A actuel (saturation 0,8), B saturation 1,0, C saturation 1,25, D = B + couronnes x1,3.
@@ -1938,7 +2051,7 @@ def cmd_menu(cfg, paths, extra):
 COMMANDS = {
     "status": cmd_status, "setup": cmd_setup, "download": cmd_download, "prep-env": cmd_prep_env, "prep-batiments": cmd_prep_batiments, "prep-vegetation": cmd_prep_vegetation, "env-complet": cmd_env_complet, "visible": cmd_visible,
     "prep-particules": cmd_prep_particules, "terrain": cmd_terrain, "views": cmd_views, "test360": cmd_test360,
-    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "eau-manuel": cmd_eau_manuel, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "titre-test": cmd_titre_test, "test-son": cmd_test_son, "test-couleurs": cmd_test_couleurs, "test-eau": cmd_test_eau, "test-bande": cmd_test_bande, "finir": cmd_finir, "son": cmd_son, "outro": cmd_outro, "cap": cmd_cap, "camera": cmd_camera, "paquet": cmd_paquet, "duo": cmd_duo, "duo-etat": cmd_duo_etat, "duo-envoyer": cmd_duo_envoyer, "duo-importer": cmd_duo_importer, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
+    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "eau-manuel": cmd_eau_manuel, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "titre-test": cmd_titre_test, "test-son": cmd_test_son, "test-couleurs": cmd_test_couleurs, "test-eau": cmd_test_eau, "test-final": cmd_test_final, "prep-sol": cmd_prep_sol, "test-aspect": cmd_test_aspect, "test-bande": cmd_test_bande, "finir": cmd_finir, "son": cmd_son, "outro": cmd_outro, "cap": cmd_cap, "camera": cmd_camera, "paquet": cmd_paquet, "duo": cmd_duo, "duo-etat": cmd_duo_etat, "duo-envoyer": cmd_duo_envoyer, "duo-importer": cmd_duo_importer, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
 }
 
 
