@@ -131,7 +131,10 @@ CFG = dict(
     arbres_gain=(1.0, 1.0, 1.0),  # correction (rouge, vert, bleu) des arbres simples LOINTAINS (3 km et plus), mesurée par
                                   # test-arbres: même couleur moyenne que la forêt de l'image aérienne qu'ils recouvrent
     arbres_gain_proche=None,      # idem pour les arbres simples à 500 m et moins (None: arbres_gain); entre les deux: fondu
-    arbres_modeles_gain=(1.0, 1.0, 1.0),   # idem pour les arbres détaillés
+    arbres_modeles_gain=(1.0, 1.0, 1.0),   # idem pour les arbres détaillés (à 200 m et moins)
+    arbres_modeles_gain_loin=None,          # arbres détaillés à 1 km et plus (None: arbres_modeles_gain); fondu entre les deux
+    arbres_simples_ombre=True,    # les arbres simples projettent des ombres (false: l'image aérienne a déjà celles de la forêt)
+    arbres_ombrage_bas=0.55,      # assombrissement du bas des couronnes des arbres simples (1 = aucun)
     tree_dist=4700.0,       # distance maximale des arbres modélisés (m); au-delà l'image aérienne suffit
     border=None,            # (x0, x1, y0, y1) en fraction de l'image: ne rend que ce cadre (zoom d'essai à pleine résolution, coût réduit)
     no_depot=False,         # matière sans la peau continue sous les roches (src/matiere/depot.py)
@@ -958,12 +961,14 @@ def _couleur_robuste(oc, ok):
     return np.where(ok[:, None], out, oc)
 
 
-def _gain_distance(d):
-    """Gain (r, v, b) des arbres simples selon la distance: arbres_gain_proche à 500 m et moins, arbres_gain à 3 km et plus,
-    fondu entre les deux (en logarithme de la distance)."""
-    gl = np.log(np.maximum(np.asarray(CFG["arbres_gain"], float), 1e-6))
-    gp = np.log(np.maximum(np.asarray(CFG["arbres_gain_proche"] or CFG["arbres_gain"], float), 1e-6))
-    t = np.clip((np.log(np.maximum(np.asarray(d, float), 1.0)) - np.log(500.0)) / (np.log(3000.0) - np.log(500.0)), 0.0, 1.0)
+def _gain_distance(d, cle_proche="arbres_gain_proche", cle_loin="arbres_gain", d0=500.0, d1=3000.0):
+    """Gain (r, v, b) selon la distance: CFG[cle_proche] à d0 et moins, CFG[cle_loin] à d1 et plus, fondu entre les deux (en
+    logarithme de la distance). Arbres simples: arbres_gain_proche (500 m) et arbres_gain (3 km); arbres détaillés:
+    arbres_modeles_gain (200 m) et arbres_modeles_gain_loin (1 km). Une clé à None prend la valeur de l'autre."""
+    vl, vp = CFG.get(cle_loin), CFG.get(cle_proche)
+    gl = np.log(np.maximum(np.asarray(vl if vl is not None else vp, float), 1e-6))
+    gp = np.log(np.maximum(np.asarray(vp if vp is not None else vl, float), 1e-6))
+    t = np.clip((np.log(np.maximum(np.asarray(d, float), 1.0)) - np.log(d0)) / (np.log(d1) - np.log(d0)), 0.0, 1.0)
     return np.exp(gp[None, :] * (1.0 - t[:, None]) + gl[None, :] * t[:, None])
 
 
@@ -1810,7 +1815,7 @@ def build_trees(env, coll, cam):
             s_ = modele
             wc = w_oc[s_][:, None]
             coul = ((1.0 - wc) * COULEURS_ARBRES[sp[s_]] + wc * oc[s_]) * tone[s_][:, None] * float(CFG["arbres_modeles_eclat"]) \
-                * np.asarray(CFG["arbres_modeles_gain"], float)[None, :]
+                * _gain_distance(d[s_], "arbres_modeles_gain", "arbres_modeles_gain_loin", 200.0, 1000.0)
             coll_ez = bpy.data.collections.new("ArbresDetailles")
             coll.children.link(coll_ez)
             placer_arbres_ez(coll_ez, modeles, X[s_], Y[s_], Z_sol[s_], Hh[s_], R[s_], sp[s_], yaw[s_], coul,
@@ -1838,11 +1843,13 @@ def build_trees(env, coll, cam):
             k = len(PV)
             tri = (PT[None, :, :] + (np.arange(nt) * k + off)[:, None, None]).reshape(-1, 3)
             gg = np.clip(PV[:, 2], 0, 1)
-            shade = ((0.55 + 0.45 * gg) * PO)[None, :, None]              # bas de la couronne et creux entre grappes plus sombres
+            ab = float(CFG["arbres_ombrage_bas"])
+            shade = ((ab + (1.0 - ab) * gg) * PO)[None, :, None]           # bas de la couronne et creux entre grappes plus sombres
             esp = np.broadcast_to(COULEURS_ARBRES[e][None, None, :], (nt, k, 3)) * shade * tone[sel][:, None, None]
-            cim = oc[sel][:, None, :] * ((0.55 + 0.45 * gg) * PO)[None, :, None] * tone[sel][:, None, None]
+            cim = oc[sel][:, None, :] * shade * tone[sel][:, None, None]
             wc = w_oc[sel][:, None, None]
             base = ((1.0 - wc) * esp + wc * cim) * g_arbres[sel][:, None, :]
+            base = base / np.maximum(1.0, base.max(-1, keepdims=True) / 0.95)     # pas d'écrêtage canal par canal (teinte gardée)
             base[:, ntr:, :] = COULEUR_TRONC[None, None, :]
             vent = (float(CFG["vent_force"]) * Hh[sel][:, None]) * (gg ** 2)[None, :]   # amplitude du balancement (m) en cime
             vent[:, ntr:] = 0.0
@@ -1867,6 +1874,8 @@ def build_trees(env, coll, cam):
                                          "diry": np.concatenate(diry_all), "rpar": np.concatenate(rpar_all)} if zn else None)
         if zn:
             _vent_modifier(ob)
+        if not CFG["arbres_simples_ombre"]:      # l'image aérienne montre déjà les ombres de la forêt: pas d'ombres 3D en plus
+            ob.visible_shadow = False
         ca = ob.data.color_attributes.new("col", "BYTE_COLOR", "POINT")      # 4 octets par sommet au lieu de 16 (mémoire GPU)
         ca.data.foreach_set("color", np.concatenate([col, np.ones((len(co), 1), np.float32)], 1).ravel())
         coll.objects.link(ob)

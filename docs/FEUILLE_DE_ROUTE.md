@@ -63,6 +63,7 @@ Mise à jour: 7 novembre 2026 (soir, après les tests). **À relire avant chaque
 
 ## Journal court
 
+- 8 nov. (0 h 30, 3e test arbres): mesure par zones de forêt entières (le gain pixel par pixel est biaisé pour les arbres vus de côté: derrière eux, la photo montre le pré ou la pente). Arbres simples sans ombres projetées (la photo les a déjà), bas des couronnes moins assombri, couleurs bornées sans écrêtage; arbres détaillés moins verts, plus sombres au loin.
 - 7 nov. (minuit): arbres détaillés jusqu'à 1000 m avec fondu, mesure des couleurs par type d'arbre tel qu'il reste dans le film.
 - 7 nov. (23 h 27, 2e test arbres): calage incomplet (arbres x 1,2 seulement: les couleurs bornées avaient divisé la couleur moyenne par 2; dominante bleue des arbres détaillés). Gains refaits d'après cette mesure, feuillage teinté par la luminosité de la texture. 3e test à faire.
 - 7 nov. (nuit, tests arbres): 500 m retenus; couleur des arbres calée sur l'image (gains mesurés, couleurs bornées).

@@ -1518,10 +1518,26 @@ def cmd_test_arbres(cfg, paths, extra):
             for suf, lg in bandes:
                 g, n = _gains_arbres(ref, fin, avant=imgs["D0"], lignes=lg)
                 res[f"gains_detailles{suf}"], res[f"pixels_detailles{suf}"] = g, n
+        # critère principal: une zone de forêt entière (arbres, trouées, sol) doit garder la couleur moyenne de la photo
+        wl = np.array([0.2126, 0.7152, 0.0722])
+        W = ref.shape[1]
+        zones = {"versant_haut": (0.258, 0.406, 0.273, 0.410), "versant_bas": (0.469, 0.625, 0.254, 0.410),
+                 "vallee": (0.703, 0.898, 0.020, 0.176), "proche": (0.664, 0.859, 0.840, 0.977)}
+        print("\nZones de forêt (photo / rendu: 1 = même couleur moyenne que la photo seule):", flush=True)
+        for nz, (r0, r1, c0, c1) in zones.items():
+            zr = ref[int(r0 * H):int(r1 * H), int(c0 * W):int(c1 * W)].reshape(-1, 3).mean(0)
+            for nv in ("D0", f"D{dmax:g}"):
+                if nv not in imgs:
+                    continue
+                zt = imgs[nv][int(r0 * H):int(r1 * H), int(c0 * W):int(c1 * W)].reshape(-1, 3).mean(0)
+                lum = float((zr @ wl) / max(zt @ wl, 1e-6))
+                rg = float((zr[0] / zr[1]) / max(zt[0] / zt[1], 1e-6))
+                bg = float((zr[2] / zr[1]) / max(zt[2] / zt[1], 1e-6))
+                res[f"zone_{nz}_{nv}"] = dict(luminosite=round(lum, 3), rouge_vert=round(rg, 3), bleu_vert=round(bg, 3))
+                print(f"  {nz:13s} {nv:6s} luminosité {lum:.2f}  rouge/vert {rg:.2f}  bleu/vert {bg:.2f}", flush=True)
         bilan.append(res)
         json.dump(bilan, open(os.path.join(base, "bilan.json"), "w", encoding="utf-8"), indent=1)
-        print("\nCouleur: gains (rouge, vert, bleu) qui donneraient aux arbres la couleur moyenne de la forêt de l'image "
-              "aérienne qu'ils recouvrent (1 = déjà juste):", flush=True)
+        print("\nGains pixel par pixel (indicatifs: biaisés pour les arbres vus de côté):", flush=True)
         for k, v in res.items():
             if k.startswith("gains_"):
                 print(f"  {k[6:]:22s} {v}", flush=True)
