@@ -1,5 +1,5 @@
 {
-  "_doc": "Réglages du FILM (lus par config.json -> scene.reglages). Peau continue + blocs (mixte), poussière V3 en 3 étapes, titre d'intro sombre, arbres et maisons qui ne disparaissent plus (CDC du 31 oct., décisions du 1er nov.). Décisions du 7 nov. après les tests: arbres en grappes, sol nettoyé près de la caméra seulement (image 10 cm), saturation 1,25, titre en Palatino, qualité pleine (96 échantillons), fin gardée jusqu'à 53 s. Arbres (7 nov., test-arbres): détaillés EZ-Tree (gratuit, MIT) jusqu'à 500 m; couleur des arbres tirée de l'image aérienne (mêmes réglages que le sol) et calée sur la forêt de l'image qu'ils recouvrent: gains mesurés (arbres simples 3 à 4 fois trop sombres et trop verts, arbres détaillés 2 fois trop sombres et trop jaunes), appliqués à 90 %.",
+  "_doc": "Réglages du FILM (lus par config.json -> scene.reglages). Peau continue + blocs (mixte), poussière V3 en 3 étapes, titre d'intro sombre, arbres et maisons qui ne disparaissent plus (CDC du 31 oct., décisions du 1er nov.). Décisions du 7 nov. après les tests: arbres en grappes, sol nettoyé près de la caméra seulement (image 10 cm), saturation 1,25, titre en Palatino, qualité pleine (96 échantillons), fin gardée jusqu'à 53 s. Arbres (7 nov., test-arbres): détaillés EZ-Tree (gratuit, MIT) jusqu'à 500 m; couleur des arbres tirée de l'image aérienne (mêmes réglages que le sol) et calée sur la forêt de l'image qu'ils recouvrent: gains mesurés (arbres simples 3 à 4 fois trop sombres et trop verts, arbres détaillés 2 fois trop sombres et trop jaunes), appliqués à 90 %; 2e mesure (7 nov., 23 h 27): couleurs bornées = arbres moitié plus sombres, gains refaits (x 2,2 à 2,4); arbres détaillés teintés par la luminosité de la texture (plus de dominante bleue).",
   "herite": [
     "mixte",
     "poussiere_v3"
@@ -19,19 +19,19 @@
     "tree_ortho": 0.85,
     "arbres_modeles_dist": 500.0,
     "arbres_gain": [
-      2.8,
-      2.53,
-      2.94
+      6.44,
+      5.3,
+      6.47
     ],
     "arbres_gain_proche": [
-      3.67,
-      3.22,
-      3.97
+      8.86,
+      6.97,
+      8.13
     ],
     "arbres_modeles_gain": [
-      2.3,
-      1.8,
-      3.05
+      4.58,
+      3.76,
+      4.6
     ]
   }
 }

@@ -1516,12 +1516,15 @@ _MATS_EZ = {}
 
 
 def _mat_feuillage_ez(typ):
-    """Feuillage: texture photo (rameau ou feuilles) découpée par sa transparence, teinte par la couleur de l'objet (couleur
-    de l'arbre / couleur moyenne de la texture: le détail reste, la moyenne prend la couleur voulue), un peu translucide."""
+    """Feuillage: texture photo (rameau ou feuilles) découpée par sa transparence. Couleur = couleur de l'objet (celle de
+    l'arbre, tirée de l'image aérienne) x détail de luminosité de la texture (moyenne 1). Le 7 nov., la teinte était prise
+    canal par canal (texture / couleur moyenne): le bleu, presque absent des rameaux, était multiplié par 30 et les arbres
+    viraient au gris bleu."""
     cle = ("f", typ)
     if cle in _MATS_EZ:
         return _MATS_EZ[cle]
     fic, ref = FEUILLES_EZ.get(typ, FEUILLES_EZ["ash"])
+    lref = max(0.2126 * ref[0] + 0.7152 * ref[1] + 0.0722 * ref[2], 1e-3)
     mt = bpy.data.materials.new(f"Feuillage_{typ}")
     mt.use_nodes = True
     nt = mt.node_tree
@@ -1531,16 +1534,25 @@ def _mat_feuillage_ez(typ):
     tx.image = bpy.data.images.load(os.path.join(DOSSIER_ARBRES, fic), check_existing=True)
     tx.interpolation = "Linear"
     oi = N.new("ShaderNodeObjectInfo")
-    m1 = N.new("ShaderNodeMix")
-    m1.data_type, m1.blend_type = "RGBA", "MULTIPLY"
-    m1.inputs[0].default_value = 1.0
-    L.new(tx.outputs["Color"], m1.inputs[6])
-    L.new(oi.outputs["Color"], m1.inputs[7])
+    bw = N.new("ShaderNodeRGBToBW")
+    L.new(tx.outputs["Color"], bw.inputs["Color"])
+    det = N.new("ShaderNodeMath")
+    det.operation = "MULTIPLY"
+    det.use_clamp = False
+    L.new(bw.outputs["Val"], det.inputs[0])
+    det.inputs[1].default_value = 1.0 / lref
+    det2 = N.new("ShaderNodeMath")          # borne le détail (reflets clairs de la photo)
+    det2.operation = "MINIMUM"
+    L.new(det.outputs[0], det2.inputs[0])
+    det2.inputs[1].default_value = 2.5
     m2 = N.new("ShaderNodeMix")
     m2.data_type, m2.blend_type = "RGBA", "MULTIPLY"
     m2.inputs[0].default_value = 1.0
-    L.new(m1.outputs[2], m2.inputs[6])
-    m2.inputs[7].default_value = (*(min(1.0 / max(c, 1e-3), 40.0) for c in ref), 1.0)
+    L.new(oi.outputs["Color"], m2.inputs[6])
+    cx = N.new("ShaderNodeCombineXYZ")
+    for k in range(3):
+        L.new(det2.outputs[0], cx.inputs[k])
+    L.new(cx.outputs["Vector"], m2.inputs[7])
     L.new(m2.outputs[2], b.inputs["Base Color"])
     b.inputs["Roughness"].default_value = 0.6
     tr = N.new("ShaderNodeBsdfTranslucent")

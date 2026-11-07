@@ -63,6 +63,7 @@ Mise à jour: 7 novembre 2026 (soir, après les tests). **À relire avant chaque
 
 ## Journal court
 
+- 7 nov. (23 h 27, 2e test arbres): calage incomplet (arbres x 1,2 seulement: les couleurs bornées avaient divisé la couleur moyenne par 2; dominante bleue des arbres détaillés). Gains refaits d'après cette mesure, feuillage teinté par la luminosité de la texture. 3e test à faire.
 - 7 nov. (nuit, tests arbres): 500 m retenus; couleur des arbres calée sur l'image (gains mesurés, couleurs bornées).
 - 7 nov. (nuit, suite): couleur des arbres alignée sur l'image du sol (`_ortho_comme_le_sol`, `tree_ortho` 0,85); gains mesurés par `test-arbres` (`Lancer_test_arbres.bat`).
 - 7 nov. (nuit): `test-bande` des réglages retenus: raccord du sol nettoyé invisible, rien à corriger. Arbres détaillés EZ-Tree portés en Python (`src/scene/arbres_ez.py`, sans dépendance), branchés pour les arbres à moins de 200 m (`placer_arbres_ez`, vent et couchage par rotation de l'objet); empreinte du rendu à deux étendue à assets/.
