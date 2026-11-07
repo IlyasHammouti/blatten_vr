@@ -605,9 +605,9 @@ def transport(cfg_t, chemin_local=None):
 # Empreintes (même code, mêmes données des deux côtés)
 # ----------------------------------------------------------------------------------
 def fichiers_scene(racine):
-    """Fichiers qui changent les images: tout src/, les réglages, la caméra et config.json."""
+    """Fichiers qui changent les images: tout src/, les réglages, les textures d'arbres (assets/), la caméra et config.json."""
     out = []
-    for base in ("src", "reglages"):
+    for base in ("src", "reglages", "assets"):
         for d, sous, fs in os.walk(os.path.join(racine, base)):
             sous[:] = sorted(x for x in sous if x != "__pycache__")
             out += [os.path.relpath(os.path.join(d, f), racine) for f in sorted(fs) if not f.endswith((".pyc", ".pyo"))]

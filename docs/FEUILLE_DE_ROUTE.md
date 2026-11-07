@@ -35,7 +35,7 @@ Mise à jour: 7 novembre 2026 (soir, après les tests). **À relire avant chaque
 2 bis. `test-final` fait le 7 nov.: carte 5 491 Mo sur 6 144 au pire (ça tient, pas de tuiles), qualité pleine gardée (96 échantillons). À deux PC, la fin du film (après t = 32 à 38 s) va à la 3060 de 12 Go; si la carte d'Ilyas est pleine sur une image, son PC laisse les suivantes au frère tout seul.
 2 ter. Sol nettoyé: `prep-sol` fait le 7 nov. (fichiers `*_sol.jpg` dans cache/env). Ne pas relancer `prep-...` après le paquet.
 3. Rendu à deux PC (docs/RENDU_A_DEUX.md): envoi des images du frère choisi (GitHub recommandé: dépôt privé `blatten-transfert` + jeton, 3 min), puis `Lancer_preparer_duo.bat` (le paquet se teste tout seul), zip donné au frère, `Lancer_rendu_duo.bat`. Le partage entre les PC se règle tout seul.
-4. Licences: sons (klankbeeld CC BY à créditer dans l'outro, G43-01 et G43-02 à confirmer en CC0), images.
+4. Licences: sons (klankbeeld CC BY à créditer dans l'outro, G43-01 et G43-02 à confirmer en CC0), images; arbres détaillés: EZ-Tree (Daniel Greenheck, licence MIT, copie dans assets/arbres), écorces Poly Haven et texturecan (CC0). Crédit conseillé dans l'outro.
 5. Plan B si le temps manque: baisser le nombre d'échantillons (64 au lieu de 96: environ 17 % plus rapide) plutôt que couper le contenu.
 
 ## Chantiers
@@ -46,7 +46,7 @@ Mise à jour: 7 novembre 2026 (soir, après les tests). **À relire avant chaque
 | 2 | Brouillon HD, 10 dernières s + fondu + outro | `Lancer_brouillon_fin.bat` prêt | Facultatif maintenant que le rendu final peut partir | |
 | 3 | Saturation de l'image satellite et densité de forêt | Décidé le 7 nov.: saturation 1,25 (C), couronnes inchangées | Rien | |
 | 4 | Police du titre | Décidé le 7 nov.: Palatino (`C:/Windows/Fonts/pala.ttf`, présente sur tout Windows) | Rien | |
-| 5 | Arbres moches | Décidé le 7 nov.: arbres en grappes (nettement mieux que les boules lisses sur `test-aspect`) | Rien | |
+| 5 | Arbres moches | 7 nov. (soir): Ilyas pas convaincu par les grappes. Proposé: les arbres à moins de 200 m (environ 800) remplacés par des arbres EZ-Tree (générateur gratuit, licence MIT: écorce et rameaux photographiques, réglages d'origine adaptés à nos essences), en instances (peu de mémoire); au-delà, grappes inchangées. `scene.arbres_modeles=true` dans `film.json`. Comparaison hors scène: `tools/essai_arbres_ez.py` | Juger sur `Lancer_test_bande.bat` (aspect et temps de rendu, à comparer au test du 7 nov. 21 h 45: 2,5 / 3,3 / 4,4 min) | Paquet |
 | 6 | Balancement des arbres | `vent_force` 0,09 dans `film.json` | Juger sur le film | |
 | 7 | Eau: sens d'écoulement et scintillement de loin | Codé. `test-eau` du 7 nov.: le scintillement ne change que 465 pixels sur 3,3 millions (invisible sur une image fixe), sans coût | Gardé tel quel, rien à faire | |
 | 8 | Sol: image aérienne | Décidé le 7 nov.: sol nettoyé (`prep-sol`) seulement près de la caméra, image 10 cm (`ortho_sol: ["ortho_10cm.jpg"]`): plus de taches noires ni de quadrillage sous les pieds; au loin, image d'origine (forêts plus denses et plus sombres, comme avant) | Vérifier le raccord sur `Lancer_test_bande.bat` | Paquet |
@@ -63,6 +63,7 @@ Mise à jour: 7 novembre 2026 (soir, après les tests). **À relire avant chaque
 
 ## Journal court
 
+- 7 nov. (nuit): `test-bande` des réglages retenus: raccord du sol nettoyé invisible, rien à corriger. Arbres détaillés EZ-Tree portés en Python (`src/scene/arbres_ez.py`, sans dépendance), branchés pour les arbres à moins de 200 m (`placer_arbres_ez`, vent et couchage par rotation de l'objet); empreinte du rendu à deux étendue à assets/.
 - 7 nov. (résultats des tests): `Lancer_tous_les_tests.bat` en 1 h, sans erreur. Rendu final sur la 2060: 3,5 min par image à t = 15 s, 11,4 à 43 s, 8,9 à 53 s; carte 5 491 / 6 144 Mo; RAM libre mini 2 Go. Estimation: 160 h seul, 62 h à deux. Réglages rapides: volumes (B) sans gain, 64 échantillons (C) -17 %, mesurés sur l'image noire de 53 s donc non jugeables: qualité pleine gardée. Décisions d'Ilyas: Palatino, saturation 1,25, arbres en grappes, sol nettoyé près de la caméra seulement (nouveau réglage `ortho_sol` en liste), fin gardée jusqu'à 53 s.
 - 7 nov.: rendu à deux PC (`paquet`, `duo`, `duo-etat`, `duo-envoyer`, `duo-importer`), docs/RENDU_A_DEUX.md; pas de mise en veille pendant les rendus.
 - 7 nov. (soir): `test-final`, arbres en grappes, `prep-sol`, `test-aspect`, `Lancer_tests_rapides.bat` et `Lancer_tests_soir.bat`.

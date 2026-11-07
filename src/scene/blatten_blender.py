@@ -124,6 +124,9 @@ CFG = dict(
     couchage_epaisseur=2.0, # m: les arbres ne se couchent que quand la MASSE atteint cette épaisseur (pas au premier grain projeté devant le front); 0 = premier grain
     tree_ortho=0.5,         # part de la couleur de l'image aérienne dans la couleur des arbres (0 = couleurs d'essence seules)
     tree_couronne=1.0,      # facteur sur le rayon des couronnes (1,3 = forêt plus dense à nombre d'arbres égal, sans mémoire en plus)
+    arbres_modeles=False,   # arbres proches détaillés (EZ-Tree, MIT: écorce et feuillage photographiques), voir src/scene/arbres_ez.py
+    arbres_modeles_dist=200.0,    # m: distance jusqu'à laquelle les arbres sont détaillés (instances: peu de mémoire)
+    arbres_modeles_eclat=2.6,     # couleur du feuillage éclairé / couleur moyenne de la couronne vue d'avion
     tree_dist=4700.0,       # distance maximale des arbres modélisés (m); au-delà l'image aérienne suffit
     border=None,            # (x0, x1, y0, y1) en fraction de l'image: ne rend que ce cadre (zoom d'essai à pleine résolution, coût réduit)
     no_depot=False,         # matière sans la peau continue sous les roches (src/matiere/depot.py)
@@ -307,6 +310,7 @@ def on_frame(scene, *args):
         scene.render.stamp_note_text = f"t = {t:.0f} s"
     maj_ensevelis(t)
     maj_arbres(t)
+    maj_arbres_ez(t, scene.frame_current * scene.render.fps_base / scene.render.fps)
     if MATIERE["mod"] is not None:
         MATIERE["mod"].update(scene, t, STATE["seq"])
     else:
@@ -1438,6 +1442,225 @@ def _materiau_arbres():
     return mt
 
 
+# ---------------------------------------------------------------------------------- arbres proches détaillés (EZ-Tree)
+DOSSIER_ARBRES = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "assets", "arbres")) \
+    if "__file__" in globals() else ""
+# essence -> variantes (réglage EZ-Tree de base, graine, modifications, écorce)
+# Les réglages d'origine donnent des arbres clairsemés une fois mis à nos dimensions (couronnes étroites): rameaux plus
+# grands et plus nombreux, plus de branches.
+_EPICEA = {"leaves.size": 7.0, "leaves.count": 30, "branch.children.0": 140, "leaves.angle": 25,
+           "branch.gnarliness.0": 0.015, "_rameaux_selon_branche": True}
+_CONIFERE = {"branch.gnarliness.0": 0.015, "_rameaux_selon_branche": True}     # tronc droit, cime pointue
+ESPECES_EZ = {
+    0: [("pine_large", 101, dict(_EPICEA), "pine"), ("pine_large", 102, dict(_EPICEA, **{"branch.angle.1": 120}), "pine"),
+        ("pine_large", 103, dict(_EPICEA, **{"branch.angle.1": 135, "leaves.count": 34}), "pine")],          # épicéa
+    1: [("pine_medium", 111, dict(_CONIFERE, **{"branch.angle.1": 100, "leaves.count": 26, "leaves.size": 5.0, "branch.children.0": 90}), "pine"),
+        ("pine_medium", 112, dict(_CONIFERE, **{"branch.angle.1": 95, "leaves.count": 24, "leaves.size": 4.6, "branch.children.0": 85}), "pine"),
+        ("pine_small", 113, dict(_CONIFERE, **{"branch.angle.1": 100, "leaves.count": 22, "leaves.size": 3.6, "branch.children.0": 100}), "pine")],  # mélèze
+    2: [("pine_medium", 121, dict(_CONIFERE, **{"branch.angle.1": 92, "leaves.count": 36, "leaves.size": 5.5, "branch.children.0": 110}), "pine"),
+        ("pine_small", 122, dict(_CONIFERE, **{"branch.angle.1": 88, "leaves.count": 34, "leaves.size": 4.2, "branch.children.0": 120}), "pine")],  # pin cembro
+    3: [("ash_medium", 131, {"leaves.count": 30, "leaves.size": 5.0}, "oak"),
+        ("ash_small", 132, {"leaves.count": 30, "leaves.size": 4.5}, "birch"),
+        ("ash_medium", 133, {"leaves.type": "oak", "leaves.count": 28, "leaves.size": 5.0}, "birch")],     # feuillus
+    4: [("bush_1", 141, {"leaves.count": 24, "leaves.size": 3.6}, "oak"), ("bush_2", 142, {"leaves.count": 24, "leaves.size": 3.6}, "oak"),
+        ("bush_3", 143, {"leaves.count": 24, "leaves.size": 3.6}, "oak")],                                  # arbustes
+}
+FEUILLES_EZ = {"pine": ("feuille_pine.png", (0.1182, 0.1805, 0.0308)), "ash": ("feuille_ash.png", (0.1022, 0.2031, 0.0462)),
+               "oak": ("feuille_oak.png", (0.1269, 0.2260, 0.0443)), "aspen": ("feuille_ash.png", (0.1022, 0.2031, 0.0462))}
+ARBRES_EZ = []      # [objet, quaternion de cap, phases du vent, amplitude, t d'arrivée du front, direction de l'aval]
+_MATS_EZ = {}
+
+
+def _mat_feuillage_ez(typ):
+    """Feuillage: texture photo (rameau ou feuilles) découpée par sa transparence, teinte par la couleur de l'objet (couleur
+    de l'arbre / couleur moyenne de la texture: le détail reste, la moyenne prend la couleur voulue), un peu translucide."""
+    cle = ("f", typ)
+    if cle in _MATS_EZ:
+        return _MATS_EZ[cle]
+    fic, ref = FEUILLES_EZ.get(typ, FEUILLES_EZ["ash"])
+    mt = bpy.data.materials.new(f"Feuillage_{typ}")
+    mt.use_nodes = True
+    nt = mt.node_tree
+    N, L = nt.nodes, nt.links
+    out, b = N["Material Output"], N["Principled BSDF"]
+    tx = N.new("ShaderNodeTexImage")
+    tx.image = bpy.data.images.load(os.path.join(DOSSIER_ARBRES, fic), check_existing=True)
+    tx.interpolation = "Linear"
+    oi = N.new("ShaderNodeObjectInfo")
+    m1 = N.new("ShaderNodeMix")
+    m1.data_type, m1.blend_type = "RGBA", "MULTIPLY"
+    m1.inputs[0].default_value = 1.0
+    L.new(tx.outputs["Color"], m1.inputs[6])
+    L.new(oi.outputs["Color"], m1.inputs[7])
+    m2 = N.new("ShaderNodeMix")
+    m2.data_type, m2.blend_type = "RGBA", "MULTIPLY"
+    m2.inputs[0].default_value = 1.0
+    L.new(m1.outputs[2], m2.inputs[6])
+    m2.inputs[7].default_value = (*(min(1.0 / max(c, 1e-3), 40.0) for c in ref), 1.0)
+    L.new(m2.outputs[2], b.inputs["Base Color"])
+    b.inputs["Roughness"].default_value = 0.6
+    tr = N.new("ShaderNodeBsdfTranslucent")
+    L.new(m2.outputs[2], tr.inputs["Color"])
+    mx = N.new("ShaderNodeMixShader")
+    mx.inputs[0].default_value = 0.3
+    L.new(b.outputs[0], mx.inputs[1])
+    L.new(tr.outputs[0], mx.inputs[2])
+    tp = N.new("ShaderNodeBsdfTransparent")
+    seuil = N.new("ShaderNodeMath")
+    seuil.operation = "GREATER_THAN"
+    L.new(tx.outputs["Alpha"], seuil.inputs[0])
+    seuil.inputs[1].default_value = 0.4
+    mx2 = N.new("ShaderNodeMixShader")
+    L.new(seuil.outputs[0], mx2.inputs[0])
+    L.new(tp.outputs[0], mx2.inputs[1])
+    L.new(mx.outputs[0], mx2.inputs[2])
+    L.new(mx2.outputs[0], out.inputs["Surface"])
+    _MATS_EZ[cle] = mt
+    return mt
+
+
+def _mat_ecorce_ez(typ):
+    """Écorce: texture photo (couleur et relief) répétée le long des branches."""
+    typ = typ if typ in ("pine", "oak", "birch") else "oak"
+    cle = ("e", typ)
+    if cle in _MATS_EZ:
+        return _MATS_EZ[cle]
+    mt = bpy.data.materials.new(f"Ecorce_{typ}")
+    mt.use_nodes = True
+    nt = mt.node_tree
+    N, L = nt.nodes, nt.links
+    b = N["Principled BSDF"]
+    b.inputs["Roughness"].default_value = 0.9
+    tc = N.new("ShaderNodeTexImage")
+    tc.image = bpy.data.images.load(os.path.join(DOSSIER_ARBRES, f"ecorce_{typ}_color.jpg"), check_existing=True)
+    tn = N.new("ShaderNodeTexImage")
+    tn.image = bpy.data.images.load(os.path.join(DOSSIER_ARBRES, f"ecorce_{typ}_normal.jpg"), check_existing=True)
+    tn.image.colorspace_settings.name = "Non-Color"
+    mp = N.new("ShaderNodeMapping")
+    uv = N.new("ShaderNodeTexCoord")
+    mp.inputs["Scale"].default_value = (1.0, 1.0, 1.0)
+    L.new(uv.outputs["UV"], mp.inputs["Vector"])
+    L.new(mp.outputs["Vector"], tc.inputs["Vector"])
+    L.new(mp.outputs["Vector"], tn.inputs["Vector"])
+    sombre = N.new("ShaderNodeMix")
+    sombre.data_type, sombre.blend_type = "RGBA", "MULTIPLY"
+    sombre.inputs[0].default_value = 1.0
+    L.new(tc.outputs["Color"], sombre.inputs[6])
+    sombre.inputs[7].default_value = (0.75, 0.72, 0.68, 1.0)
+    L.new(sombre.outputs[2], b.inputs["Base Color"])
+    nm = N.new("ShaderNodeNormalMap")
+    nm.inputs["Strength"].default_value = 0.8
+    L.new(tn.outputs["Color"], nm.inputs["Color"])
+    L.new(nm.outputs["Normal"], b.inputs["Normal"])
+    _MATS_EZ[cle] = mt
+    return mt
+
+
+def _maillage_ez(nom, geo):
+    """Maillage Blender d'un arbre EZ-Tree normalisé (branches: matériau 0, lisses; feuillage: matériau 1, plat), avec UV."""
+    import arbres_ez as AEZ   # noqa: F401 (géométrie déjà calculée)
+    br, fl = geo["branches"], geo["feuilles"]
+    co = np.vstack([br["V"], fl["V"]]).astype(np.float32)
+    tri = np.vstack([br["T"], fl["T"] + len(br["V"])]).astype(np.int32)
+    uvs = np.vstack([br["UV"] * np.array([1.0, 1.0]), fl["UV"]]).astype(np.float32)
+    mi = np.r_[np.zeros(len(br["T"]), np.int32), np.ones(len(fl["T"]), np.int32)]
+    me = bpy.data.meshes.new(nom)
+    nv, nf = len(co), len(tri)
+    me.vertices.add(nv)
+    me.vertices.foreach_set("co", co.ravel())
+    me.loops.add(nf * 3)
+    me.loops.foreach_set("vertex_index", tri.ravel())
+    me.polygons.add(nf)
+    me.polygons.foreach_set("loop_start", np.arange(0, nf * 3, 3, dtype=np.int32))
+    try:
+        me.polygons.foreach_set("loop_total", np.full(nf, 3, np.int32))
+    except Exception:
+        pass
+    me.update(calc_edges=True)
+    me.polygons.foreach_set("use_smooth", mi == 0)
+    me.materials.append(_mat_ecorce_ez(geo["ecorce"]))
+    me.materials.append(_mat_feuillage_ez(geo["feuillage"]))
+    me.polygons.foreach_set("material_index", mi)
+    ul = me.uv_layers.new(name="UVMap")
+    ul.data.foreach_set("uv", uvs[tri.ravel()].ravel())
+    me.update()
+    return me
+
+
+def _modeles_ez():
+    """Maillages des arbres détaillés, par (essence, variante). Rend {} si les fichiers d'assets/arbres manquent."""
+    if not os.path.isdir(DOSSIER_ARBRES):
+        log(f"arbres détaillés: dossier {DOSSIER_ARBRES} absent, arbres simples partout")
+        return {}
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import arbres_ez as AEZ
+    out = {}
+    t0 = time.time()
+    ntri = 0
+    for e, variantes in ESPECES_EZ.items():
+        for v, (preset, graine, modifs, ecorce) in enumerate(variantes):
+            o = AEZ.charger_preset(preset)
+            for chemin, val in modifs.items():
+                ks = chemin.split(".")
+                x = o
+                for k in ks[:-1]:
+                    x = x[k]
+                x[ks[-1]] = val
+            o["bark"]["type"] = ecorce
+            geo = AEZ.generer(o, graine)
+            out[(e, v)] = _maillage_ez(f"ArbreEZ_{e}_{v}", geo)
+            ntri += len(geo["branches"]["T"]) + len(geo["feuilles"]["T"])
+    log(f"arbres détaillés: {len(out)} modèles EZ-Tree, {ntri:,} triangles en tout, {time.time() - t0:.1f} s")
+    return out
+
+
+def placer_arbres_ez(coll, modeles, X, Y, Z, H, R, sp, yaw, couleurs, t_cou=None, dir_cou=None, ta=None, graine=5):
+    """Une instance (objet qui partage le maillage de son modèle: peu de mémoire) par arbre proche. Couleur de l'objet =
+    couleur visée du feuillage. Vent et couchage: rotation de l'objet autour de son pied, mise à jour par maj_arbres."""
+    from mathutils import Quaternion
+    rng = np.random.default_rng(graine)
+    n = len(X)
+    nvar = {e: len(v) for e, v in ESPECES_EZ.items()}
+    for i in range(n):
+        e = int(sp[i]) if int(sp[i]) in nvar else 3
+        me = modeles[(e, int(rng.integers(0, nvar[e])))]
+        ob = bpy.data.objects.new(f"ArbreEZ_{i}", me)
+        ob.location = (float(X[i]), float(Y[i]), float(Z[i]))
+        ob.rotation_mode = "QUATERNION"
+        qcap = Quaternion((0.0, 0.0, 1.0), float(yaw[i]))
+        ob.rotation_quaternion = qcap
+        ob.scale = (float(R[i]), float(R[i]), float(H[i]))
+        ob.color = (float(couleurs[i][0]), float(couleurs[i][1]), float(couleurs[i][2]), 1.0)
+        coll.objects.link(ob)
+        tc = float(t_cou[i]) if t_cou is not None and np.isfinite(t_cou[i]) else None
+        d2 = (float(dir_cou[i][0]), float(dir_cou[i][1])) if dir_cou is not None else (0.0, 0.0)
+        ARBRES_EZ.append([ob, qcap, rng.uniform(0, 2 * np.pi, 4), 0.3 * float(CFG["vent_force"]), tc, d2])
+        if ta is not None and np.isfinite(ta[i]):
+            ENSEV.append((float(ta[i]), ob))
+    return n
+
+
+def maj_arbres_ez(t, t_film):
+    """Vent (léger balancement autour du pied, deux fréquences) et couchage vers l'aval à l'arrivée du front."""
+    if not ARBRES_EZ:
+        return
+    from mathutils import Quaternion
+    dur = max(0.1, float(CFG["arbres_couchage_duree"]))
+    amax = float(np.radians(CFG["arbres_couchage"]))
+    for ob, qcap, ph, amp, tc, (dx, dy) in ARBRES_EZ:
+        q = qcap
+        if CFG["wind"] and amp > 0:
+            ax = amp * (0.65 * math.sin(2 * math.pi * 0.23 * t_film + ph[0]) + 0.35 * math.sin(2 * math.pi * 0.61 * t_film + ph[1]))
+            ay = amp * (0.65 * math.sin(2 * math.pi * 0.19 * t_film + ph[2]) + 0.35 * math.sin(2 * math.pi * 0.53 * t_film + ph[3]))
+            q = Quaternion((1.0, 0.0, 0.0), ax) @ Quaternion((0.0, 1.0, 0.0), ay) @ q
+        if tc is not None and amax > 0:
+            u = min(1.0, max(0.0, (t - tc + float(CFG["arbres_couchage_avance"])) / dur))
+            th = u * u * (3 - 2 * u) * amax
+            if th > 0:
+                q = Quaternion((-dy, dx, 0.0), th) @ q          # la cime part vers l'aval (dx, dy)
+        ob.rotation_quaternion = q
+
+
 def build_trees(env, coll, cam):
     """Arbres issus de prep-vegetation: essence (épicéa, mélèze, pin cembro, feuillus), hauteur, couronne, et posés sur
     le relief EXACTEMENT comme le maillage de la scène (même anneau, même résolution). Détail selon la distance.
@@ -1487,6 +1710,7 @@ def build_trees(env, coll, cam):
     yaw = rng.uniform(0, 2 * np.pi, len(X))
     var = rng.integers(0, nv_var, len(X))
     R = R * CFG["tree_couronne"] * rng.uniform(0.9, 1.1, len(X))      # hauteurs: celles du relevé laser, sans variation
+    Z_sol = Z - 0.15                                                 # arbres détaillés: couronne haute, pied dans le sol
     Z = Z + np.maximum(0.0, R * pente * 0.9 - 0.12 * Hh) - 0.10     # sur forte pente, la couronne amont ne rentre pas dans le sol
     lod = np.where(d < 120.0, 0, np.where(d < 500.0, 1, np.where(d < 1500.0, 2, 3)))
     tone = rng.uniform(0.85, 1.15, len(X))
@@ -1512,10 +1736,25 @@ def build_trees(env, coll, cam):
     protos = {(e, l, v): _proto_arbre(e, l, np.random.default_rng(1000 * e + 100 * l + v)) for e in range(5) for l in range(4) for v in range(nv_var)}
     mt = _materiau_arbres()
     ta = _arrivee(env, E, N, hauteur=Hh)
+    # arbres proches détaillés (EZ-Tree): une instance par arbre, retirés du maillage fusionné
+    modele = np.zeros(len(X), bool)
+    if CFG["arbres_modeles"]:
+        modeles = _modeles_ez()
+        if modeles:
+            modele = d < float(CFG["arbres_modeles_dist"])
+        if modele.any():
+            s_ = modele
+            wc = w_oc[s_][:, None]
+            coul = ((1.0 - wc) * COULEURS_ARBRES[sp[s_]] + wc * oc[s_]) * tone[s_][:, None] * float(CFG["arbres_modeles_eclat"])
+            coll_ez = bpy.data.collections.new("ArbresDetailles")
+            coll.children.link(coll_ez)
+            placer_arbres_ez(coll_ez, modeles, X[s_], Y[s_], Z_sol[s_], Hh[s_], R[s_], sp[s_], yaw[s_], coul,
+                             t_cou=t_cou[s_], dir_cou=dir_cou[s_], ta=ta[s_])
+            log(f"arbres détaillés: {int(s_.sum()):,} à moins de {CFG['arbres_modeles_dist']:.0f} m de la caméra (instances)")
     ob0, nf, nsw = None, 0, 0
     groupes = [(g, zn) for g in np.unique(ta) for zn in ((0, 1) if CFG["wind"] else (0,))]
     for g, zn in groupes:
-        gsel = (ta == g) & (near == bool(zn))
+        gsel = (ta == g) & (near == bool(zn)) & ~modele
         if not gsel.any():
             continue
         co_all, tri_all, col_all, vent_all = [], [], [], []
@@ -2785,6 +3024,8 @@ def setup_render(scene, out_dir):
             scene.cycles.volume_step_rate = float(CFG["rendu_pas_volumes"])
         if CFG["rendu_rebonds"]:
             scene.cycles.max_bounces = int(CFG["rendu_rebonds"])
+        if CFG["arbres_modeles"]:   # feuillage en cartes découpées: un rayon traverse plusieurs cartes transparentes
+            scene.cycles.transparent_max_bounces = max(int(scene.cycles.transparent_max_bounces), 24)
         if CFG["rendu_tuile"]:    # tampons de l'image découpés: moins de mémoire sur la carte, débruitage sur l'image entière
             scene.cycles.use_auto_tile = True
             scene.cycles.tile_size = int(CFG["rendu_tuile"])
