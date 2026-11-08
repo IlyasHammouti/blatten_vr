@@ -13,7 +13,7 @@ MIXAGE (reglages/son.json)
   grondement grondement sourd + séisme, direction et énergie de l'écoulement, aigus étouffés avec la distance
   impacts    second éboulement, quand la matière atteint le fond de vallée (champignons)
   souffle    tempête, quand le front approche de la caméra (moins de ~1 km), depuis la direction du front
-  Chaque son de l'écoulement arrive avec le retard distance / 343 m/s. Coupure avec le fondu au noir, outro muette.
+  Chaque son de l'écoulement arrive avec le retard distance / 343 m/s. Décroissance convexe en fin de film, le son continue sous l'outro puis s'éteint.
 
 SORTIES (dans --out)
   son_ambix.wav    4 canaux AmbiX (ACN W Y Z X, SN3D), 48 kHz, face = centre de la vidéo 360 (cap 200 degrés)
@@ -47,7 +47,7 @@ DEFAUTS = dict(
     souffle_distance=1000.0,      # m: le souffle commence quand le front est à cette distance
     cap_face_360=200.0, cap_face_bande=170.0,
     fondu_fin=0.3, outro=8.0,
-    decroit_debut=53.0, decroit_duree=8.0, decroit_db=60.0,   # 9 nov.: l'écoulement décroît jusqu'à disparaître à la fin du film
+    decroit_debut=56.0, decroit_duree=13.0, decroit_puissance=2.0,   # 9 nov.: plein niveau jusqu'à 56 s du film, puis décroissance convexe (1-x)^2 jusqu'au silence à 69 s (fin de l'outro)
     # 8 nov. (Ilyas: « encore plus fort et assourdissant »): graves renforcés, compression plus forte, limiteur commun aux
     # 4 canaux (la direction des sons est gardée quand il écrête)
     graves_db=8.0, graves_freq=120.0,          # étagère de graves sur l'écoulement (sous ~120 Hz), dB
@@ -113,29 +113,33 @@ def place(src, n, debut):
     return out
 
 
-def limiteur(x, plafond=0.89, attaque=0.002, relache=0.15):
-    """Limiteur doux commun à tous les canaux: même gain pour W, Y, Z, X (la direction des sons est gardée). Le niveau
-    instantané (max de |W| et de la norme de X, Y, Z) passe par une courbe douce (tanh) au-dessus de 0,6 x plafond; gain
-    lissé (attaque 2 ms, relâche 150 ms) puis écrêtage final de sécurité au plafond."""
+def limiteur(x, plafond=0.89, relache=0.25, anticipe=0.006):
+    """Limiteur à anticipation, commun à tous les canaux (même gain pour W, Y, Z, X: la direction des sons est gardée).
+    Gain nécessaire = plafond / niveau instantané (max de |W| et de la norme de X, Y, Z); on prend le minimum sur une fenêtre
+    de +-anticipe secondes, la remontée est lente (relache), puis le gain est lissé par une moyenne glissante et interpolé
+    linéairement échantillon par échantillon (pas de marches, donc pas de crépitement). Le gain atteint donc sa valeur
+    avant la crête; l'écrêtage final n'est qu'une sécurité."""
     m = np.maximum(np.abs(x[:, 0]), np.sqrt((x[:, 1:] ** 2).sum(1))) if x.shape[1] >= 4 else np.abs(x).max(1)
-    g_ = 0.6 * plafond
-    cible = np.where(m > g_, g_ + (plafond - g_) * np.tanh((m - g_) / (plafond - g_)), m)
-    g = np.where(m > 1e-9, cible / np.maximum(m, 1e-9), 1.0).astype(np.float64)
-    # lissage: descente rapide (attaque), remontée lente (relâche), par blocs de 1 ms pour aller vite
-    b = SR // 1000
-    nb = len(g) // b + 1
-    gb = np.ones(nb)
-    gpad = np.concatenate([g, np.ones(nb * b - len(g))]).reshape(nb, b).min(1)
-    a_up = np.exp(-1.0 / (relache * 1000)); a_dn = np.exp(-1.0 / (attaque * 1000))
+    r = np.minimum(1.0, plafond / np.maximum(m, 1e-9))
+    b = SR // 1000                                    # blocs de 1 ms
+    nb = len(r) // b + 1
+    rb = np.concatenate([r, np.ones(nb * b - len(r))]).reshape(nb, b).min(1)
+    w = int(round(anticipe * 1000))
+    pad = np.concatenate([np.ones(w), rb, np.ones(w)])
+    from numpy.lib.stride_tricks import sliding_window_view
+    rb = sliding_window_view(pad, 2 * w + 1).min(1)   # minimum sur la fenêtre centrée
+    a_up = np.exp(-1.0 / (relache * 1000))
+    gb = np.empty(nb)
     cur = 1.0
-    for i in range(nb):
-        v = gpad[i]
-        cur = a_dn * cur + (1 - a_dn) * v if v < cur else a_up * cur + (1 - a_up) * v
-        cur = min(cur, v) if v < cur else cur
+    for i in range(nb):                               # descente immédiate, remontée lente
+        v = rb[i]
+        cur = v if v < cur else a_up * cur + (1 - a_up) * v
         gb[i] = cur
-    gs = np.repeat(gb, b)[:len(g)]
-    y = x * gs[:, None]
-    return np.clip(y, -plafond, plafond).astype(np.float32)
+    k = w                                             # moyenne glissante de largeur w (<= fenêtre du minimum): gain <= besoin
+    cs = np.concatenate([[0.0], np.cumsum(np.concatenate([np.full(k, gb[0]), gb, np.full(k, gb[-1])]))])
+    gb = (cs[2 * k + 1:2 * k + 1 + nb] - cs[:nb]) / (2 * k + 1)
+    gs = np.interp(np.arange(len(r)), (np.arange(nb) + 0.5) * b, gb)
+    return np.clip(x * gs[:, None], -plafond, plafond).astype(np.float32)
 
 
 def boucle(src, n):
@@ -289,10 +293,10 @@ def main():
     amb[:, 0] += g_amb * 0.5 * (foret[:, 0] + foret[:, 1])
     amb[:, 1] += g_amb * 0.5 * (foret[:, 0] - foret[:, 1])
     amb = limiteur(amb, R["plafond"])
-    # coupure: fondu de fin du film puis silence (outro)
-    fin = np.clip((film - t) / max(R["fondu_fin"], 1e-3), 0, 1)
+    # décroissance finale: le son continue sous l'outro et s'éteint complètement à la fin
     x = np.clip((t - R["decroit_debut"]) / max(R["decroit_duree"], 1e-3), 0, 1)
-    fin *= 10 ** (-R["decroit_db"] * x / 20)      # décroissance régulière en dB (perçue comme linéaire)
+    fin = (1.0 - x) ** R["decroit_puissance"]         # courbe convexe: tient longtemps, s'éteint doucement
+    fin *= np.clip((total - t) / max(R["fondu_fin"], 1e-3), 0, 1)
     amb *= fin[:, None]
     os.makedirs(a.out, exist_ok=True)
     ecrire(os.path.join(a.out, "son_ambix.wav"), amb)
