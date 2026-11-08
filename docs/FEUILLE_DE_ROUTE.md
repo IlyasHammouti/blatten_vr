@@ -1,6 +1,6 @@
 # Feuille de route Blatten VR
 
-Mise à jour: 8 novembre 2026 (matin: extrait 360 FHD et son plus fort). **À relire avant chaque grande étape** (lancer un rendu, ajouter une fonction, envoyer quelque chose à Johan). Claude la relit et la met à jour à chaque étape; Ilyas peut dire "feuille de route" pour la faire afficher.
+Mise à jour: 9 novembre 2026 (extrait en 3840 x 1920, son: plus d'oiseaux sous l'écoulement, décroissance finale). **À relire avant chaque grande étape** (lancer un rendu, ajouter une fonction, envoyer quelque chose à Johan). Claude la relit et la met à jour à chaque étape; Ilyas peut dire "feuille de route" pour la faire afficher.
 
 ## Dates
 
@@ -42,7 +42,7 @@ Mise à jour: 8 novembre 2026 (matin: extrait 360 FHD et son plus fort). **À re
 
 | # | Chantier | État | Prochaine action | À faire avant |
 |---|---|---|---|---|
-| 1 | Son spatial (AmbiX) | Injection SA3D codée. `test_son_360.mp4` fait le 7 nov. (D:\Blatten_render\tests_son\20261107_1948). 8 nov. (Ilyas: « encore plus fort et assourdissant »): graves +8 dB sous 120 Hz, compression 3:1 (au lieu de ~1,7:1), limiteur commun aux 4 canaux (direction gardée), séisme, impacts et souffle relevés. Mesuré: -14 LUFS intégrés (avant -16,5), +5 dB au milieu de l'événement, fin inchangée (déjà au plafond), forêt de l'intro plus discrète | Écouter avant/après (envoyés le 8 nov.), puis juger sur l'extrait; YouTube baisse les vidéos au-dessus de -14 LUFS, on y est | Montage final |
+| 1 | Son spatial (AmbiX) | Injection SA3D codée. `test_son_360.mp4` fait le 7 nov. (D:\Blatten_render\tests_son\20261107_1948). 8 nov. (Ilyas: « encore plus fort et assourdissant »): graves +8 dB sous 120 Hz, compression 3:1 (au lieu de ~1,7:1), limiteur commun aux 4 canaux (direction gardée), séisme, impacts et souffle relevés. Mesuré: -14 LUFS intégrés (avant -16,5), +5 dB au milieu de l'événement, fin inchangée (déjà au plafond), forêt de l'intro plus discrète. 9 nov. (Ilyas: pas assez fort, encore des oiseaux, le son doit décroître jusqu'à disparaître): volume +4 dB (milieu de l'événement -12 LUFS court terme, avant -15), forêt coupée sous l'écoulement (-70 dBFS au lieu de -42, seuil 0,03 au lieu de 0,2), l'écoulement décroît de 60 dB entre 53 et 61 s du film jusqu'au silence | Écouter `son_v3_film14-63s.mp3` (9 nov.), puis juger sur l'extrait (qui ne couvre pas la décroissance finale); YouTube baisse les vidéos au-dessus de -14 LUFS | Montage final |
 | 2 | Brouillon HD, 10 dernières s + fondu + outro | `Lancer_brouillon_fin.bat` prêt | Facultatif maintenant que le rendu final peut partir | |
 | 3 | Saturation de l'image satellite et densité de forêt | Décidé le 7 nov.: saturation 1,25 (C), couronnes inchangées | Rien | |
 | 4 | Police du titre | Décidé le 7 nov.: Palatino (`C:/Windows/Fonts/pala.ttf`, présente sur tout Windows) | Rien | |
@@ -55,7 +55,7 @@ Mise à jour: 8 novembre 2026 (matin: extrait 360 FHD et son plus fort). **À re
 | 11 | Herbe | Plus tard, seulement si peu coûteux | | |
 | 12 | Rendu à deux PC | Codé et testé le 7 nov. (simulation sur le vrai film, essai complet avec un faux Blender): partage en direct, suivi sur le téléphone (ntfy), montage automatique. Carte pleine: le PC se limite tout seul, l'autre fait la fin | Choisir l'envoi (GitHub: dépôt de transfert + jeton), puis `Lancer_preparer_duo.bat`, zip au frère, `Lancer_rendu_duo.bat` | 12 nov. |
 | 13 | Courrier Johan | Réponse UNESCO (forfait) envoyée ou à envoyer | Voir le fil mail | |
-| 14 | Extrait 360 FHD aux réglages finaux | Demandé par Ilyas (8 nov.): 5 s autour de t = 30 s (images 1066 à 1215), 1920 x 960, tout le reste comme le rendu final (96 échantillons, poussière, matière, eau, arbres détaillés jusqu'à 1000 m, brume), vidéo 360 avec le son spatial, sans fondu ni outro. Commande `extrait` (`--t`, `--duree`, `--res`), réglage `scene.rendu_res` | `Lancer_extrait_360.bat` (test des arbres 7 min puis l'extrait, environ 4 h estimées, fourchette 3 à 6 h): le temps par image mesuré donne aussi l'estimation du film entier avec les arbres détaillés (x 4 environ pour le 3840 x 1920) | Lancement du 360 |
+| 14 | Extrait 360 en 3840 x 1920 aux réglages finaux | Demandé par Ilyas (8 nov.): 5 s autour de t = 30 s (images 1066 à 1215), 3840 x 1920 (corrigé le 9 nov.: le 1920 x 960 était trop flou pour juger), tout le reste comme le rendu final (96 échantillons, poussière, matière, eau, arbres détaillés jusqu'à 1000 m, brume), vidéo 360 avec le son spatial, sans fondu ni outro. Commande `extrait` (`--t`, `--duree`, `--res`), réglage `scene.rendu_res` | `Lancer_extrait_360.bat` (test des arbres 7 min puis l'extrait, environ 15 h estimées, fourchette 12 à 24 h, à lancer le soir): le temps par image mesuré donne aussi l'estimation du film entier avec les arbres détaillés (directement en 3840 x 1920) | Lancement du 360 |
 | 15 | Oiseaux qui fuient le glissement | Idée d'Ilyas (8 nov.), pour une autre fois: quelques oiseaux qui s'envolent au fur et à mesure de la descente (beaucoup de réalisme) | Plus tard (après la V1 ou si le temps le permet) | |
 
 ## Décisions en attente d'Ilyas
@@ -78,3 +78,4 @@ Mise à jour: 8 novembre 2026 (matin: extrait 360 FHD et son plus fort). **À re
 - 7 nov. (soir): `test-final`, arbres en grappes, `prep-sol`, `test-aspect`, `Lancer_tests_rapides.bat` et `Lancer_tests_soir.bat`.
 - 7 nov. (nuit): essai de fumée dans Blender (sol, eau, titre, réglages de rendu, forêt complète): aucune erreur. Plan B mémoire: `scene.rendu_tuile`, `duo` qui laisse les images trop lourdes à l'autre PC, `--max-image`. `Lancer_tous_les_tests.bat` (les deux lots à la suite).
 - 2 nov.: SA3D, `test-son`, brouillon fin, polices, `test-eau`, vent 0,09, eau (cap + loin), feuille de route.
+- 9 nov.: Ilyas refuse le 1920 x 960 pour l'extrait (trop flou pour juger, il veut la qualité finale): `Lancer_extrait_360.bat` passe en 3840 x 1920 (défaut de `extrait`), environ 15 h estimées (x 4 pixels; fourchette 12 à 24 h), à lancer le soir. Son: voir chantier 1.

@@ -1185,7 +1185,7 @@ def cmd_extrait(cfg, paths, extra):
     """Extrait du film dans les conditions du rendu final (preset final: 96 échantillons, poussière, matière, eau, arbres et
     réglages du film), à la définition voulue, puis vidéo 360 avec le son spatial (métadonnées 360 et AmbiX), sans fondu
     ni outro. Sert à tout vérifier sur quelques secondes avant le rendu complet.
-        python blatten.py extrait [--t 30] [--duree 5] [--res 1920x960] [--nouveau]   (+ options de render: --pas 2, --jusqu-a 07:00...)
+        python blatten.py extrait [--t 30] [--duree 5] [--res 3840x1920] [--nouveau]   (+ options de render: --pas 2, --jusqu-a 07:00...)
     --t: instant de l'événement (s) au milieu de l'extrait. Dossier render_dir/extraits/<date>_t<T>s_<largeur>: relancer la
     même commande reprend l'extrait s'il n'est pas fini (même un autre jour); un extrait fini n'est jamais écrasé (nouveau
     dossier, suffixe _b, _c...); --nouveau en commence un autre même si le précédent n'est pas fini."""
@@ -1195,7 +1195,7 @@ def cmd_extrait(cfg, paths, extra):
     t = float(t[0]) if t else 30.0
     du = float(du[0]) if du else 5.0
     try:
-        w, h = (int(x) for x in (rs[0] if rs else "1920x960").lower().split("x"))
+        w, h = (int(x) for x in (rs[0] if rs else "3840x1920").lower().split("x"))
     except ValueError:
         sys.exit("--res attend LARGEURxHAUTEUR, par exemple 1920x960")
     n, fps = _film(cfg)

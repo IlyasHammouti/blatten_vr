@@ -39,18 +39,20 @@ SR = 48000
 C = 343.0
 
 DEFAUTS = dict(
-    ambiance_db=-30.0, ambiance_fond_db=-42.0,    # niveau RMS de la forêt (dBFS) au calme et sous l'écoulement
+    ambiance_db=-30.0, ambiance_fond_db=-70.0,    # niveau RMS de la forêt (dBFS) au calme et sous l'écoulement (9 nov.: -42 -> -70, plus d'oiseaux)
+    ambiance_seuil=0.03,          # niveau de l'écoulement (amplitude) à partir duquel la forêt a disparu (avant 0,2)
     depart=0.9, grondement=0.8, seisme=0.8, impacts=0.8, souffle=1.1,   # 8 nov.: séisme 0,5 -> 0,8, impacts 0,7 -> 0,8, souffle 0,9 -> 1,1
     distance_ref=1500.0,          # m: distance où le gain de distance vaut 1
     passe_bas_proche=4000.0, passe_bas_loin=350.0,   # Hz: aigus étouffés avec la distance
     souffle_distance=1000.0,      # m: le souffle commence quand le front est à cette distance
     cap_face_360=200.0, cap_face_bande=170.0,
-    fondu_fin=1.0, outro=8.0,
+    fondu_fin=0.3, outro=8.0,
+    decroit_debut=53.0, decroit_duree=8.0, decroit_db=60.0,   # 9 nov.: l'écoulement décroît jusqu'à disparaître à la fin du film
     # 8 nov. (Ilyas: « encore plus fort et assourdissant »): graves renforcés, compression plus forte, limiteur commun aux
     # 4 canaux (la direction des sons est gardée quand il écrête)
     graves_db=8.0, graves_freq=120.0,          # étagère de graves sur l'écoulement (sous ~120 Hz), dB
     compression_ratio=3.0, compression_seuil=0.3, compression_max_db=22.0,   # ancien réglage: ~1,7:1, seuil 0,25, +15 dB au plus
-    volume_db=4.0,                             # gain avant le limiteur
+    volume_db=8.0,                             # gain avant le limiteur
     plafond=0.89,                              # crête maximale (-1 dBFS) après le limiteur
 )
 
@@ -282,13 +284,15 @@ def main():
     # 1. ambiance forêt (stéréo -> W + Y), à un niveau fixe en dBFS, baisse sous l'écoulement
     foret = boucle(lis("ambiance_foret.wav", 2), n)
     rms = np.sqrt((foret ** 2).mean()) + 1e-9
-    db = R["ambiance_db"] + (R["ambiance_fond_db"] - R["ambiance_db"]) * np.clip(env * gain / 0.2, 0, 1)
+    db = R["ambiance_db"] + (R["ambiance_fond_db"] - R["ambiance_db"]) * np.clip(env * gain / R["ambiance_seuil"], 0, 1)
     g_amb = (10 ** (db / 20)) / rms
     amb[:, 0] += g_amb * 0.5 * (foret[:, 0] + foret[:, 1])
     amb[:, 1] += g_amb * 0.5 * (foret[:, 0] - foret[:, 1])
     amb = limiteur(amb, R["plafond"])
     # coupure: fondu de fin du film puis silence (outro)
     fin = np.clip((film - t) / max(R["fondu_fin"], 1e-3), 0, 1)
+    x = np.clip((t - R["decroit_debut"]) / max(R["decroit_duree"], 1e-3), 0, 1)
+    fin *= 10 ** (-R["decroit_db"] * x / 20)      # décroissance régulière en dB (perçue comme linéaire)
     amb *= fin[:, None]
     os.makedirs(a.out, exist_ok=True)
     ecrire(os.path.join(a.out, "son_ambix.wav"), amb)
