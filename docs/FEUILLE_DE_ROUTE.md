@@ -1,6 +1,6 @@
 # Feuille de route Blatten VR
 
-Mise à jour: 8 novembre 2026 (1 h, après le 4e test arbres). **À relire avant chaque grande étape** (lancer un rendu, ajouter une fonction, envoyer quelque chose à Johan). Claude la relit et la met à jour à chaque étape; Ilyas peut dire "feuille de route" pour la faire afficher.
+Mise à jour: 8 novembre 2026 (matin: extrait 360 FHD et son plus fort). **À relire avant chaque grande étape** (lancer un rendu, ajouter une fonction, envoyer quelque chose à Johan). Claude la relit et la met à jour à chaque étape; Ilyas peut dire "feuille de route" pour la faire afficher.
 
 ## Dates
 
@@ -42,7 +42,7 @@ Mise à jour: 8 novembre 2026 (1 h, après le 4e test arbres). **À relire avant
 
 | # | Chantier | État | Prochaine action | À faire avant |
 |---|---|---|---|---|
-| 1 | Son spatial (AmbiX) | Injection SA3D codée. `test_son_360.mp4` fait le 7 nov. (D:\Blatten_render\tests_son\20261107_1948) | Le mettre sur YouTube en non répertorié, écouter au casque en tournant la vue (ordre des bruits: avant, gauche, arrière, droite) | Montage final |
+| 1 | Son spatial (AmbiX) | Injection SA3D codée. `test_son_360.mp4` fait le 7 nov. (D:\Blatten_render\tests_son\20261107_1948). 8 nov. (Ilyas: « encore plus fort et assourdissant »): graves +8 dB sous 120 Hz, compression 3:1 (au lieu de ~1,7:1), limiteur commun aux 4 canaux (direction gardée), séisme, impacts et souffle relevés. Mesuré: -14 LUFS intégrés (avant -16,5), +5 dB au milieu de l'événement, fin inchangée (déjà au plafond), forêt de l'intro plus discrète | Écouter avant/après (envoyés le 8 nov.), puis juger sur l'extrait; YouTube baisse les vidéos au-dessus de -14 LUFS, on y est | Montage final |
 | 2 | Brouillon HD, 10 dernières s + fondu + outro | `Lancer_brouillon_fin.bat` prêt | Facultatif maintenant que le rendu final peut partir | |
 | 3 | Saturation de l'image satellite et densité de forêt | Décidé le 7 nov.: saturation 1,25 (C), couronnes inchangées | Rien | |
 | 4 | Police du titre | Décidé le 7 nov.: Palatino (`C:/Windows/Fonts/pala.ttf`, présente sur tout Windows) | Rien | |
@@ -55,6 +55,8 @@ Mise à jour: 8 novembre 2026 (1 h, après le 4e test arbres). **À relire avant
 | 11 | Herbe | Plus tard, seulement si peu coûteux | | |
 | 12 | Rendu à deux PC | Codé et testé le 7 nov. (simulation sur le vrai film, essai complet avec un faux Blender): partage en direct, suivi sur le téléphone (ntfy), montage automatique. Carte pleine: le PC se limite tout seul, l'autre fait la fin | Choisir l'envoi (GitHub: dépôt de transfert + jeton), puis `Lancer_preparer_duo.bat`, zip au frère, `Lancer_rendu_duo.bat` | 12 nov. |
 | 13 | Courrier Johan | Réponse UNESCO (forfait) envoyée ou à envoyer | Voir le fil mail | |
+| 14 | Extrait 360 FHD aux réglages finaux | Demandé par Ilyas (8 nov.): 5 s autour de t = 30 s (images 1066 à 1215), 1920 x 960, tout le reste comme le rendu final (96 échantillons, poussière, matière, eau, arbres détaillés jusqu'à 1000 m, brume), vidéo 360 avec le son spatial, sans fondu ni outro. Commande `extrait` (`--t`, `--duree`, `--res`), réglage `scene.rendu_res` | `Lancer_extrait_360.bat` (test des arbres 7 min puis l'extrait, environ 4 h estimées, fourchette 3 à 6 h): le temps par image mesuré donne aussi l'estimation du film entier avec les arbres détaillés (x 4 environ pour le 3840 x 1920) | Lancement du 360 |
+| 15 | Oiseaux qui fuient le glissement | Idée d'Ilyas (8 nov.), pour une autre fois: quelques oiseaux qui s'envolent au fur et à mesure de la descente (beaucoup de réalisme) | Plus tard (après la V1 ou si le temps le permet) | |
 
 ## Décisions en attente d'Ilyas
 
@@ -63,6 +65,7 @@ Mise à jour: 8 novembre 2026 (1 h, après le 4e test arbres). **À relire avant
 
 ## Journal court
 
+- 8 nov. (matin): commande `extrait` et `Lancer_extrait_360.bat` (5 s autour de t = 30 s, 360 FHD, réglages finaux, son spatial); estimation environ 4 h sur la 2060 (temps du film bande du 1er nov. à t = 30 s et de `test-final` du 7 nov.; coût des arbres détaillés avec la poussière jamais mesuré). Son plus fort et plus grave (voir chantier 1). Idée notée: oiseaux qui fuient (chantier 15).
 - 8 nov. (1 h, 4e test arbres): près et fond de vallée justes en luminosité (à 5 %), arbres détaillés gris argenté (3e test: vert menthe), versant d'en face (950 m) 40 % trop sombre; D1000: RAM libre 1 Go, une minute de blocage. Cause principale: la brume (dans les matériaux) ne s'appliquait qu'au sol, pas aux arbres ni aux bâtiments: au loin, arbres trop sombres et trop contrastés sur un sol voilé (l'effet "collé dessus"), et calage par distance impossible. Corrigé: brume sur arbres simples, feuillage (partie opaque seulement) et écorce des arbres détaillés, murs et toits. Gains recalculés en tenant compte de la brume: teinte des arbres détaillés interpolée entre les 3e et 4e mesures (rouge/vert 1,41, bleu/vert 1,22, même résultat dans les trois zones), arbres détaillés plus sombres au-delà de 500 m (points d'appui 100 et 500 m), arbres simples presque constants de 1 à 3 km. Arbres détaillés en instances de nœuds de géométrie (un seul objet; mêmes positions, vent et couchage vérifiés identiques à l'ancienne méthode, à l'image près): RAM mesurée hors ligne +0,1 Go au lieu de +1,1 Go pour 23 000 arbres. `test-arbres` note maintenant la carte et la RAM.
 - 8 nov. (0 h 30, 3e test arbres): mesure par zones de forêt entières (le gain pixel par pixel est biaisé pour les arbres vus de côté: derrière eux, la photo montre le pré ou la pente). Arbres simples sans ombres projetées (la photo les a déjà), bas des couronnes moins assombri, couleurs bornées sans écrêtage; arbres détaillés moins verts, plus sombres au loin.
 - 7 nov. (minuit): arbres détaillés jusqu'à 1000 m avec fondu, mesure des couleurs par type d'arbre tel qu'il reste dans le film.

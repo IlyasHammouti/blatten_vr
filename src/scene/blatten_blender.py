@@ -167,6 +167,7 @@ CFG = dict(
     rendu_pas_volumes=None,     # pas de calcul de la poussière (None: 1,5); 3 = deux fois moins de pas, plus rapide, un peu plus de bruit
     rendu_rebonds=None,         # rebonds de lumière au plus (None: défaut de Blender, 12)
     rendu_tuile=None,           # taille des tuiles de rendu en pixels (None: 2048, défaut de Blender); 1024 ou 512 = moins de mémoire sur la carte
+    rendu_res=None,             # définition [largeur, hauteur] à la place de celle du preset (ex. [1920, 960]: extrait 360 FHD aux réglages finaux)
     titre_style="blanc",    # "blanc" (lumineux, discret) ou "sombre" (lettres sombres éclairées par le ciel)
     titre_emission=1.2,     # intensité du blanc (1 = environ la luminosité du ciel couvert)
     titre_duree=5.0,        # s de film pendant lesquelles le texte est visible
@@ -3253,6 +3254,8 @@ def setup_render(scene, out_dir):
     r = scene.render
     r.engine = "CYCLES"
     r.resolution_x, r.resolution_y = p["res"]
+    if CFG["rendu_res"]:
+        r.resolution_x, r.resolution_y = int(CFG["rendu_res"][0]), int(CFG["rendu_res"][1])
     r.resolution_percentage = 100
     r.use_persistent_data = bool(CFG["persistent"])
     r.fps = CFG["fps"]
@@ -3298,8 +3301,9 @@ def setup_render(scene, out_dir):
         if CFG["rendu_tuile"]:    # tampons de l'image découpés: moins de mémoire sur la carte, débruitage sur l'image entière
             scene.cycles.use_auto_tile = True
             scene.cycles.tile_size = int(CFG["rendu_tuile"])
-        log(f"rendu: {scene.cycles.samples} échantillons, seuil adaptatif {scene.cycles.adaptive_threshold:g}, pas des volumes "
-            f"{scene.cycles.volume_step_rate:g}, rebonds {scene.cycles.max_bounces}, tuiles {scene.cycles.tile_size}")
+        log(f"rendu: {scene.render.resolution_x} x {scene.render.resolution_y}, {scene.cycles.samples} échantillons, seuil adaptatif "
+            f"{scene.cycles.adaptive_threshold:g}, pas des volumes {scene.cycles.volume_step_rate:g}, rebonds {scene.cycles.max_bounces}, "
+            f"tuiles {scene.cycles.tile_size}")
     except Exception as e:
         log("réglages de vitesse:", e)
     scene.cycles.use_denoising = True

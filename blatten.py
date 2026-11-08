@@ -882,6 +882,7 @@ def _options_nuit(extra, paquet):
 
 
 PLAGE = dict(de=None, a=None)
+DERNIER_DOSSIER = dict(out=None)     # dossier du dernier rendu de film (pour le montage d'un extrait)
 
 
 def _empecher_veille():
@@ -894,7 +895,7 @@ def _empecher_veille():
             pass
 
 
-def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ram_min=7.0):
+def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ram_min=7.0, extrait=False):
     _empecher_veille()
     extra, paquet, pause, heure_fin = _options_nuit(extra, paquet)
     out = os.path.join(ROOT, out_rel)
@@ -909,6 +910,7 @@ def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ra
             sys.exit(f"Dossier de rendu impossible ({rd}): {e}")
         print(f"Images finales écrites dans {out} (render_dir)", flush=True)
     out, extra = _dossier_version(out, extra)
+    DERNIER_DOSSIER["out"] = out
     ext = _ext(preset, extra)
     deja = _nettoyer(out, ext)
     pas_intro, extra = _option(extra, "--intro-pas", 1)
@@ -948,7 +950,7 @@ def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ra
         print(f"Rendu de nuit: arrêt propre avant {time.strftime('%d/%m %H:%M', time.localtime(heure_fin))}; relancer la même commande pour reprendre.", flush=True)
     de, a_ = max(1, PLAGE["de"] or 1), min(n, PLAGE["a"] or n)
     if (PLAGE["de"] or PLAGE["a"]):
-        print(f"Plage d'images: {de} à {a_} (le reste est rendu sur un autre PC)", flush=True)
+        print(f"Plage d'images: {de} à {a_}" + ("" if extrait else " (le reste est rendu sur un autre PC)"), flush=True)
     def _faite(i):
         return os.path.exists(os.path.join(out, f"frame_{i:04d}{ext}"))
     cibles = [i for i in range(de, a_ + 1) if (i - 1) % k_film == 0]
@@ -1020,7 +1022,8 @@ def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ra
             if not os.path.exists(dst) and os.path.exists(src):
                 shutil.copy(src, dst)
     if rc == 0 and (de, a_) != (1, n):
-        print(f"Plage {de}-{a_} terminée. Le montage se fait une fois toutes les images réunies dans le même dossier.", flush=True)
+        if not extrait:
+            print(f"Plage {de}-{a_} terminée. Le montage se fait une fois toutes les images réunies dans le même dossier.", flush=True)
     elif rc == 0:
         if preset in ("bande", "final"):     # montage complet: fondu, outro, son (un échec du montage n'invalide pas le rendu)
             if _finir_film(cfg, out, "bande" if preset == "bande" else "360", fps_video) != 0:
@@ -1176,6 +1179,74 @@ def cmd_render(cfg, paths, extra):
     pas, _ = _option(extra, "--pas", 1)
     nom = "film_brouillon" + (f"_pas{pas[0]}" if pas and pas[0] != "1" else "")
     return _rendre_film(cfg, paths, "brouillon", os.path.join("render", nom), n, fps, ["--camera-confirmed"] + extra, paquet=30)
+
+
+def cmd_extrait(cfg, paths, extra):
+    """Extrait du film dans les conditions du rendu final (preset final: 96 échantillons, poussière, matière, eau, arbres et
+    réglages du film), à la définition voulue, puis vidéo 360 avec le son spatial (métadonnées 360 et AmbiX), sans fondu
+    ni outro. Sert à tout vérifier sur quelques secondes avant le rendu complet.
+        python blatten.py extrait [--t 30] [--duree 5] [--res 1920x960] [--nouveau]   (+ options de render: --pas 2, --jusqu-a 07:00...)
+    --t: instant de l'événement (s) au milieu de l'extrait. Dossier render_dir/extraits/<date>_t<T>s_<largeur>: relancer la
+    même commande reprend l'extrait s'il n'est pas fini (même un autre jour); un extrait fini n'est jamais écrasé (nouveau
+    dossier, suffixe _b, _c...); --nouveau en commence un autre même si le précédent n'est pas fini."""
+    t, extra = _option(extra, "--t", 1)
+    du, extra = _option(extra, "--duree", 1)
+    rs, extra = _option(extra, "--res", 1)
+    t = float(t[0]) if t else 30.0
+    du = float(du[0]) if du else 5.0
+    try:
+        w, h = (int(x) for x in (rs[0] if rs else "1920x960").lower().split("x"))
+    except ValueError:
+        sys.exit("--res attend LARGEURxHAUTEUR, par exemple 1920x960")
+    n, fps = _film(cfg)
+    sc = cfg.get("scene") or {}
+    intro, t0, ts = float(sc.get("intro", 0.0)), float(sc.get("t0", 0.0)), float(sc.get("time_scale", 1.0))
+    # l'image k du film (1 = première) montre l'instant t = t0 + ((k - 1) / fps - intro) / ts de l'événement
+    de = max(1, int(round((intro + (t - du / 2 - t0) * ts) * fps)) + 1)
+    a = min(n, de + int(round(du * fps)) - 1)
+    rd = (cfg.get("render_dir") or "").strip() or os.path.join(ROOT, "render")
+    base = os.path.join(rd, "extraits")
+    nouveau = "--nouveau" in extra
+    extra = [x for x in extra if x != "--nouveau"]
+    motif = re.compile(rf"\d{{8}}_t{re.escape(f'{t:g}')}s_{w}(_[b-z])?")
+    en_cours = sorted(x for x in (os.listdir(base) if os.path.isdir(base) else [])
+                      if motif.fullmatch(x) and not os.path.exists(os.path.join(base, x, "TERMINE.txt")))
+    if en_cours and not nouveau:          # même extrait pas fini (même un autre jour): on le reprend
+        nom = en_cours[-1]
+    else:
+        nom = f"{time.strftime('%Y%m%d')}_t{t:g}s_{w}"
+        for suf in [""] + [f"_{c}" for c in "bcdefghijklmnopqrstuvwxyz"]:
+            if not os.path.exists(os.path.join(base, nom + suf)):
+                nom += suf
+                break
+    print(f"Extrait {w} x {h}, réglages du rendu final: t = {t - du / 2:g} à {t + du / 2:g} s de l'événement, "
+          f"images {de} à {a} du film ({a - de + 1} images) -> {os.path.join(base, nom)}", flush=True)
+    rc = _rendre_film(cfg, paths, "final", os.path.join("render", "extraits"), n, fps,
+                      ["--camera-confirmed", "--de", str(de), "--a", str(a), "--version", nom,
+                       "--set", f"scene.rendu_res=[{w},{h}]"] + extra, extrait=True)
+    out = DERNIER_DOSSIER["out"]
+    if rc != 0 or not out:
+        return rc
+    ext = _ext("final", extra)
+    if any(not os.path.exists(os.path.join(out, f"frame_{i:04d}{ext}")) for i in range(de, a + 1)):
+        print("Images manquantes: relancer la même commande pour finir l'extrait.", flush=True)
+        return 1
+    mv = _images_suspectes(out, ext)
+    if mv:
+        print(f"!! images suspectes (noires?): {mv[:20]}", flush=True)
+    d_son = os.path.join(out, "son")
+    r_son = subprocess.call([sys.executable, SCRIPTS["son"], "--out", d_son])
+    wav = os.path.join(d_son, "son_ambix.wav")
+    if r_son != 0 or not os.path.exists(wav):
+        print("!! son non calculé, vidéo sans son", flush=True)
+        wav = None
+    rc = subprocess.call([sys.executable, SCRIPTS["montage_film"], "--dir", out, "--format", "360", "--fps", str(fps),
+                          "--fondu", "0"] + (["--son", wav] if wav else []))
+    if rc == 0:
+        _marquer_termine(out)
+        print(f"\nExtrait prêt: {os.path.join(out, 'film_360_360.mp4')} (vidéo 360 avec le son spatial, à mettre sur YouTube "
+              f"en non répertorié ou à ouvrir dans un lecteur 360)", flush=True)
+    return rc
 
 
 def cmd_brouillon(cfg, paths, extra):
@@ -2175,7 +2246,7 @@ def cmd_menu(cfg, paths, extra):
 COMMANDS = {
     "status": cmd_status, "setup": cmd_setup, "download": cmd_download, "prep-env": cmd_prep_env, "prep-batiments": cmd_prep_batiments, "prep-vegetation": cmd_prep_vegetation, "env-complet": cmd_env_complet, "visible": cmd_visible,
     "prep-particules": cmd_prep_particules, "terrain": cmd_terrain, "views": cmd_views, "test360": cmd_test360,
-    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "eau-manuel": cmd_eau_manuel, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "titre-test": cmd_titre_test, "test-son": cmd_test_son, "test-couleurs": cmd_test_couleurs, "test-eau": cmd_test_eau, "test-final": cmd_test_final, "prep-sol": cmd_prep_sol, "test-aspect": cmd_test_aspect, "test-arbres": cmd_test_arbres, "test-bande": cmd_test_bande, "finir": cmd_finir, "son": cmd_son, "outro": cmd_outro, "cap": cmd_cap, "camera": cmd_camera, "paquet": cmd_paquet, "duo": cmd_duo, "duo-etat": cmd_duo_etat, "duo-envoyer": cmd_duo_envoyer, "duo-importer": cmd_duo_importer, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
+    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "eau-manuel": cmd_eau_manuel, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "titre-test": cmd_titre_test, "test-son": cmd_test_son, "test-couleurs": cmd_test_couleurs, "test-eau": cmd_test_eau, "test-final": cmd_test_final, "prep-sol": cmd_prep_sol, "test-aspect": cmd_test_aspect, "test-arbres": cmd_test_arbres, "extrait": cmd_extrait, "test-bande": cmd_test_bande, "finir": cmd_finir, "son": cmd_son, "outro": cmd_outro, "cap": cmd_cap, "camera": cmd_camera, "paquet": cmd_paquet, "duo": cmd_duo, "duo-etat": cmd_duo_etat, "duo-envoyer": cmd_duo_envoyer, "duo-importer": cmd_duo_importer, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
 }
 
 

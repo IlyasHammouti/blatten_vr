@@ -40,12 +40,18 @@ C = 343.0
 
 DEFAUTS = dict(
     ambiance_db=-30.0, ambiance_fond_db=-42.0,    # niveau RMS de la forêt (dBFS) au calme et sous l'écoulement
-    depart=0.9, grondement=0.8, seisme=0.5, impacts=0.7, souffle=0.9,
+    depart=0.9, grondement=0.8, seisme=0.8, impacts=0.8, souffle=1.1,   # 8 nov.: séisme 0,5 -> 0,8, impacts 0,7 -> 0,8, souffle 0,9 -> 1,1
     distance_ref=1500.0,          # m: distance où le gain de distance vaut 1
     passe_bas_proche=4000.0, passe_bas_loin=350.0,   # Hz: aigus étouffés avec la distance
     souffle_distance=1000.0,      # m: le souffle commence quand le front est à cette distance
     cap_face_360=200.0, cap_face_bande=170.0,
     fondu_fin=1.0, outro=8.0,
+    # 8 nov. (Ilyas: « encore plus fort et assourdissant »): graves renforcés, compression plus forte, limiteur commun aux
+    # 4 canaux (la direction des sons est gardée quand il écrête)
+    graves_db=8.0, graves_freq=120.0,          # étagère de graves sur l'écoulement (sous ~120 Hz), dB
+    compression_ratio=3.0, compression_seuil=0.3, compression_max_db=22.0,   # ancien réglage: ~1,7:1, seuil 0,25, +15 dB au plus
+    volume_db=4.0,                             # gain avant le limiteur
+    plafond=0.89,                              # crête maximale (-1 dBFS) après le limiteur
 )
 
 
@@ -103,6 +109,31 @@ def place(src, n, debut):
     k = min(len(s), n - i0)
     out[i0:i0 + k] = s[:k]
     return out
+
+
+def limiteur(x, plafond=0.89, attaque=0.002, relache=0.15):
+    """Limiteur doux commun à tous les canaux: même gain pour W, Y, Z, X (la direction des sons est gardée). Le niveau
+    instantané (max de |W| et de la norme de X, Y, Z) passe par une courbe douce (tanh) au-dessus de 0,6 x plafond; gain
+    lissé (attaque 2 ms, relâche 150 ms) puis écrêtage final de sécurité au plafond."""
+    m = np.maximum(np.abs(x[:, 0]), np.sqrt((x[:, 1:] ** 2).sum(1))) if x.shape[1] >= 4 else np.abs(x).max(1)
+    g_ = 0.6 * plafond
+    cible = np.where(m > g_, g_ + (plafond - g_) * np.tanh((m - g_) / (plafond - g_)), m)
+    g = np.where(m > 1e-9, cible / np.maximum(m, 1e-9), 1.0).astype(np.float64)
+    # lissage: descente rapide (attaque), remontée lente (relâche), par blocs de 1 ms pour aller vite
+    b = SR // 1000
+    nb = len(g) // b + 1
+    gb = np.ones(nb)
+    gpad = np.concatenate([g, np.ones(nb * b - len(g))]).reshape(nb, b).min(1)
+    a_up = np.exp(-1.0 / (relache * 1000)); a_dn = np.exp(-1.0 / (attaque * 1000))
+    cur = 1.0
+    for i in range(nb):
+        v = gpad[i]
+        cur = a_dn * cur + (1 - a_dn) * v if v < cur else a_up * cur + (1 - a_up) * v
+        cur = min(cur, v) if v < cur else cur
+        gb[i] = cur
+    gs = np.repeat(gb, b)[:len(g)]
+    y = x * gs[:, None]
+    return np.clip(y, -plafond, plafond).astype(np.float32)
 
 
 def boucle(src, n):
@@ -238,11 +269,16 @@ def main():
     g_s[t < tr["arr_min"].min()] = 0.0
     sf = boucle(lis("souffle_tempete.wav", 1), n)[:, 0] * R["souffle"] * g_s
     amb += encoder(sf, capm, np.zeros(n), R["cap_face_360"])
-    # écoulement normalisé (crête à -2 dBFS), puis compression douce: le début reste audible
+    # graves renforcés (étagère sous graves_freq): le grondement se sent plus qu'il ne s'entend
+    if R["graves_db"]:
+        amb += (10 ** (R["graves_db"] / 20) - 1.0) * passe_bas(amb, R["graves_freq"])
+    # écoulement normalisé (crête à -2 dBFS), puis compression (rapport compression_ratio:1 sous le seuil): le début est
+    # vite fort, la fin reste la plus forte
     amb *= 0.8 / max(np.abs(amb).max(), 1e-6)
     env = np.sqrt(np.convolve(amb[:, 0] ** 2, np.ones(SR // 10) / (SR // 10), mode="same"))
-    gain = np.clip((np.maximum(env, 1e-4) / 0.25) ** (-0.4), 1.0, 6.0)      # rapport ~1,7:1 sous -12 dBFS, +15 dB au plus
-    amb *= gain[:, None]
+    k_c = 1.0 - 1.0 / max(float(R["compression_ratio"]), 1.0)
+    gain = np.clip((np.maximum(env, 1e-4) / R["compression_seuil"]) ** (-k_c), 1.0, 10 ** (R["compression_max_db"] / 20))
+    amb *= gain[:, None] * 10 ** (R["volume_db"] / 20)
     # 1. ambiance forêt (stéréo -> W + Y), à un niveau fixe en dBFS, baisse sous l'écoulement
     foret = boucle(lis("ambiance_foret.wav", 2), n)
     rms = np.sqrt((foret ** 2).mean()) + 1e-9
@@ -250,7 +286,7 @@ def main():
     g_amb = (10 ** (db / 20)) / rms
     amb[:, 0] += g_amb * 0.5 * (foret[:, 0] + foret[:, 1])
     amb[:, 1] += g_amb * 0.5 * (foret[:, 0] - foret[:, 1])
-    amb = np.tanh(amb / 0.9) * 0.9            # limiteur doux
+    amb = limiteur(amb, R["plafond"])
     # coupure: fondu de fin du film puis silence (outro)
     fin = np.clip((film - t) / max(R["fondu_fin"], 1e-3), 0, 1)
     amb *= fin[:, None]

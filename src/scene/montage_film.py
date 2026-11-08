@@ -61,7 +61,10 @@ def main(argv=None):
     ff = ffmpeg_exe()
     cmd = [ff, "-y", "-v", "error", "-stats", "-framerate", f"{a.fps:g}", "-start_number", str(nums[0]),
            "-i", os.path.join(a.dir, f"frame_%04d{ext}")]
-    filt = f"[0:v]format=yuv420p,fade=t=out:st={max(0.0, duree - a.fondu):.3f}:d={a.fondu:g}[film]"
+    if a.fondu > 0:
+        filt = f"[0:v]format=yuv420p,fade=t=out:st={max(0.0, duree - a.fondu):.3f}:d={a.fondu:g}[film]"
+    else:              # extrait au milieu du film: pas de fondu au noir
+        filt = "[0:v]format=yuv420p[film]"
     vids = "[film]"
     k = 1
     if a.outro and os.path.exists(a.outro):
