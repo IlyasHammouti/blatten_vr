@@ -10,7 +10,7 @@ python -m pip install -q imageio-ffmpeg pillow
 python blatten.py test-arbres
 python blatten.py extrait --t 30 --duree 5 --res 3840x1920
 echo.
-echo Termine. Video: D:\Blatten_render\extraits (film_360_360.mp4). Claude la recupere lui-meme.
+echo Termine. Video: D:\Blatten_render\extraits, fichier film_360_360.mp4. Claude la recupere lui-meme.
 pause
 exit /b
 )
