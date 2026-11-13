@@ -5,3 +5,8 @@ oiseaux1 test-oiseaux --t0 10.4 --t1 12.4 --pas 10
 envoi1 nuit-envoi
 herbe2 test-fenetre herbe2
 envoi2 nuit-envoi
+final1 test-final --temps 10.8 30 --sans-variantes --set scene.herbe=true --set scene.herbe_densite=35 --set scene.oiseaux=true --set scene.arbres_luminosite=0.9
+envoi3 nuit-envoi
+perf_a test-oiseaux --t0 20 --t1 20.5 --pas 3
+perf_b test-oiseaux --t0 20 --t1 20.5 --pas 3 --persistent
+envoi4 nuit-envoi
