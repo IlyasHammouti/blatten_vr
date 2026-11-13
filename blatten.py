@@ -1573,7 +1573,9 @@ def cmd_test_oiseaux(cfg, paths, extra):
     intro, ts = float(sc.get("intro", 0.0)), float(sc.get("time_scale", 1.0))
     de = int(round((intro + t0 * ts) * fps)) + 1
     a = min(n, int(round((intro + t1 * ts) * fps)) + 1)
-    cap, haut = (160.0, 250.0), (0.0, 40.0)
+    cap, haut = (165.0, 250.0), (-35.0, 25.0)   # les arbres des envols sont sous l'horizon de la caméra
+    if "--pas" not in extra:
+        extra = extra + ["--pas", "6"]            # une image sur 6 (0,2 s): suffit pour juger taille et lisibilité
     w, h = int(round((cap[1] - cap[0]) * PX_PAR_DEGRE)), int(round((haut[1] - haut[0]) * PX_PAR_DEGRE))
     nom = time.strftime("%Y%m%d_%H%M")
     sets = [f"scene.bande_cap=[{cap[0]},{cap[1]}]", f"scene.bande_haut=[{haut[0]},{haut[1]}]", f"scene.rendu_res=[{w},{h}]",
