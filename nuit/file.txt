@@ -1,0 +1,2 @@
+# File du veilleur de nuit (tools/veilleur.py). Une ligne = <identifiant> <arguments de blatten.py>.
+# Le veilleur relit ce fichier depuis GitHub entre deux commandes; une ligne déjà faite n'est pas refaite.
