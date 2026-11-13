@@ -1518,6 +1518,8 @@ JEUX_FENETRE = {
     # (nom de variante, fenêtre, réglages en plus)
     "sol_arbres": [("A_actuel", "proche", []), ("B_arbres_90pct", "proche", [_LUM]), ("C_arbres_90pct_sol_net", "proche", [_LUM, _NET]),
                    ("A_actuel", "versant", []), ("B_arbres_90pct", "versant", [_LUM])],
+    # herbe: même fenêtre proche, avec le sol net et les arbres à 90 % (référence C du jeu précédent) puis avec les touffes
+    "herbe": [("D_herbe", "proche", [_LUM, _NET, "scene.herbe=true"]), ("E_herbe_dense", "proche", [_LUM, _NET, "scene.herbe=true", "scene.herbe_densite=35"])],
 }
 
 

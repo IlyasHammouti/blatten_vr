@@ -135,6 +135,12 @@ CFG = dict(
                                   # (500 m jusqu'au 8 nov.: la pente compensait en partie la brume absente des arbres)
     arbres_modeles_gain=(1.0, 1.0, 1.0),   # idem pour les arbres détaillés (à 100 m et moins; 200 m jusqu'au 8 nov.)
     arbres_modeles_gain_loin=None,          # arbres détaillés à 500 m et plus (None: arbres_modeles_gain); fondu entre les deux
+    herbe=False,                  # touffes d'herbe en relief autour de la caméra (build_herbe, 13 nov.: prairies et sol proches)
+    herbe_rayon=25.0,             # m autour de la caméra
+    herbe_densite=20.0,           # touffes par m2 au pied de la caméra, décroît (1 - (d/rayon)^1,5) jusqu'à 0 au rayon
+    herbe_lames=9,                # lames par touffe
+    herbe_hauteur=(0.16, 0.34),   # m: hauteur d'une touffe (tirage uniforme)
+    herbe_luminosite=1.0,         # facteur sur la couleur des lames (teinte: image aérienne nettoyée au même endroit)
     ortho_sol_suffixe="_sol",     # suffixe de l'image nettoyée lue quand ortho_sol la demande ("_sol_net": trame retirée sans flou, 13 nov.)
     arbres_luminosite=1.0,        # facteur sur la luminosité de TOUS les arbres, simples et détaillés (0.9 = 10 % plus sombres; retour d'Ilyas 9 nov.)
     arbres_simples_ombre=True,    # les arbres simples projettent des ombres (false: l'image aérienne a déjà celles de la forêt)
@@ -992,13 +998,14 @@ def _ortho_comme_le_sol(c):
     return (v[:, None] - (v[:, None] - c) * k[:, None]) * g
 
 
-def _echantillon_ortho(env, E, N):
-    """Couleur (sRGB 0..1) de l'image aérienne aux points (E, N): images locales 10 cm, 50 cm, puis l'image 2 m. NaN si hors de toutes."""
+def _echantillon_ortho(env, E, N, nettoye=False):
+    """Couleur (sRGB 0..1) de l'image aérienne aux points (E, N): images locales 10 cm, 50 cm, puis l'image 2 m. NaN si hors de toutes.
+    nettoye=True: version nettoyée par prep-sol quand ortho_sol la demande (sans cimes ni ombres d'arbres)."""
     m = env["meta"]
     out = np.full((len(E), 3), np.nan, np.float32)
     srcs = sorted(m.get("ortho_patches", []), key=lambda o: o["step"]) + ([m["ortho"]] if m.get("ortho") else [])
     for o in srcs:
-        f = os.path.join(env["dir"], o["file"])
+        f = _fichier_ortho(env, o["file"]) if nettoye else os.path.join(env["dir"], o["file"])
         if not os.path.exists(f):
             continue
         j = np.floor((E - o["x0"]) / o["step"]).astype(np.int64)
@@ -2082,6 +2089,103 @@ def build_trees(env, coll, cam):
     if nf > 15_000_000:
         log(f"!! {nf:,} triangles d'arbres: risque de dépasser les 6 Go de la carte graphique. Réduire avec --tree-dist 3500 ou relancer prep-vegetation --rayon 3500.")
     return ob0
+
+
+def build_herbe(env, coll, cam):
+    """Touffes d'herbe autour de la caméra: un seul maillage (lames en 3 triangles: base, milieu courbé, pointe), posées sur le
+    relief de la scène, teinte lue dans l'image aérienne nettoyée au même endroit (sombre à la base, clair à la pointe).
+    Densité maximale au pied de la caméra, nulle au rayon herbe_rayon; rien sur les chemins (gris clair), dans l'ombre ou la
+    forêt (trop sombre). Pas de vent. Mémoire: environ 0,1 Go pour 8 000 touffes."""
+    m = env["meta"]
+    R = float(CFG["herbe_rayon"])
+    rng = np.random.default_rng(21)
+    nc = int(CFG["herbe_densite"] * math.pi * R * R)
+    r = R * np.sqrt(rng.random(nc))
+    a = rng.uniform(0, 2 * np.pi, nc)
+    acc = rng.random(nc) < np.clip(1.0 - (r / R) ** 1.5, 0.0, 1.0)
+    acc &= r > 0.4
+    r, a = r[acc], a[acc]
+    X, Y = cam.x + r * np.cos(a), cam.y + r * np.sin(a)
+    E = m["scene_E0"] + X
+    N = m["scene_N0"] + m["flip"] * Y
+    c = _echantillon_ortho(env, E, N, nettoye=True).astype(np.float64)
+    ok = np.isfinite(c[:, 0])
+    c = np.where(ok[:, None], c, 0.0)
+    L = c @ np.array([0.2126, 0.7152, 0.0722])
+    mx, mn = c.max(1), c.min(1)
+    sat = np.where(mx > 1e-6, (mx - mn) / np.maximum(mx, 1e-6), 0.0)
+    ok &= ~((sat < 0.14) & (L > 0.45)) & (L > 0.12)               # pas de chemin gris clair, pas d'ombre profonde
+    X, Y, E, N, c = X[ok], Y[ok], E[ok], N[ok], c[ok]
+    n = len(X)
+    if n == 0:
+        log("herbe: aucun point retenu")
+        return None
+    Z = _z_sol(env, E, N)
+    cl = np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
+    cl = _ortho_comme_le_sol(cl) * float(CFG["herbe_luminosite"])
+    nb = int(CFG["herbe_lames"])
+    h0, h1 = CFG["herbe_hauteur"]
+    H = rng.uniform(h0, h1, n)
+    tone = rng.uniform(0.85, 1.15, n)
+    # lames: (n, nb) -> base décalée du centre, cap, inclinaison, largeur
+    bx = X[:, None] + rng.normal(0, 0.05, (n, nb))
+    by = Y[:, None] + rng.normal(0, 0.05, (n, nb))
+    bz = Z[:, None] + np.zeros((n, nb))
+    phi = rng.uniform(0, 2 * np.pi, (n, nb))
+    lean = np.radians(rng.uniform(6, 38, (n, nb)))
+    hl = H[:, None] * rng.uniform(0.6, 1.0, (n, nb))
+    w = rng.uniform(0.010, 0.018, (n, nb))
+    ux, uy = np.cos(phi), np.sin(phi)                  # direction d'inclinaison
+    sx, sy = -uy, ux                                    # largeur de la lame (perpendiculaire)
+    def pt(t, lean_f, wid):
+        hz = hl * t
+        d = hl * np.sin(lean * lean_f) * t
+        return (bx + ux * d, by + uy * d, bz + hz, wid)
+    pm = pt(0.5, 0.5, w * 0.75)
+    pp = pt(1.0, 1.0, np.zeros_like(w))
+    verts = []
+    for (px, py, pz, wid) in ((bx, by, bz, w), pm, pp):
+        verts.append((px - sx * wid / 2, py - sy * wid / 2, pz))
+        verts.append((px + sx * wid / 2, py + sy * wid / 2, pz))
+    # sommets par lame: 0 bL, 1 bR, 2 mL, 3 mR, 4 tL, 5 tR (pointe: tL = tR)
+    V = np.stack([np.stack(v, -1) for v in verts], 2)        # (n, nb, 6, 3)
+    V = V.reshape(n * nb * 6, 3)
+    tri = np.array([[0, 1, 3], [0, 3, 2], [2, 3, 5]])         # (bL bR mR) (bL mR mL) (mL mR pointe)
+    F = (np.arange(n * nb)[:, None, None] * 6 + tri[None, :, :]).reshape(-1, 3)
+    # couleur par sommet: base sombre -> pointe claire
+    k = np.array([0.55, 0.55, 0.85, 0.85, 1.15, 1.15])
+    col = cl[:, None, None, :] * tone[:, None, None, None] * k[None, None, :, None] * np.ones((1, nb, 1, 1))
+    col = np.clip(col, 0.0, 1.0).reshape(n * nb * 6, 3)
+    me = bpy.data.meshes.new("Herbe")
+    me.vertices.add(len(V))
+    me.vertices.foreach_set("co", V.astype(np.float32).ravel())
+    nt = len(F)
+    me.loops.add(nt * 3)
+    me.loops.foreach_set("vertex_index", F.astype(np.int32).ravel())
+    me.polygons.add(nt)
+    me.polygons.foreach_set("loop_start", (np.arange(nt) * 3).astype(np.int32))
+    me.polygons.foreach_set("loop_total", np.full(nt, 3, np.int32))
+    me.update()
+    try:
+        ca = me.color_attributes.new("col", "FLOAT_COLOR", "POINT")
+        rgba = np.concatenate([col, np.ones((len(col), 1))], 1).astype(np.float32)
+        ca.data.foreach_set("color", rgba.ravel())
+    except Exception:
+        va = me.attributes.new("col", "FLOAT_COLOR", "POINT")
+        va.data.foreach_set("color", np.concatenate([col, np.ones((len(col), 1))], 1).astype(np.float32).ravel())
+    ob = bpy.data.objects.new("Herbe", me)
+    coll.objects.link(ob)
+    mt = bpy.data.materials.new("Herbe")
+    mt.use_nodes = True
+    nt_ = mt.node_tree
+    b = nt_.nodes["Principled BSDF"]
+    b.inputs["Roughness"].default_value = 0.9
+    at = nt_.nodes.new("ShaderNodeAttribute")
+    at.attribute_name, at.attribute_type = "col", "GEOMETRY"
+    nt_.links.new(at.outputs["Color"], b.inputs["Base Color"])
+    me.materials.append(mt)
+    log(f"herbe: {n:,} touffes ({n * nb:,} lames, {nt:,} triangles) dans {R:g} m autour de la caméra")
+    return ob
 
 
 def _z_sol(env, E, N):
@@ -3528,6 +3632,8 @@ def main():
             build_buildings(env, coll)
         if not CFG["no_trees"]:
             build_trees(env, coll, scene.camera.location)
+        if CFG["herbe"]:
+            build_herbe(env, coll, scene.camera.location)
         if not CFG["no_water"]:
             build_water(env, coll, scene.camera.location)
     if CFG["titre"]:
