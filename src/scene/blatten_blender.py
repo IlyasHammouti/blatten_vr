@@ -141,6 +141,14 @@ CFG = dict(
     herbe_lames=9,                # lames par touffe
     herbe_hauteur=(0.16, 0.34),   # m: hauteur d'une touffe (tirage uniforme)
     herbe_luminosite=1.0,         # facteur sur la couleur des lames (teinte: image aérienne nettoyée au même endroit)
+    oiseaux=False,                # envols d'oiseaux (build_oiseaux, 13 nov.): groupes partant d'arbres proches de la caméra
+    oiseaux_groupes=(             # (cap min, cap max en degrés, nombre d'oiseaux, instant de l'envol en s de l'événement)
+        (160.0, 195.0, 11, 9.0),  # à droite de l'événement (cap 128), vers le centre de la vue de départ
+        (215.0, 255.0, 9, 9.7),   # à droite, plus loin
+        (60.0, 100.0, 12, 10.5),  # à gauche
+    ),
+    oiseaux_dist=(45.0, 110.0),   # m: distance caméra - arbre de départ (plus loin, un oiseau fait moins de 3 pixels en 360)
+    oiseaux_envergure=0.9,        # m (choucas, chocards: 0,7 à 0,9 m)
     ortho_sol_suffixe="_sol",     # suffixe de l'image nettoyée lue quand ortho_sol la demande ("_sol_net": trame retirée sans flou, 13 nov.)
     arbres_luminosite=1.0,        # facteur sur la luminosité de TOUS les arbres, simples et détaillés (0.9 = 10 % plus sombres; retour d'Ilyas 9 nov.)
     arbres_simples_ombre=True,    # les arbres simples projettent des ombres (false: l'image aérienne a déjà celles de la forêt)
@@ -330,6 +338,7 @@ def on_frame(scene, *args):
     maj_ensevelis(t)
     maj_arbres(t)
     maj_arbres_ez(t, scene.frame_current * scene.render.fps_base / scene.render.fps)
+    maj_oiseaux(t)
     if MATIERE["mod"] is not None:
         MATIERE["mod"].update(scene, t, STATE["seq"])
     else:
@@ -2188,6 +2197,128 @@ def build_herbe(env, coll, cam):
     return ob
 
 
+OISEAUX = {}
+
+
+def build_oiseaux(env, coll, cam):
+    """Envols d'oiseaux: pour chaque groupe de CFG["oiseaux_groupes"], l'arbre (>= 9 m) du secteur de caps demandé et à la distance
+    demandée de la caméra le plus proche de la distance moyenne; les oiseaux en partent à l'instant de l'envol (+ 0 à 0,6 s), s'écartent de la
+    caméra en montant, battent des ailes (3,5 à 5 Hz, battement qui se calme au bout de 4 s). Un seul maillage, mis à jour à chaque
+    image par maj_oiseaux (11 sommets par oiseau). Avant l'envol les oiseaux sont cachés dans la couronne."""
+    m = env["meta"]
+    vm = m.get("vegetation")
+    path = os.path.join(env["dir"], vm["file"]) if vm else None
+    if not path or not os.path.exists(path):
+        log("oiseaux: pas de relevé d'arbres, rien")
+        return None
+    z = np.load(path)
+    X, Y, Hh = (z[k].astype(np.float64) for k in ("x", "y", "h"))
+    dx, dy = X - cam.x, Y - cam.y
+    d = np.hypot(dx, dy)
+    cap = (np.degrees(np.arctan2(dx, dy)) + 360.0) % 360.0
+    d0, d1 = CFG["oiseaux_dist"]
+    rng = np.random.default_rng(33)
+    dt = 1.0 / 60.0
+    tg = np.arange(0.0, 45.0, dt)
+    pos, vit, t_dep, freq, ph, vis = [], [], [], [], [], []
+    for (c0, c1, nb, tdep) in CFG["oiseaux_groupes"]:
+        sel = np.where((cap >= c0) & (cap <= c1) & (d >= d0) & (d <= d1) & (Hh >= 9.0))[0]
+        if len(sel) == 0:
+            log(f"oiseaux: aucun arbre pour les caps {c0:g}-{c1:g} à {d0:g}-{d1:g} m")
+            continue
+        i = sel[np.argmin(np.abs(d[sel] - 0.5 * (d0 + d1)))]
+        E = m["scene_E0"] + X[i]
+        N = m["scene_N0"] + m["flip"] * Y[i]
+        zs = float(_z_sol(env, np.array([E]), np.array([N]))[0])
+        top = np.array([X[i], Y[i], zs + 0.85 * Hh[i]])
+        log(f"oiseaux: groupe de {nb} à l'arbre cap {cap[i]:.0f}°, {d[i]:.0f} m, haut de {Hh[i]:.0f} m, envol à t = {tdep:g} s")
+        away = math.atan2(dx[i], dy[i])                  # cap de l'arbre vu de la caméra: ils s'éloignent dans cette direction, avec écart
+        for b in range(nb):
+            t0 = tdep + rng.uniform(0.0, 0.6)
+            psi = away + rng.uniform(-1.2, 1.2)
+            gam0, v0, v1 = math.radians(rng.uniform(25, 45)), rng.uniform(1.5, 3.0), rng.uniform(7.0, 10.5)
+            om = rng.uniform(-0.25, 0.25)
+            p0 = top + np.array([rng.normal(0, 1.2), rng.normal(0, 1.2), rng.normal(0, 0.8)])
+            P = np.zeros((len(tg), 3))
+            V = np.zeros((len(tg), 3))
+            cur = p0.copy()
+            for k, t in enumerate(tg):
+                if t < t0:
+                    P[k], V[k] = p0, (0, 0, 0)
+                    continue
+                s_ = t - t0
+                v = v0 + (v1 - v0) * (1 - math.exp(-s_ / 1.3))
+                gam = gam0 * math.exp(-s_ / 3.0) + math.radians(6)
+                ps = psi + om * s_
+                vel = np.array([math.sin(ps) * math.cos(gam), math.cos(ps) * math.cos(gam), math.sin(gam)]) * v
+                cur = cur + vel * dt
+                P[k], V[k] = cur, vel
+            pos.append(P)
+            vit.append(V)
+            t_dep.append(t0)
+            freq.append(rng.uniform(3.5, 5.0))
+            ph.append(rng.uniform(0, 2 * np.pi))
+    if not pos:
+        return None
+    nb = len(pos)
+    me = bpy.data.meshes.new("Oiseaux")
+    me.vertices.add(nb * 11)
+    tri = np.array([[0, 2, 4], [0, 4, 3], [1, 4, 2], [1, 3, 4], [5, 6, 7], [8, 9, 10]])   # corps (4), aile gauche, aile droite
+    F = (np.arange(nb)[:, None, None] * 11 + tri[None, :, :]).reshape(-1, 3)
+    me.loops.add(len(F) * 3)
+    me.loops.foreach_set("vertex_index", F.astype(np.int32).ravel())
+    me.polygons.add(len(F))
+    me.polygons.foreach_set("loop_start", (np.arange(len(F)) * 3).astype(np.int32))
+    me.polygons.foreach_set("loop_total", np.full(len(F), 3, np.int32))
+    me.update()
+    ob = bpy.data.objects.new("Oiseaux", me)
+    coll.objects.link(ob)
+    mt = bpy.data.materials.new("Oiseau")
+    mt.use_nodes = True
+    b = mt.node_tree.nodes["Principled BSDF"]
+    b.inputs["Base Color"].default_value = (0.025, 0.025, 0.03, 1)
+    b.inputs["Roughness"].default_value = 0.6
+    me.materials.append(mt)
+    OISEAUX.update(me=me, pos=np.array(pos), vit=np.array(vit), tg=tg, t0=np.array(t_dep), f=np.array(freq), ph=np.array(ph),
+                   env=float(CFG["oiseaux_envergure"]))
+    maj_oiseaux(0.0)
+    return ob
+
+
+def maj_oiseaux(t):
+    """Positions, orientation et battement des ailes de chaque oiseau à l'instant t (s de l'événement)."""
+    if not OISEAUX:
+        return
+    P, V, tg, t0 = OISEAUX["pos"], OISEAUX["vit"], OISEAUX["tg"], OISEAUX["t0"]
+    nb = len(P)
+    k = min(max(int(round(t / (tg[1] - tg[0]))), 0), len(tg) - 1)
+    p, v = P[:, k, :], V[:, k, :]
+    sp = np.linalg.norm(v, axis=1)
+    vol = (t >= t0) & (sp > 1e-6)
+    fw = np.where(vol[:, None], v / np.maximum(sp, 1e-9)[:, None], np.array([[0.0, 1.0, 0.0]]))
+    up0 = np.array([0.0, 0.0, 1.0])
+    lf = np.cross(up0[None, :], fw)
+    lf /= np.maximum(np.linalg.norm(lf, axis=1), 1e-9)[:, None]       # gauche
+    up = np.cross(fw, lf)
+    s_ = np.maximum(t - t0, 0.0)
+    amp = np.radians(55.0) * (1.0 - 0.6 * np.clip((s_ - 3.0) / 3.0, 0.0, 1.0))
+    phi = amp * np.sin(2 * np.pi * OISEAUX["f"] * t + OISEAUX["ph"])
+    half = OISEAUX["env"] / 2.0
+    cs, sn = np.cos(phi), np.sin(phi)
+    loc = np.zeros((nb, 11, 3))          # repère de l'oiseau: x avant, y gauche, z haut
+    loc[:, 0] = (0.18, 0, 0); loc[:, 1] = (-0.20, 0, 0); loc[:, 2] = (0, 0.04, 0); loc[:, 3] = (0, -0.04, 0); loc[:, 4] = (0, 0, 0.035)
+    for sgn, o in ((1.0, 5), (-1.0, 8)):
+        loc[:, o] = (0.07, sgn * 0.03, 0)
+        loc[:, o + 1, 0] = -0.05
+        loc[:, o + 1, 1] = sgn * half * cs
+        loc[:, o + 1, 2] = half * sn
+        loc[:, o + 2] = (-0.10, sgn * 0.03, 0)
+    W = (p[:, None, :] + loc[:, :, 0:1] * fw[:, None, :] + loc[:, :, 1:2] * lf[:, None, :] + loc[:, :, 2:3] * up[:, None, :])
+    W = np.where(vol[:, None, None], W, p[:, None, :])        # pas encore partis: points confondus (rien à voir)
+    OISEAUX["me"].vertices.foreach_set("co", W.astype(np.float32).ravel())
+    OISEAUX["me"].update()
+
+
 def _z_sol(env, E, N):
     """Altitude du sol = celle du maillage de la scène (même anneau, même résolution) aux points (E, N)."""
     m = env["meta"]
@@ -3634,6 +3765,8 @@ def main():
             build_trees(env, coll, scene.camera.location)
         if CFG["herbe"]:
             build_herbe(env, coll, scene.camera.location)
+        if CFG["oiseaux"]:
+            build_oiseaux(env, coll, scene.camera.location)
         if not CFG["no_water"]:
             build_water(env, coll, scene.camera.location)
     if CFG["titre"]:

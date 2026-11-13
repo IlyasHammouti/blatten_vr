@@ -1561,6 +1561,36 @@ def cmd_test_fenetre(cfg, paths, extra):
     return rc
 
 
+def cmd_test_oiseaux(cfg, paths, extra):
+    """Envol d'oiseaux: clip plat (fenêtre 90 x 40 degrés à la densité du film final, 96 échantillons, réglages du film + sol net,
+    arbres à 90 %, herbe) de t = 9 à 12,5 s de l'événement, puis vidéo mp4 30 images/s.
+        python blatten.py test-oiseaux [--t0 9] [--t1 12.5]"""
+    a0, extra = _option(extra, "--t0", 1)
+    a1, extra = _option(extra, "--t1", 1)
+    t0, t1 = float(a0[0]) if a0 else 9.0, float(a1[0]) if a1 else 12.5
+    n, fps = _film(cfg)
+    sc = cfg.get("scene") or {}
+    intro, ts = float(sc.get("intro", 0.0)), float(sc.get("time_scale", 1.0))
+    de = int(round((intro + t0 * ts) * fps)) + 1
+    a = min(n, int(round((intro + t1 * ts) * fps)) + 1)
+    cap, haut = (160.0, 250.0), (0.0, 40.0)
+    w, h = int(round((cap[1] - cap[0]) * PX_PAR_DEGRE)), int(round((haut[1] - haut[0]) * PX_PAR_DEGRE))
+    nom = time.strftime("%Y%m%d_%H%M")
+    sets = [f"scene.bande_cap=[{cap[0]},{cap[1]}]", f"scene.bande_haut=[{haut[0]},{haut[1]}]", f"scene.rendu_res=[{w},{h}]",
+            "scene.rendu_echantillons=96", _LUM, _NET, "scene.herbe=true", "scene.oiseaux=true"]
+    sa = []
+    for x in sets:
+        sa += ["--set", x]
+    print(f"Envol d'oiseaux {w}x{h}: t = {t0:g} à {t1:g} s, images {de} à {a} ({a - de + 1})", flush=True)
+    rc = _rendre_film(cfg, paths, "bande", os.path.join("render", "tests_oiseaux"), n, fps,
+                      ["--camera-confirmed", "--de", str(de), "--a", str(a), "--version", nom] + sa + extra, extrait=True)
+    out = DERNIER_DOSSIER["out"]
+    if rc != 0 or not out:
+        return rc
+    return subprocess.call([sys.executable, SCRIPTS["montage_film"], "--dir", out, "--format", "bande", "--fps", str(fps),
+                            "--fondu", "0", "--crf", "14", "--out", os.path.join(out, "oiseaux_test.mp4")])
+
+
 def _lin_srgb(a):
     import numpy as np
     a = np.asarray(a, np.float64) / 255.0
@@ -2303,7 +2333,7 @@ def cmd_menu(cfg, paths, extra):
 COMMANDS = {
     "status": cmd_status, "setup": cmd_setup, "download": cmd_download, "prep-env": cmd_prep_env, "prep-batiments": cmd_prep_batiments, "prep-vegetation": cmd_prep_vegetation, "env-complet": cmd_env_complet, "visible": cmd_visible,
     "prep-particules": cmd_prep_particules, "terrain": cmd_terrain, "views": cmd_views, "test360": cmd_test360,
-    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "eau-manuel": cmd_eau_manuel, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "titre-test": cmd_titre_test, "test-son": cmd_test_son, "test-couleurs": cmd_test_couleurs, "test-eau": cmd_test_eau, "test-final": cmd_test_final, "prep-sol": cmd_prep_sol, "test-aspect": cmd_test_aspect, "test-fenetre": cmd_test_fenetre, "test-arbres": cmd_test_arbres, "extrait": cmd_extrait, "test-bande": cmd_test_bande, "finir": cmd_finir, "son": cmd_son, "outro": cmd_outro, "cap": cmd_cap, "camera": cmd_camera, "paquet": cmd_paquet, "duo": cmd_duo, "duo-etat": cmd_duo_etat, "duo-envoyer": cmd_duo_envoyer, "duo-importer": cmd_duo_importer, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
+    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "eau-manuel": cmd_eau_manuel, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "titre-test": cmd_titre_test, "test-son": cmd_test_son, "test-couleurs": cmd_test_couleurs, "test-eau": cmd_test_eau, "test-final": cmd_test_final, "prep-sol": cmd_prep_sol, "test-aspect": cmd_test_aspect, "test-fenetre": cmd_test_fenetre, "test-oiseaux": cmd_test_oiseaux, "test-arbres": cmd_test_arbres, "extrait": cmd_extrait, "test-bande": cmd_test_bande, "finir": cmd_finir, "son": cmd_son, "outro": cmd_outro, "cap": cmd_cap, "camera": cmd_camera, "paquet": cmd_paquet, "duo": cmd_duo, "duo-etat": cmd_duo_etat, "duo-envoyer": cmd_duo_envoyer, "duo-importer": cmd_duo_importer, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
 }
 
 
