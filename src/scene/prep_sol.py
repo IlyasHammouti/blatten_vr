@@ -12,9 +12,14 @@ Traitement, pour chaque image (2 m, 50 cm, 10 cm), écrit à côté de l'origina
   2. ombres: remplacées par la couleur moyenne du sol découvert voisin (rayon 6 m, sinon 25 m, sinon une couleur de sous-bois);
      cimes: moitié ce sol voisin assombri comme un sous-bois, moitié la couleur d'origine éclaircie (la teinte verte reste);
      dans les deux cas, 30 % des variations fines de l'image sont gardées (pas d'aplat);
-  3. léger flou (images 50 cm et 10 cm) qui efface la trame et le bruit.
+  3. trame de l'image 10 cm: méthode « flou » (jusqu'au 12 nov.): flou de 2 pixels, qui efface aussi presque tout le détail
+     (variance du laplacien de 172 à 5); méthode « grille » (13 nov., défaut): on retire seulement la trame, périodique
+     de 5 pixels (50 cm), par repliement (médiane de chaque case des 5 x 5 dans des tuiles de 200 pixels, retirée de l'image
+     quand son amplitude dépasse le bruit), puis un flou d'un seul pixel pour le bruit JPEG: le détail d'origine reste
+     (laplacien 94 au lieu de 5; la trame passe de 100 % à 6 %).
 
     python prep_sol.py --env DOSSIER_ENV [--sombre 0.72] [--lisse 1.0] [--seulement ortho_10cm.jpg]
+                       [--methode grille|flou] [--suffixe _sol_net]
 Bibliothèques: numpy, Pillow.
 """
 import argparse
@@ -76,6 +81,32 @@ def masque_sur_grille(info_m, masque, info_i, forme):
         out[sl] = (a * (1 - fx) + b * fx) * (1 - ffy) + (c * (1 - fx) + d * fx) * ffy
     out[~dedans] = 0.0
     return out
+
+
+def degrille(rgb, tuile=200, P=5, seuil=1.5, hp_sigma=6.0):
+    """Retire la trame périodique (période P pixels, P = 5 sur l'image 10 cm) sans toucher au reste: pour chaque canal, hautes
+    fréquences (image moins flou gaussien), puis dans chaque tuile médiane de chacune des P x P cases (position modulo P):
+    c'est le motif périodique; il est retiré si son amplitude dépasse `seuil` (niveaux sur 255), sinon la tuile n'a pas de trame.
+    rgb: (H, W, 3) uint8. Rend un uint8 de même forme."""
+    a = rgb.astype(np.float32)
+    H, W = a.shape[:2]
+    out = a.copy()
+    ii, jj = np.mgrid[0:tuile, 0:tuile]
+    for k in range(3):
+        c = a[..., k]
+        hp = c - flou(c, hp_sigma)
+        res = np.zeros_like(c)
+        for i0 in range(0, H, tuile):
+            for j0 in range(0, W, tuile):
+                i1, j1 = min(H, i0 + tuile), min(W, j0 + tuile)
+                t = hp[i0:i1, j0:j1]
+                key = ((ii[:i1 - i0, :j1 - j0] + i0) % P) * P + (jj[:i1 - i0, :j1 - j0] + j0) % P
+                pat = np.array([np.median(t[key == q]) if np.any(key == q) else 0.0 for q in range(P * P)], np.float32)
+                pat -= np.median(pat)
+                if np.abs(pat).max() >= seuil:
+                    res[i0:i1, j0:j1] = pat[key]
+        out[..., k] = c - res
+    return np.clip(out + 0.5, 0, 255).astype(np.uint8)
 
 
 def traiter(rgb, can, step, sombre=0.72, lisse=1.0):
@@ -141,6 +172,9 @@ def main(argv=None):
     ap.add_argument("--sombre", type=float, default=0.72, help="assombrissement du sol sous les arbres (1 = couleur du sol voisin)")
     ap.add_argument("--lisse", type=float, default=1.0, help="flou final en pixels pour les images 50 cm et 10 cm (0 = aucun)")
     ap.add_argument("--seulement", nargs="*", help="ne traiter que ces fichiers (essais)")
+    ap.add_argument("--methode", choices=("grille", "flou"), default="grille",
+                    help="image 10 cm: grille = retire seulement la trame de 5 pixels (détail gardé), flou = flou de 2 pixels (avant le 13 nov.)")
+    ap.add_argument("--suffixe", default="_sol_net", help="suffixe du fichier écrit (défaut _sol_net; l'ancien _sol n'est pas touché)")
     ap.add_argument("--fenetre", type=float, nargs=4, metavar=("E0", "N0", "E1", "N1"),
                     help="essais: ne traiter qu'une fenêtre (coordonnées LV95) et l'écrire en *_sol_essai.jpg")
     a = ap.parse_args(argv)
@@ -150,7 +184,9 @@ def main(argv=None):
         sys.exit("pas de masque de canopée (prep-vegetation): rien à faire")
     masque = np.asarray(Image.open(os.path.join(a.env, cm["file"])).convert("L"), np.float32) / 255.0
     # flou final: rien sur l'image 2 m, 1 pixel sur le 50 cm, 1,5 pixel sur le 10 cm (sa trame régulière)
-    images = [dict(meta["ortho"], lisse=0.0)] + [dict(p, lisse=a.lisse * (1.5 if p["step"] < 0.2 else 1.0))
+    # méthode grille: la trame est retirée avant, le flou ne sert plus qu'au bruit JPEG (1 pixel partout)
+    fin = 1.0 if a.methode == "grille" else 1.5
+    images = [dict(meta["ortho"], lisse=0.0)] + [dict(p, lisse=a.lisse * (fin if p["step"] < 0.2 else 1.0))
                                                  for p in meta.get("ortho_patches", [])]
     for info in images:
         if a.seulement and info["file"] not in a.seulement:
@@ -162,6 +198,9 @@ def main(argv=None):
         t0 = time.time()
         im = Image.open(src).convert("RGB")
         rgb = np.asarray(im)
+        if a.methode == "grille" and info["step"] < 0.2:
+            rgb = degrille(rgb)
+            log(f"{info['file']}: trame de 5 pixels retirée ({time.time() - t0:.0f} s)")
         inf = dict(info)
         if a.fenetre:
             E0, N0, E1, N1 = a.fenetre
@@ -172,7 +211,7 @@ def main(argv=None):
             inf.update(x0=info["x0"] + c0 * info["step"], y1=info["y1"] - r0 * info["step"])
         can = masque_sur_grille(cm, masque, inf, rgb.shape[:2])
         out, part = traiter_par_tuiles(rgb, can, info["step"], a.sombre, info["lisse"])
-        nom = os.path.splitext(info["file"])[0] + ("_sol_essai.jpg" if a.fenetre else "_sol.jpg")
+        nom = os.path.splitext(info["file"])[0] + ("_sol_essai.jpg" if a.fenetre else a.suffixe + ".jpg")
         Image.fromarray(out).save(os.path.join(a.env, nom), quality=93)
         log(f"{info['file']} -> {nom}: {100 * part:.0f} % remplacé (cimes et ombres), {time.time() - t0:.0f} s")
     return 0

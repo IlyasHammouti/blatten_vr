@@ -135,6 +135,8 @@ CFG = dict(
                                   # (500 m jusqu'au 8 nov.: la pente compensait en partie la brume absente des arbres)
     arbres_modeles_gain=(1.0, 1.0, 1.0),   # idem pour les arbres détaillés (à 100 m et moins; 200 m jusqu'au 8 nov.)
     arbres_modeles_gain_loin=None,          # arbres détaillés à 500 m et plus (None: arbres_modeles_gain); fondu entre les deux
+    ortho_sol_suffixe="_sol",     # suffixe de l'image nettoyée lue quand ortho_sol la demande ("_sol_net": trame retirée sans flou, 13 nov.)
+    arbres_luminosite=1.0,        # facteur sur la luminosité de TOUS les arbres, simples et détaillés (0.9 = 10 % plus sombres; retour d'Ilyas 9 nov.)
     arbres_simples_ombre=True,    # les arbres simples projettent des ombres (false: l'image aérienne a déjà celles de la forêt)
     arbres_ombrage_bas=0.55,      # assombrissement du bas des couronnes des arbres simples (1 = aucun)
     tree_dist=4700.0,       # distance maximale des arbres modélisés (m); au-delà l'image aérienne suffit
@@ -972,7 +974,7 @@ def _gain_distance(d, cle_proche="arbres_gain_proche", cle_loin="arbres_gain", d
     gl = np.log(np.maximum(np.asarray(vl if vl is not None else vp, float), 1e-6))
     gp = np.log(np.maximum(np.asarray(vp if vp is not None else vl, float), 1e-6))
     t = np.clip((np.log(np.maximum(np.asarray(d, float), 1.0)) - np.log(d0)) / (np.log(d1) - np.log(d0)), 0.0, 1.0)
-    return np.exp(gp[None, :] * (1.0 - t[:, None]) + gl[None, :] * t[:, None])
+    return np.exp(gp[None, :] * (1.0 - t[:, None]) + gl[None, :] * t[:, None]) * float(CFG.get("arbres_luminosite", 1.0))
 
 
 def _ortho_comme_le_sol(c):
@@ -2309,7 +2311,7 @@ def _sol_nettoye(nom):
 def _fichier_ortho(env, nom):
     """Image aérienne à charger: la version nettoyée par prep-sol (suffixe _sol) si ortho_sol la demande et qu'elle existe."""
     if _sol_nettoye(nom):
-        p = os.path.join(env["dir"], os.path.splitext(nom)[0] + "_sol.jpg")
+        p = os.path.join(env["dir"], os.path.splitext(nom)[0] + str(CFG.get("ortho_sol_suffixe") or "_sol") + ".jpg")
         if os.path.exists(p):
             return p
         if CFG["preset"] == "final":      # film final: deux PC doivent avoir exactement les mêmes images

@@ -1504,6 +1504,61 @@ def cmd_test_aspect(cfg, paths, extra):
     return rc
 
 
+# Fenêtres plates pour tester UNE caractéristique dans les conditions réelles, sans rendre le 360 entier: même scène, mêmes
+# réglages et mêmes échantillons que le film final, découpés dans la sphère. Densité = celle du film 3840 x 1920
+# (10,667 pixels par degré), donc ce qu'on voit ici est ce que verra le spectateur du 360.
+PX_PAR_DEGRE = 3840 / 360.0
+FENETRES = {
+    "proche": dict(cap=(285.0, 375.0), haut=(-55.0, 70.0), doc="sol et grand arbre tout près de la caméra (cap 330)"),
+    "versant": dict(cap=(110.0, 230.0), haut=(-25.0, 15.0), doc="versant d'en face, vallée et forêt lointaine"),
+}
+_LUM = "scene.arbres_luminosite=0.9"
+_NET = "scene.ortho_sol_suffixe=_sol_net"
+JEUX_FENETRE = {
+    # (nom de variante, fenêtre, réglages en plus)
+    "sol_arbres": [("A_actuel", "proche", []), ("B_arbres_90pct", "proche", [_LUM]), ("C_arbres_90pct_sol_net", "proche", [_LUM, _NET]),
+                   ("A_actuel", "versant", []), ("B_arbres_90pct", "versant", [_LUM])],
+}
+
+
+def cmd_test_fenetre(cfg, paths, extra):
+    """Test d'une caractéristique sur une fenêtre plate à la densité du film final (96 échantillons, réglages du film):
+    render/tests/fenetre/<jeu>/<date>/<fenetre>__<variante>/frame_0001.png
+        python blatten.py test-fenetre sol_arbres [--temps 15]      (jeux: voir JEUX_FENETRE)"""
+    jeux = [x for x in extra if not x.startswith("-")]
+    temps, extra = _option([x for x in extra if x not in jeux], "--temps", 1)
+    t = temps[0] if temps else "15"
+    nom_jeu = jeux[0] if jeux else "sol_arbres"
+    if nom_jeu not in JEUX_FENETRE:
+        sys.exit(f"jeu inconnu: {nom_jeu} (disponibles: {', '.join(JEUX_FENETRE)})")
+    base = os.path.join(ROOT, "render", "tests", "fenetre", nom_jeu, time.strftime("%Y%m%d_%H%M"))
+    rc = 0
+    for var, fen, sets in JEUX_FENETRE[nom_jeu]:
+        f = FENETRES[fen]
+        w = int(round((f["cap"][1] - f["cap"][0]) * PX_PAR_DEGRE))
+        h = int(round((f["haut"][1] - f["haut"][0]) * PX_PAR_DEGRE))
+        out = os.path.join(base, f"{fen}__{var}")
+        os.makedirs(out, exist_ok=True)
+        print(f"\n>>> {fen} / {var} ({w}x{h}, t = {t} s) -> {out}", flush=True)
+        _attendre_ram(7.0)
+        t0 = time.time()
+        sa = []
+        for x in [f"scene.bande_cap=[{f['cap'][0]},{f['cap'][1]}]", f"scene.bande_haut=[{f['haut'][0]},{f['haut'][1]}]",
+                  f"scene.rendu_res=[{w},{h}]", "scene.rendu_echantillons=96"] + sets:
+            sa += ["--set", x]
+        r = run_blender(cfg, SCRIPTS["scene"], scene_args(cfg, paths) + ["--preset", "bande", "--mono", "--camera-confirmed",
+                        "--render-frame", "1", "--render-time", t, "--out", out] + sa + extra, fond=True)
+        ok = os.path.exists(os.path.join(out, "frame_0001.png"))
+        print(f"{'OK' if ok else 'ÉCHEC'}: {fen} / {var}, {(time.time() - t0) / 60:.1f} min", flush=True)
+        rc = rc or (0 if ok else (r or 1))
+    print(f"\nImages: {base}")
+    try:
+        open(os.path.join(base, "TERMINE.txt"), "w", encoding="utf-8").write(time.strftime("%Y-%m-%d %H:%M") + "\n")
+    except OSError:
+        pass
+    return rc
+
+
 def _lin_srgb(a):
     import numpy as np
     a = np.asarray(a, np.float64) / 255.0
@@ -2246,7 +2301,7 @@ def cmd_menu(cfg, paths, extra):
 COMMANDS = {
     "status": cmd_status, "setup": cmd_setup, "download": cmd_download, "prep-env": cmd_prep_env, "prep-batiments": cmd_prep_batiments, "prep-vegetation": cmd_prep_vegetation, "env-complet": cmd_env_complet, "visible": cmd_visible,
     "prep-particules": cmd_prep_particules, "terrain": cmd_terrain, "views": cmd_views, "test360": cmd_test360,
-    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "eau-manuel": cmd_eau_manuel, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "titre-test": cmd_titre_test, "test-son": cmd_test_son, "test-couleurs": cmd_test_couleurs, "test-eau": cmd_test_eau, "test-final": cmd_test_final, "prep-sol": cmd_prep_sol, "test-aspect": cmd_test_aspect, "test-arbres": cmd_test_arbres, "extrait": cmd_extrait, "test-bande": cmd_test_bande, "finir": cmd_finir, "son": cmd_son, "outro": cmd_outro, "cap": cmd_cap, "camera": cmd_camera, "paquet": cmd_paquet, "duo": cmd_duo, "duo-etat": cmd_duo_etat, "duo-envoyer": cmd_duo_envoyer, "duo-importer": cmd_duo_importer, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
+    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "eau-manuel": cmd_eau_manuel, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "titre-test": cmd_titre_test, "test-son": cmd_test_son, "test-couleurs": cmd_test_couleurs, "test-eau": cmd_test_eau, "test-final": cmd_test_final, "prep-sol": cmd_prep_sol, "test-aspect": cmd_test_aspect, "test-fenetre": cmd_test_fenetre, "test-arbres": cmd_test_arbres, "extrait": cmd_extrait, "test-bande": cmd_test_bande, "finir": cmd_finir, "son": cmd_son, "outro": cmd_outro, "cap": cmd_cap, "camera": cmd_camera, "paquet": cmd_paquet, "duo": cmd_duo, "duo-etat": cmd_duo_etat, "duo-envoyer": cmd_duo_envoyer, "duo-importer": cmd_duo_importer, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
 }
 
 
