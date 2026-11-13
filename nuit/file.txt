@@ -3,3 +3,5 @@
 envoi0 nuit-envoi --heures 4
 oiseaux1 test-oiseaux --t0 10.4 --t1 12.4 --pas 10
 envoi1 nuit-envoi
+herbe2 test-fenetre herbe2
+envoi2 nuit-envoi

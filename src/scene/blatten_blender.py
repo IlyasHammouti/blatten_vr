@@ -141,6 +141,11 @@ CFG = dict(
     herbe_lames=9,                # lames par touffe
     herbe_hauteur=(0.16, 0.34),   # m: hauteur d'une touffe (tirage uniforme)
     herbe_luminosite=1.0,         # facteur sur la couleur des lames (teinte: image aérienne nettoyée au même endroit)
+    herbe_translucide=True,       # la lumière traverse les lames (sinon, sous ciel couvert, les lames verticales sortent bien plus sombres que le sol)
+    herbe_ombres=True,            # les lames projettent des ombres (sur le sol et entre elles)
+    herbe_largeur=(0.014, 0.028), # m: largeur d'une lame à la base (une lame large tient lieu de plusieurs brins)
+    herbe_etalement=0.08,         # m: écart type des pieds de lames autour du centre de la touffe
+    herbe_teinte=(0.8, 1.0, 1.2),  # facteur sur la couleur du sol: base, milieu, pointe de la lame
     oiseaux=False,                # envols d'oiseaux (build_oiseaux, 13 nov.): groupes partant d'arbres proches de la caméra
     oiseaux_groupes=(             # (cap min, cap max en degrés, nombre d'oiseaux, instant de l'envol en s de l'événement)
         (160.0, 195.0, 11, 9.0),  # à droite de l'événement (cap 128), vers le centre de la vue de départ
@@ -2137,13 +2142,14 @@ def build_herbe(env, coll, cam):
     H = rng.uniform(h0, h1, n)
     tone = rng.uniform(0.85, 1.15, n)
     # lames: (n, nb) -> base décalée du centre, cap, inclinaison, largeur
-    bx = X[:, None] + rng.normal(0, 0.05, (n, nb))
-    by = Y[:, None] + rng.normal(0, 0.05, (n, nb))
+    et = float(CFG["herbe_etalement"])
+    bx = X[:, None] + rng.normal(0, et, (n, nb))
+    by = Y[:, None] + rng.normal(0, et, (n, nb))
     bz = Z[:, None] + np.zeros((n, nb))
     phi = rng.uniform(0, 2 * np.pi, (n, nb))
     lean = np.radians(rng.uniform(6, 38, (n, nb)))
     hl = H[:, None] * rng.uniform(0.6, 1.0, (n, nb))
-    w = rng.uniform(0.010, 0.018, (n, nb))
+    w = rng.uniform(CFG["herbe_largeur"][0], CFG["herbe_largeur"][1], (n, nb))
     ux, uy = np.cos(phi), np.sin(phi)                  # direction d'inclinaison
     sx, sy = -uy, ux                                    # largeur de la lame (perpendiculaire)
     def pt(t, lean_f, wid):
@@ -2162,7 +2168,8 @@ def build_herbe(env, coll, cam):
     tri = np.array([[0, 1, 3], [0, 3, 2], [2, 3, 5]])         # (bL bR mR) (bL mR mL) (mL mR pointe)
     F = (np.arange(n * nb)[:, None, None] * 6 + tri[None, :, :]).reshape(-1, 3)
     # couleur par sommet: base sombre -> pointe claire
-    k = np.array([0.55, 0.55, 0.85, 0.85, 1.15, 1.15])
+    k0, k1, k2 = (float(x) for x in CFG["herbe_teinte"])
+    k = np.array([k0, k0, k1, k1, k2, k2])
     col = cl[:, None, None, :] * tone[:, None, None, None] * k[None, None, :, None] * np.ones((1, nb, 1, 1))
     col = np.clip(col, 0.0, 1.0).reshape(n * nb * 6, 3)
     me = bpy.data.meshes.new("Herbe")
@@ -2192,6 +2199,16 @@ def build_herbe(env, coll, cam):
     at = nt_.nodes.new("ShaderNodeAttribute")
     at.attribute_name, at.attribute_type = "col", "GEOMETRY"
     nt_.links.new(at.outputs["Color"], b.inputs["Base Color"])
+    if CFG["herbe_translucide"]:
+        # une lame verticale ne reçoit sur chaque face que la moitié du ciel: avec la lumière qui la traverse (herbe translucide),
+        # elle retrouve la clarté du sol au lieu de sortir sombre sous ciel couvert
+        tr = nt_.nodes.new("ShaderNodeBsdfTranslucent")
+        ad = nt_.nodes.new("ShaderNodeAddShader")
+        nt_.links.new(at.outputs["Color"], tr.inputs["Color"])
+        nt_.links.new(b.outputs[0], ad.inputs[0])
+        nt_.links.new(tr.outputs[0], ad.inputs[1])
+        nt_.links.new(ad.outputs[0], nt_.nodes["Material Output"].inputs["Surface"])
+    ob.visible_shadow = bool(CFG["herbe_ombres"])
     me.materials.append(mt)
     log(f"herbe: {n:,} touffes ({n * nb:,} lames, {nt:,} triangles) dans {R:g} m autour de la caméra")
     return ob

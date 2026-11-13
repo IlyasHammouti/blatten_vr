@@ -1511,6 +1511,7 @@ PX_PAR_DEGRE = 3840 / 360.0
 FENETRES = {
     "proche": dict(cap=(285.0, 375.0), haut=(-55.0, 70.0), doc="sol et grand arbre tout près de la caméra (cap 330)"),
     "versant": dict(cap=(110.0, 230.0), haut=(-25.0, 15.0), doc="versant d'en face, vallée et forêt lointaine"),
+    "pente": dict(cap=(165.0, 250.0), haut=(-35.0, 25.0), doc="pente ouverte sous la caméra, arbres des envols d'oiseaux, vallée"),
 }
 _LUM = "scene.arbres_luminosite=0.9"
 _NET = "scene.ortho_sol_suffixe=_sol_net"
@@ -1520,6 +1521,9 @@ JEUX_FENETRE = {
                    ("A_actuel", "versant", []), ("B_arbres_90pct", "versant", [_LUM])],
     # herbe: même fenêtre proche, avec le sol net et les arbres à 90 % (référence C du jeu précédent) puis avec les touffes
     "herbe": [("D_herbe", "proche", [_LUM, "scene.herbe=true"]), ("E_herbe_dense", "proche", [_LUM, "scene.herbe=true", "scene.herbe_densite=35"])],
+    # herbe v2 (lames translucides, plus larges, teinte du sol): fenêtre proche (comparable à D et E) et pente ouverte vers la vallée
+    "herbe2": [("F_herbe_v2", "proche", [_LUM, "scene.herbe=true", "scene.herbe_densite=35"]),
+               ("F_herbe_v2", "pente", [_LUM, "scene.herbe=true", "scene.herbe_densite=35"])],
 }
 
 
