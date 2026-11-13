@@ -1521,6 +1521,8 @@ JEUX_FENETRE = {
                    ("A_actuel", "versant", []), ("B_arbres_90pct", "versant", [_LUM])],
     # herbe: même fenêtre proche, avec le sol net et les arbres à 90 % (référence C du jeu précédent) puis avec les touffes
     "herbe": [("D_herbe", "proche", [_LUM, "scene.herbe=true"]), ("E_herbe_dense", "proche", [_LUM, "scene.herbe=true", "scene.herbe_densite=35"])],
+    # chantier 19 (arbres du versant d'en face trop lisses): motif de touffes de 2 à 3 m sur les arbres simples, deux forces
+    "versant19": [("G_touffes_28", "versant", [_LUM, "scene.arbres_touffes=0.28"]), ("H_touffes_45", "versant", [_LUM, "scene.arbres_touffes=0.45"])],
     # herbe v2 (lames translucides, plus larges, teinte du sol): fenêtre proche (comparable à D et E) et pente ouverte vers la vallée
     "herbe2": [("F_herbe_v2", "proche", [_LUM, "scene.herbe=true", "scene.herbe_densite=35"]),
                ("F_herbe_v2", "pente", [_LUM, "scene.herbe=true", "scene.herbe_densite=35"])],

@@ -156,6 +156,7 @@ CFG = dict(
     oiseaux_envergure=0.9,        # m (choucas, chocards: 0,7 à 0,9 m)
     ortho_sol_suffixe="_sol",     # suffixe de l'image nettoyée lue quand ortho_sol la demande ("_sol_net": trame retirée sans flou, 13 nov.)
     arbres_luminosite=1.0,        # facteur sur la luminosité de TOUS les arbres, simples et détaillés (0.9 = 10 % plus sombres; retour d'Ilyas 9 nov.)
+    arbres_touffes=0.0,           # arbres simples: contraste d'un motif de touffes de 2 à 3 m (0 = sans; 0.28 = facteur 0,72 à 1,28), contre l'aspect lisse au loin
     arbres_simples_ombre=True,    # les arbres simples projettent des ombres (false: l'image aérienne a déjà celles de la forêt)
     arbres_ombrage_bas=0.55,      # assombrissement du bas des couronnes des arbres simples (1 = aucun)
     tree_dist=4700.0,       # distance maximale des arbres modélisés (m); au-delà l'image aérienne suffit
@@ -1470,9 +1471,23 @@ def _materiau_arbres():
     mx2.inputs[0].default_value = 1.0
     Ln.new(mx1.outputs[2], mx2.inputs[6])
     p3 = Nn.new("ShaderNodeCombineColor")
-    Ln.new(_plage(plaque, 0.85, 1.12), p3.inputs["Red"])
-    Ln.new(_plage(plaque, 0.88, 1.10), p3.inputs["Green"])
-    Ln.new(_plage(plaque, 0.80, 1.05), p3.inputs["Blue"])
+    amp = float(CFG.get("arbres_touffes", 0.0))
+    if amp > 0:
+        # touffes de 2 à 3 m (échelle qui manquait entre le grain de 0,5 m et les plaques de 8 m): à 1 ou 2 km un arbre fait 8 pixels,
+        # seul un motif de cette taille y reste lisible. Facteur centré sur 1: la luminosité moyenne (calée sur la photo) ne bouge pas.
+        touffe = _plage(_bruit(0.4, 2.0), 1.0 - amp, 1.0 + amp)
+        def _fois(src):
+            mu = Nn.new("ShaderNodeMath")
+            mu.operation = "MULTIPLY"
+            Ln.new(src, mu.inputs[0])
+            Ln.new(touffe, mu.inputs[1])
+            return mu.outputs[0]
+    else:
+        def _fois(src):
+            return src
+    Ln.new(_fois(_plage(plaque, 0.85, 1.12)), p3.inputs["Red"])
+    Ln.new(_fois(_plage(plaque, 0.88, 1.10)), p3.inputs["Green"])
+    Ln.new(_fois(_plage(plaque, 0.80, 1.05)), p3.inputs["Blue"])
     Ln.new(p3.outputs["Color"], mx2.inputs[7])
     # amas de feuilles et d'aiguilles: cellules de ~30 cm bombées, interstices sombres (lisible de près, s'efface au loin)
     vo = Nn.new("ShaderNodeTexVoronoi")
