@@ -1593,6 +1593,105 @@ def cmd_test_oiseaux(cfg, paths, extra):
                             "--fondu", "0", "--crf", "14", "--out", os.path.join(out, "oiseaux_test.mp4")])
 
 
+def cmd_nuit_envoi(cfg, paths, extra):
+    """Envoie sur GitHub (branche nuit-resultats du dépôt, jamais main) les résultats récents des tests de nuit: images converties en
+    JPEG (10 par dossier au plus), vidéos de moins de 25 Mo, journal du veilleur et fin des journaux de rendu. Claude les lit depuis
+    GitHub, sans passer par le PC.   python blatten.py nuit-envoi [--heures 3] [--tout]"""
+    import shutil
+    h, extra = _option(extra, "--heures", 1)
+    tout = "--tout" in extra
+    dos = os.path.join(ROOT, "render", "nuit")
+    depot = os.path.join(dos, "depot")
+    os.makedirs(depot, exist_ok=True)
+    marque = os.path.join(dos, "dernier_envoi.txt")
+    try:
+        depuis = float(open(marque).read().strip()) - 60.0
+    except Exception:
+        depuis = time.time() - 3600.0 * (float(h[0]) if h else 3.0)
+    if h:
+        depuis = time.time() - 3600.0 * float(h[0])
+    t_envoi = time.time()
+    rd = (cfg.get("render_dir") or "").strip() or os.path.join(ROOT, "render")
+    racines = [("tests", os.path.join(ROOT, "render", "tests")), ("tests_oiseaux", os.path.join(rd, "tests_oiseaux")),
+               ("tests_nuit", os.path.join(rd, "tests_nuit")), ("bench", os.path.join(ROOT, "bench_results"))]
+    lot = os.path.join(depot, time.strftime("%m%d_%H%M"))
+    n_img = n_vid = 0
+    try:
+        from PIL import Image
+    except Exception:
+        Image = None
+    for nom, racine in racines:
+        if not os.path.isdir(racine):
+            continue
+        for d, _sous, fichiers in os.walk(racine):
+            rec = [f for f in sorted(fichiers) if os.path.getmtime(os.path.join(d, f)) > depuis and os.path.getsize(os.path.join(d, f)) > 0]
+            imgs = [f for f in rec if f.lower().endswith((".png", ".jpg"))]
+            if len(imgs) > 10 and not tout:
+                imgs = [imgs[round(i * (len(imgs) - 1) / 9)] for i in range(10)]
+            autres = [f for f in rec if f.lower().endswith((".json", ".txt")) or (f.lower().endswith(".mp4") and os.path.getsize(os.path.join(d, f)) < 25e6)]
+            if not imgs and not autres:
+                continue
+            cible = os.path.join(lot, nom, os.path.relpath(d, racine))
+            os.makedirs(cible, exist_ok=True)
+            for f in imgs:
+                src = os.path.join(d, f)
+                try:
+                    if Image is None or f.lower().endswith(".jpg"):
+                        shutil.copy(src, cible)
+                    else:
+                        Image.open(src).convert("RGB").save(os.path.join(cible, os.path.splitext(f)[0] + ".jpg"), quality=90)
+                    n_img += 1
+                except Exception as e:
+                    print(f"image ignorée {src}: {e}")
+            for f in autres:
+                shutil.copy(os.path.join(d, f), cible)
+                n_vid += f.lower().endswith(".mp4")
+    os.makedirs(os.path.join(lot, "journaux"), exist_ok=True)
+    for f in ("journal.txt", "faits.txt"):
+        if os.path.exists(os.path.join(dos, f)):
+            shutil.copy(os.path.join(dos, f), os.path.join(lot, "journaux", f))
+    logs = [os.path.join(dos, f) for f in os.listdir(dos) if f.endswith(".log")]
+    ld = os.path.join(ROOT, "render", "logs")
+    if os.path.isdir(ld):
+        logs += sorted((os.path.join(ld, f) for f in os.listdir(ld) if f.startswith("rendu_")), key=os.path.getmtime)[-4:]
+    for f in logs:
+        if os.path.getmtime(f) <= depuis:
+            continue
+        try:
+            lignes = open(f, encoding="utf-8", errors="replace").read().splitlines()
+        except OSError:
+            continue
+        garde, k = [], 0
+        for l in lignes:
+            if "[sonde]" in l:
+                k += 1
+                if k % 8:
+                    continue
+            garde.append(l[:400])
+        if len(garde) > 1500:
+            garde = garde[:300] + ["[...]"] + garde[-1200:]
+        open(os.path.join(lot, "journaux", os.path.basename(f) + ".txt"), "w", encoding="utf-8").write("\n".join(garde))
+    env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GCM_INTERACTIVE="never")
+    def g(*a, t=60):
+        return subprocess.run(["git", "-C", depot] + list(a), capture_output=True, text=True, errors="replace", env=env, timeout=t)
+    if not os.path.isdir(os.path.join(depot, ".git")):
+        g("init", "-q")
+        g("checkout", "-q", "--orphan", "nuit-resultats")
+        url = subprocess.run(["git", "-C", ROOT, "config", "--get", "remote.origin.url"], capture_output=True, text=True).stdout.strip()
+        g("remote", "add", "origin", url)
+    g("add", "-A")
+    g("-c", "user.name=veilleur", "-c", "user.email=veilleur@local", "commit", "-q", "-m", "resultats " + time.strftime("%d/%m %H:%M"))
+    try:
+        r = g("push", "-f", "-q", "origin", "HEAD:refs/heads/nuit-resultats", t=300)
+        ok, err = r.returncode == 0, (r.stderr or "")[-300:]
+    except Exception as e:
+        ok, err = False, str(e)
+    print(f"nuit-envoi: {n_img} images, {n_vid} vidéos, envoi {'réussi' if ok else 'IMPOSSIBLE: ' + err}", flush=True)
+    if ok:
+        open(marque, "w").write(str(t_envoi))
+    return 0 if ok else 3
+
+
 def _lin_srgb(a):
     import numpy as np
     a = np.asarray(a, np.float64) / 255.0
@@ -2335,7 +2434,7 @@ def cmd_menu(cfg, paths, extra):
 COMMANDS = {
     "status": cmd_status, "setup": cmd_setup, "download": cmd_download, "prep-env": cmd_prep_env, "prep-batiments": cmd_prep_batiments, "prep-vegetation": cmd_prep_vegetation, "env-complet": cmd_env_complet, "visible": cmd_visible,
     "prep-particules": cmd_prep_particules, "terrain": cmd_terrain, "views": cmd_views, "test360": cmd_test360,
-    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "eau-manuel": cmd_eau_manuel, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "titre-test": cmd_titre_test, "test-son": cmd_test_son, "test-couleurs": cmd_test_couleurs, "test-eau": cmd_test_eau, "test-final": cmd_test_final, "prep-sol": cmd_prep_sol, "test-aspect": cmd_test_aspect, "test-fenetre": cmd_test_fenetre, "test-oiseaux": cmd_test_oiseaux, "test-arbres": cmd_test_arbres, "extrait": cmd_extrait, "test-bande": cmd_test_bande, "finir": cmd_finir, "son": cmd_son, "outro": cmd_outro, "cap": cmd_cap, "camera": cmd_camera, "paquet": cmd_paquet, "duo": cmd_duo, "duo-etat": cmd_duo_etat, "duo-envoyer": cmd_duo_envoyer, "duo-importer": cmd_duo_importer, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
+    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "eau-manuel": cmd_eau_manuel, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "titre-test": cmd_titre_test, "test-son": cmd_test_son, "test-couleurs": cmd_test_couleurs, "test-eau": cmd_test_eau, "test-final": cmd_test_final, "prep-sol": cmd_prep_sol, "test-aspect": cmd_test_aspect, "test-fenetre": cmd_test_fenetre, "test-oiseaux": cmd_test_oiseaux, "nuit-envoi": cmd_nuit_envoi, "test-arbres": cmd_test_arbres, "extrait": cmd_extrait, "test-bande": cmd_test_bande, "finir": cmd_finir, "son": cmd_son, "outro": cmd_outro, "cap": cmd_cap, "camera": cmd_camera, "paquet": cmd_paquet, "duo": cmd_duo, "duo-etat": cmd_duo_etat, "duo-envoyer": cmd_duo_envoyer, "duo-importer": cmd_duo_importer, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
 }
 
 
