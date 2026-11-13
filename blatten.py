@@ -1519,7 +1519,7 @@ JEUX_FENETRE = {
     "sol_arbres": [("A_actuel", "proche", []), ("B_arbres_90pct", "proche", [_LUM]), ("C_arbres_90pct_sol_net", "proche", [_LUM, _NET]),
                    ("A_actuel", "versant", []), ("B_arbres_90pct", "versant", [_LUM])],
     # herbe: même fenêtre proche, avec le sol net et les arbres à 90 % (référence C du jeu précédent) puis avec les touffes
-    "herbe": [("D_herbe", "proche", [_LUM, _NET, "scene.herbe=true"]), ("E_herbe_dense", "proche", [_LUM, _NET, "scene.herbe=true", "scene.herbe_densite=35"])],
+    "herbe": [("D_herbe", "proche", [_LUM, "scene.herbe=true"]), ("E_herbe_dense", "proche", [_LUM, "scene.herbe=true", "scene.herbe_densite=35"])],
 }
 
 
@@ -1577,7 +1577,7 @@ def cmd_test_oiseaux(cfg, paths, extra):
     w, h = int(round((cap[1] - cap[0]) * PX_PAR_DEGRE)), int(round((haut[1] - haut[0]) * PX_PAR_DEGRE))
     nom = time.strftime("%Y%m%d_%H%M")
     sets = [f"scene.bande_cap=[{cap[0]},{cap[1]}]", f"scene.bande_haut=[{haut[0]},{haut[1]}]", f"scene.rendu_res=[{w},{h}]",
-            "scene.rendu_echantillons=96", _LUM, _NET, "scene.herbe=true", "scene.oiseaux=true"]
+            "scene.rendu_echantillons=96", _LUM, "scene.herbe=true", "scene.oiseaux=true"]
     sa = []
     for x in sets:
         sa += ["--set", x]
