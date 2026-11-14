@@ -27,3 +27,4 @@ flic96 test-oiseaux --t0 30 --t1 30.3 --pas 1 --cap 95 165 --haut -30 30
 flic48 test-oiseaux --t0 30 --t1 30.3 --pas 1 --cap 95 165 --haut -30 30 --set scene.rendu_echantillons=48 --set scene.rendu_seuil=0.02
 fige48 test-final --temps 17.5 30 --sans-variantes --set scene.rendu_echantillons=48 --set scene.rendu_seuil=0.02
 envoi9 nuit-envoi
+stop
