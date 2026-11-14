@@ -1570,7 +1570,7 @@ def cmd_test_fenetre(cfg, paths, extra):
 def cmd_test_oiseaux(cfg, paths, extra):
     """Envol d'oiseaux: clip plat (fenêtre 90 x 40 degrés à la densité du film final, 96 échantillons, réglages du film + sol net,
     arbres à 90 %, herbe) de t = 9 à 12,5 s de l'événement, puis vidéo mp4 30 images/s.
-        python blatten.py test-oiseaux [--t0 9] [--t1 12.5]"""
+        python blatten.py test-oiseaux [--t0 9] [--t1 12.5] [--pas 6] [--cap 165 250] [--haut -35 25]"""
     a0, extra = _option(extra, "--t0", 1)
     a1, extra = _option(extra, "--t1", 1)
     t0, t1 = float(a0[0]) if a0 else 9.0, float(a1[0]) if a1 else 12.5
@@ -1580,6 +1580,12 @@ def cmd_test_oiseaux(cfg, paths, extra):
     de = int(round((intro + t0 * ts) * fps)) + 1
     a = min(n, int(round((intro + t1 * ts) * fps)) + 1)
     cap, haut = (165.0, 250.0), (-35.0, 25.0)   # les arbres des envols sont sous l'horizon de la caméra
+    oc, extra = _option(extra, "--cap", 2)
+    oh, extra = _option(extra, "--haut", 2)
+    if oc:
+        cap = (float(oc[0]), float(oc[1]))
+    if oh:
+        haut = (float(oh[0]), float(oh[1]))
     if "--pas" not in extra:
         extra = extra + ["--pas", "6"]            # une image sur 6 (0,2 s): suffit pour juger taille et lisibilité
     w, h = 2 * int(round((cap[1] - cap[0]) * PX_PAR_DEGRE / 2)), 2 * int(round((haut[1] - haut[0]) * PX_PAR_DEGRE / 2))   # pairs (vidéo H.264)

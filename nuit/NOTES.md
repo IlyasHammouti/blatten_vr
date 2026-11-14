@@ -28,6 +28,16 @@ Pas de rendu long. Compte rendu complet à Ilyas le matin (verdicts francs, sans
 - En file: ref30 puis vit1 (48 éch., seuil 0,02), vit2 (6 rebonds), vit3 (les deux): temps dans render\tests\final\<date>\bilan.json,
   comparer les images à ref30 (différence, zones de forêt et de poussière).
 
+## Verdicts (passage de 01:46 UTC)
+- oiseaux2 (v2, passage près de la caméra): RÉUSSI. Groupe 2 très lisible sur le ciel (t = 14 s), groupe 1 discret sur la forêt puis net
+  sur le ciel à t = 19 s. Taille juste. Images: outputs/nuit/ois2_4.jpg (t = 14, 16, 17, 18 s), ois2_zoom2.png, oiseaux_v2_2ips.mp4.
+  En file: oiseaux3 = clip fluide pour Ilyas (10 images/s, t = 14 à 20,5 s, fenêtre cap 170-290, haut -25..40), ~2 h.
+  Résultat attendu: D:\Blatten_render\tests_oiseaux\<date 03h..>\oiseaux_test.mp4 (NE PAS lister ce dossier: 200 fichiers).
+- ref30 (t = 30 s, herbe v2 + oiseaux v2): 14,5 min, carte 5121 Mo, RAM libre mini 0,0 Go (!): la RAM est le point faible du PC d'Ilyas
+  (Blender ~10 Go + app Claude 2,3 Go). À dire à Ilyas: fermer l'app Claude et le navigateur pendant le vrai rendu.
+- vit1/2/3 en cours: bilans dans C:\Dev\blatten-vr\render\tests\final\20261114_0236 et suivants (bilan.json + A_film_t30s\frame_0001.jpg),
+  référence = 20261114_0220.
+
 ## À juger
 - oiseaux1: visibles ? taille ? (groupes aux caps 189 et 229, fenêtre 165-250, x = (cap-165)/85*907)
 - herbe2 (proche et pente), final1 (mémoire carte, temps), perf_a contre perf_b (chrono.json: secondes par paquet de 6 images).

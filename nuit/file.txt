@@ -19,3 +19,5 @@ vit1 test-final --temps 30 --sans-variantes --set scene.herbe=true --set scene.h
 vit2 test-final --temps 30 --sans-variantes --set scene.herbe=true --set scene.herbe_densite=35 --set scene.oiseaux=true --set scene.arbres_luminosite=0.9 --set scene.rendu_rebonds=6
 vit3 test-final --temps 30 --sans-variantes --set scene.herbe=true --set scene.herbe_densite=35 --set scene.oiseaux=true --set scene.arbres_luminosite=0.9 --set scene.rendu_echantillons=48 --set scene.rendu_seuil=0.02 --set scene.rendu_rebonds=6
 envoi6 nuit-envoi
+oiseaux3 test-oiseaux --t0 14 --t1 20.5 --pas 3 --cap 170 290 --haut -25 40
+envoi7 nuit-envoi
