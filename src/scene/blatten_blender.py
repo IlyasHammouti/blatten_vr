@@ -165,6 +165,9 @@ CFG = dict(
         (215.0, 255.0, 9, 9.7),   # à droite, plus loin
         (60.0, 100.0, 12, 10.5),  # à gauche
     ),
+    oiseaux_manuel=None,          # groupes placés à la main (QGIS): liste de [E, N (LV95), cap de fuite (degrés depuis le nord), envol (s), nombre];
+                                  # s'il y en a, ils remplacent oiseaux_groupes. Départ: l'arbre (>= 7 m) le plus proche à moins de 40 m
+    oiseaux_px_min=0.0,           # pixels: envergure minimale à l'écran (0 = taille réelle); 2 = les oiseaux lointains restent des points visibles
     oiseaux_dist=(35.0, 80.0),    # m: distance caméra - arbre de départ
     oiseaux_envergure=1.05,       # m (corneille noire: 0,93 à 1,04 m; choucas, chocards: 0,7 à 0,9 m)
     oiseaux_mode="passage",       # "passage": ils fuient en passant près de la caméra (lisibles); "eloigne": ils s'éloignent (version du 13 nov.: des points de 3 pixels)
@@ -2296,9 +2299,70 @@ def build_oiseaux(env, coll, cam):
     d0, d1 = CFG["oiseaux_dist"]
     rng = np.random.default_rng(33)
     dt = 1.0 / 60.0
-    tg = np.arange(0.0, 45.0, dt)
+    tg = np.arange(0.0, 62.0, dt)
     pos, vit, t_dep, freq, ph, vis = [], [], [], [], [], []
-    for (c0, c1, nb, tdep) in CFG["oiseaux_groupes"]:
+
+    def _vol(p0, dirh, Lh, zc, t0, v0, v1, long=520.0):
+        """Trajet d'un oiseau: de p0, cap dirh (horizontal), montée jusqu'à zc sur Lh mètres puis 5 degrés, au-dessus du relief."""
+        pb = np.array([-dirh[1], dirh[0]])
+        # trajet en fonction de la distance parcourue (pas de 0,25 m): ligne droite avec un léger zigzag, altitude = montée vers
+        # le point de passage puis 5 degrés, jamais sous le relief + garde (lissé sur 12 m)
+        ds = 0.25
+        sg = np.arange(0.0, long, ds)
+        wob = 0.7 * np.sin(2 * np.pi * sg / rng.uniform(22.0, 34.0) + rng.uniform(0, 6.28)) * np.clip(sg / 15.0, 0.0, 1.0)
+        xy = p0[None, :2] + dirh[None, :] * sg[:, None] + pb[None, :] * wob[:, None]
+        zp = np.where(sg <= Lh, p0[2] + (zc - p0[2]) * np.clip(sg / Lh, 0.0, 1.0) ** 0.8,
+                      zc + (sg - Lh) * math.tan(math.radians(5.0)))
+        zg = _z_sol(env, m["scene_E0"] + xy[:, 0], m["scene_N0"] + m["flip"] * xy[:, 1]) \
+            + float(CFG["oiseaux_garde_sol"]) * np.clip(sg / 25.0, 0.0, 1.0)
+        zz = np.maximum(zp, np.where(np.isfinite(zg), zg, zp))
+        kk = 24
+        zz = np.convolve(np.pad(zz, kk, mode="edge"), np.ones(2 * kk + 1) / (2 * kk + 1), mode="valid")
+        zz = np.maximum(zz, p0[2] - 0.3)
+        pente = np.gradient(zz, ds)
+        # avance dans le temps: vitesse nominale (accélération au départ), ralentie quand la montée dépasserait 4 m/s
+        P = np.zeros((len(tg), 3))
+        sc_ = 0.0
+        for k, t in enumerate(tg):
+            if t >= t0:
+                vn = v0 + (v1 - v0) * (1 - math.exp(-(t - t0) / 1.3))
+                pe = pente[min(int(sc_ / ds), len(sg) - 1)]
+                sc_ = min(sc_ + min(vn, 4.0 / pe if pe > 0.4 else vn) * dt, sg[-1])
+            j = sc_ / ds
+            j0 = min(int(j), len(sg) - 2)
+            f = j - j0
+            P[k, :2] = xy[j0] * (1 - f) + xy[j0 + 1] * f
+            P[k, 2] = zz[j0] * (1 - f) + zz[j0 + 1] * f
+        V = np.gradient(P, dt, axis=0) * (tg >= t0)[:, None]
+        pos.append(P)
+        vit.append(V)
+        t_dep.append(t0)
+        freq.append(rng.uniform(3.2, 4.4))
+        ph.append(rng.uniform(0, 2 * np.pi))
+
+    # groupes placés à la main dans QGIS (14 nov.): [E, N (LV95), cap de fuite en degrés depuis le nord, envol en s, nombre]
+    manuel = CFG.get("oiseaux_manuel") or []
+    for (Eg, Ng, capg, tdep, nb) in manuel:
+        xg, yg = Eg - m["scene_E0"], (Ng - m["scene_N0"]) * m["flip"]
+        dd = np.hypot(X - xg, Y - yg)
+        sel = np.where((dd <= 40.0) & (Hh >= 7.0))[0]
+        if len(sel):
+            i = sel[np.argmin(dd[sel])]
+            xa, ya, ha = X[i], Y[i], 0.85 * Hh[i]
+        else:
+            xa, ya, ha = xg, yg, 6.0
+        zs = float(_z_sol(env, np.array([m["scene_E0"] + xa]), np.array([m["scene_N0"] + m["flip"] * ya]))[0])
+        top = np.array([xa, ya, zs + ha])
+        log(f"oiseaux: groupe manuel de {int(nb)} à {np.hypot(xa - cam.x, ya - cam.y):.0f} m de la caméra"
+            f"{'' if len(sel) else ' (pas d arbre à moins de 40 m: départ à 6 m du sol)'}, cap {capg:.0f}°, envol à t = {tdep:g} s")
+        for b in range(int(nb)):
+            t0 = float(tdep) + rng.uniform(0.0, 1.2)
+            p0 = top + np.array([rng.normal(0, 1.5), rng.normal(0, 1.5), rng.normal(0, 0.8)])
+            cb = math.radians(float(capg) + rng.normal(0.0, 5.0))
+            dirh = np.array([math.sin(cb), m["flip"] * math.cos(cb)])
+            _vol(p0, dirh, rng.uniform(50.0, 90.0), p0[2] + rng.uniform(10.0, 22.0), t0, rng.uniform(1.5, 3.0), rng.uniform(9.0, 12.0),
+                 long=800.0)
+    for (c0, c1, nb, tdep) in ([] if manuel else CFG["oiseaux_groupes"]):
         sel = np.where((cap >= c0) & (cap <= c1) & (d >= d0) & (d <= d1) & (Hh >= 7.0))[0]
         if len(sel) == 0:
             log(f"oiseaux: aucun arbre pour les caps {c0:g}-{c1:g} à {d0:g}-{d1:g} m")
@@ -2325,42 +2389,7 @@ def build_oiseaux(env, coll, cam):
                 dirh = cible - p0[:2]
                 Lh = max(np.hypot(*dirh), 1.0)
                 dirh /= Lh
-                pb = np.array([-dirh[1], dirh[0]])
-                v0, v1 = rng.uniform(1.5, 3.0), rng.uniform(8.0, 10.5)
-                # trajet en fonction de la distance parcourue (pas de 0,25 m): ligne droite avec un léger zigzag, altitude = montée vers
-                # le point de passage puis 5 degrés, jamais sous le relief + garde (lissé sur 12 m)
-                ds = 0.25
-                sg = np.arange(0.0, 520.0, ds)
-                wob = 0.7 * np.sin(2 * np.pi * sg / rng.uniform(22.0, 34.0) + rng.uniform(0, 6.28)) * np.clip(sg / 15.0, 0.0, 1.0)
-                xy = p0[None, :2] + dirh[None, :] * sg[:, None] + pb[None, :] * wob[:, None]
-                zp = np.where(sg <= Lh, p0[2] + (zc - p0[2]) * np.clip(sg / Lh, 0.0, 1.0) ** 0.8,
-                              zc + (sg - Lh) * math.tan(math.radians(5.0)))
-                zg = _z_sol(env, m["scene_E0"] + xy[:, 0], m["scene_N0"] + m["flip"] * xy[:, 1]) \
-                    + float(CFG["oiseaux_garde_sol"]) * np.clip(sg / 25.0, 0.0, 1.0)
-                zz = np.maximum(zp, zg)
-                kk = 24
-                zz = np.convolve(np.pad(zz, kk, mode="edge"), np.ones(2 * kk + 1) / (2 * kk + 1), mode="valid")
-                zz = np.maximum(zz, p0[2] - 0.3)
-                pente = np.gradient(zz, ds)
-                # avance dans le temps: vitesse nominale (accélération au départ), ralentie quand la montée dépasserait 4 m/s
-                P = np.zeros((len(tg), 3))
-                sc_ = 0.0
-                for k, t in enumerate(tg):
-                    if t >= t0:
-                        vn = v0 + (v1 - v0) * (1 - math.exp(-(t - t0) / 1.3))
-                        pe = pente[min(int(sc_ / ds), len(sg) - 1)]
-                        sc_ = min(sc_ + min(vn, 4.0 / pe if pe > 0.4 else vn) * dt, sg[-1])
-                    j = sc_ / ds
-                    j0 = min(int(j), len(sg) - 2)
-                    f = j - j0
-                    P[k, :2] = xy[j0] * (1 - f) + xy[j0 + 1] * f
-                    P[k, 2] = zz[j0] * (1 - f) + zz[j0 + 1] * f
-                V = np.gradient(P, dt, axis=0) * (tg >= t0)[:, None]
-                pos.append(P)
-                vit.append(V)
-                t_dep.append(t0)
-                freq.append(rng.uniform(3.2, 4.4))
-                ph.append(rng.uniform(0, 2 * np.pi))
+                _vol(p0, dirh, Lh, zc, t0, rng.uniform(1.5, 3.0), rng.uniform(8.0, 10.5))
             continue
         away = math.atan2(dx[i], dy[i])                  # cap de l'arbre vu de la caméra: ils s'éloignent dans cette direction, avec écart
         for b in range(nb):
@@ -2410,7 +2439,7 @@ def build_oiseaux(env, coll, cam):
     b.inputs["Roughness"].default_value = 0.6
     me.materials.append(mt)
     OISEAUX.update(me=me, pos=np.array(pos), vit=np.array(vit), tg=tg, t0=np.array(t_dep), f=np.array(freq), ph=np.array(ph),
-                   env=float(CFG["oiseaux_envergure"]))
+                   env=float(CFG["oiseaux_envergure"]), cam=np.array([cam.x, cam.y, cam.z]), pxmin=float(CFG["oiseaux_px_min"]))
     maj_oiseaux(0.0)
     if CFG.get("oiseaux_dump"):
         try:
@@ -2453,6 +2482,11 @@ def maj_oiseaux(t):
         loc[:, o + 1, 1] = sgn * half * cs
         loc[:, o + 1, 2] = half * sn
         loc[:, o + 2] = (-0.10, sgn * 0.03, 0)
+    if OISEAUX.get("pxmin", 0.0) > 0:
+        # de loin, un oiseau de 1 m fait moins d'un pixel (10,67 pixels par degré): on le grossit pour qu'il garde pxmin pixels d'envergure
+        dc = np.linalg.norm(p - OISEAUX["cam"][None, :], axis=1)
+        gr = np.maximum(1.0, dc * math.tan(math.radians(OISEAUX["pxmin"] / 10.667)) / OISEAUX["env"])
+        loc = loc * gr[:, None, None]
     W = (p[:, None, :] + loc[:, :, 0:1] * fw[:, None, :] + loc[:, :, 1:2] * lf[:, None, :] + loc[:, :, 2:3] * up[:, None, :])
     W = np.where(vol[:, None, None], W, p[:, None, :])        # pas encore partis: points confondus (rien à voir)
     OISEAUX["me"].vertices.foreach_set("co", W.astype(np.float32).ravel())
