@@ -38,6 +38,20 @@ Pas de rendu long. Compte rendu complet à Ilyas le matin (verdicts francs, sans
 - vit1/2/3 en cours: bilans dans C:\Dev\blatten-vr\render\tests\final\20261114_0236 et suivants (bilan.json + A_film_t30s\frame_0001.jpg),
   référence = 20261114_0220.
 
+## Verdicts (passage de 03:00 UTC): VITESSE, trouvaille principale
+- Chronologie lue dans les sondes (render\logs\rendu_*.log): à t = 30 s en 3840 x 1920, le rendu pur dure ~10 min à 96 échantillons
+  seuil 0,01 (ref30, et vit2 à 6 rebonds: aucun gain des rebonds), contre ~2,7 à 4,5 min à 48 échantillons seuil 0,02 (vit1, vit3).
+  Le reste du temps des tests = construction + chargement sur la carte, avec des blocages de 5 à 7 min quand la RAM libre tombe à 1 Go
+  (swap): les minutes des bilan.json sont donc bruitées, ne pas les comparer directement.
+- Images 96 contre 48: presque identiques à l'oeil (outputs/nuit/vit_cmp.jpg: gauche 96, droite 48; nuage un peu plus lisse, herbe un peu
+  plus douce). Écart moyen 1,4 / 255. Risque restant: scintillement d'une image à l'autre (débruiteur). => tests flic96 / flic48
+  (10 images consécutives à t = 30 s, fenêtre cap 95-165, haut -30..30) et fige48 (360 à 17,5 et 30 s à 48 éch.).
+  À faire au prochain passage: mesurer le scintillement (écart entre images successives dans les zones fixes) sur les deux clips,
+  D:\Blatten_render\tests_oiseaux\<date>\frame_0931.png à frame_0940.png (stager par nom, ne pas lister).
+- Estimation film (à affiner): 96 éch. ~11,5 min/image => ~350 h seul; 48 éch. ~4,5 min/image => ~140 h seul, ~55 h à deux.
+  NE PAS changer film.json pour les échantillons: décision d'Ilyas (qualité contre durée), lui donner les preuves.
+- 6 rebonds: aucun gain, on garde 12. Données persistantes: plus lent, abandonné.
+
 ## À juger
 - oiseaux1: visibles ? taille ? (groupes aux caps 189 et 229, fenêtre 165-250, x = (cap-165)/85*907)
 - herbe2 (proche et pente), final1 (mémoire carte, temps), perf_a contre perf_b (chrono.json: secondes par paquet de 6 images).

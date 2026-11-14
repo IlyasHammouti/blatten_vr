@@ -1592,6 +1592,8 @@ def cmd_test_oiseaux(cfg, paths, extra):
     nom = time.strftime("%Y%m%d_%H%M")
     sets = [f"scene.bande_cap=[{cap[0]},{cap[1]}]", f"scene.bande_haut=[{haut[0]},{haut[1]}]", f"scene.rendu_res=[{w},{h}]",
             "scene.rendu_echantillons=96", _LUM, "scene.herbe=true", "scene.oiseaux=true"]
+    if any("rendu_echantillons" in x for x in extra):      # essai de vitesse: le nombre d'échantillons vient de la ligne de commande
+        sets.remove("scene.rendu_echantillons=96")
     sa = []
     for x in sets:
         sa += ["--set", x]
