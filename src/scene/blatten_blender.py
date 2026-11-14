@@ -112,6 +112,9 @@ CFG = dict(
     eau_vitesse=2.0,        # vitesse apparente de ces reflets (m/s)
     eau_cap_vallee=225.0,   # degrés (0 = nord, 90 = est): sens d'écoulement sur le fond de vallée plat (225 = du nord-est vers le sud-ouest)
     eau_loin=1.0,           # scintillement à grande échelle, visible de loin, qui descend le courant (0 = aucun)
+    eau_brillance=0.0,      # éclats de soleil sur l'eau qui descendent le courant (0 = aucun, 1 = marqués): points lumineux (émission) sur le masque d'eau
+    eau_brillance_vitesse=6.0,   # m/s: vitesse apparente de ces éclats
+    eau_brillance_force=4.0,     # intensité d'émission d'un éclat à brillance 1 (le ciel couvert est faible: les éclats doivent le dépasser)
     eau_vitesse_loin=8.0,   # m/s: vitesse de ce scintillement (très supérieure au courant réel: de 2 km, 2 m/s ne se verrait pas)
     no_water=False,         # pas de rivière animée (python blatten.py prep-eau la prépare)
     no_trees=False,         # ne place pas les arbres (python blatten.py prep-vegetation les prépare)
@@ -136,8 +139,17 @@ CFG = dict(
     arbres_modeles_gain=(1.0, 1.0, 1.0),   # idem pour les arbres détaillés (à 100 m et moins; 200 m jusqu'au 8 nov.)
     arbres_modeles_gain_loin=None,          # arbres détaillés à 500 m et plus (None: arbres_modeles_gain); fondu entre les deux
     herbe=False,                  # touffes d'herbe en relief autour de la caméra (build_herbe, 13 nov.: prairies et sol proches)
-    herbe_rayon=25.0,             # m autour de la caméra
-    herbe_densite=20.0,           # touffes par m2 au pied de la caméra, décroît (1 - (d/rayon)^1,5) jusqu'à 0 au rayon
+    herbe_rayon=25.0,             # m autour de la caméra (film.json: 250)
+    herbe_rayon_proche=25.0,      # m: zone dense (touffes détaillées, 9 lames); au-delà touffes plus grosses et plus rares
+    herbe_densite=20.0,           # touffes par m2 au pied de la caméra, décroît jusqu'à herbe_densite_loin à herbe_rayon_proche
+    herbe_densite_loin=0.0,       # touffes par m2 à herbe_rayon_proche
+    herbe_densite_fin=0.0,        # touffes par m2 au rayon herbe_rayon (décroissance linéaire entre les deux)
+    herbe_decroissance=2.0,       # exposant de la décroissance de la densité entre herbe_rayon_proche et herbe_rayon (1 = linéaire)
+    herbe_lames_loin=5,           # lames par touffe au-delà de herbe_rayon_proche
+    herbe_taille_loin=1.0,        # facteur de taille des touffes (hauteur, largeur, étalement) à 120 m et au-delà
+    oiseaux_dump="",              # chemin d'un .json où écrire les départs et trajets des oiseaux (carte-oiseaux)
+    herbe_max=170000,             # plafond du nombre de touffes (RAM)
+    herbe_couleur=None,           # (r, g, b) sRGB 0..1: même vert partout; None = couleur de l'image aérienne
     herbe_lames=9,                # lames par touffe
     herbe_hauteur=(0.16, 0.34),   # m: hauteur d'une touffe (tirage uniforme)
     herbe_luminosite=1.0,         # facteur sur la couleur des lames (teinte: image aérienne nettoyée au même endroit)
@@ -2126,19 +2138,25 @@ def build_trees(env, coll, cam):
 
 
 def build_herbe(env, coll, cam):
-    """Touffes d'herbe autour de la caméra: un seul maillage (lames en 3 triangles: base, milieu courbé, pointe), posées sur le
-    relief de la scène, teinte lue dans l'image aérienne nettoyée au même endroit (sombre à la base, clair à la pointe).
-    Densité maximale au pied de la caméra, nulle au rayon herbe_rayon; rien sur les chemins (gris clair), dans l'ombre ou la
-    forêt (trop sombre). Pas de vent. Mémoire: environ 0,1 Go pour 8 000 touffes."""
+    """Touffes d'herbe autour de la caméra, posées sur le relief de la scène (un maillage proche, un maillage lointain).
+    Densité: herbe_densite au pied de la caméra, décroît jusqu'à herbe_densite_loin à herbe_rayon_proche, puis jusqu'à
+    herbe_densite_fin au rayon herbe_rayon (250 m le 14 nov.). Au-delà de 25 m les touffes grossissent (herbe_taille_loin) pour
+    couvrir le sol avec moins de touffes (une touffe de 30 cm à 150 m fait 2 pixels). Couleur: herbe_couleur (même vert partout)
+    si elle est donnée, sinon image aérienne nettoyée. Rien sur les chemins (gris clair), dans l'ombre ou la forêt (trop sombre).
+    Mémoire: environ 0,1 Go pour 8 000 touffes, le nombre total est plafonné par herbe_max (touffes)."""
     m = env["meta"]
     R = float(CFG["herbe_rayon"])
+    R1 = min(float(CFG["herbe_rayon_proche"]), R)
     rng = np.random.default_rng(21)
-    nc = int(CFG["herbe_densite"] * math.pi * R * R)
-    r = R * np.sqrt(rng.random(nc))
+    d0, d1, d2 = float(CFG["herbe_densite"]), float(CFG["herbe_densite_loin"]), float(CFG["herbe_densite_fin"])
+    rr = np.linspace(0.0, R, 2001)
+    dens = np.where(rr < R1, d1 + (d0 - d1) * np.clip(1.0 - (rr / R1) ** 1.5, 0.0, 1.0),
+                    d2 + (d1 - d2) * np.clip(1.0 - (rr - R1) / max(R - R1, 1e-6), 0.0, 1.0) ** float(CFG["herbe_decroissance"]))
+    dens = np.where(rr < 0.4, 0.0, dens)
+    cum = np.concatenate([[0.0], np.cumsum(0.5 * (dens[1:] * rr[1:] + dens[:-1] * rr[:-1]) * np.diff(rr) * 2 * np.pi)])
+    nc = int(min(cum[-1], float(CFG["herbe_max"]) * 1.6))
+    r = np.interp(rng.random(nc) * cum[-1], cum, rr)
     a = rng.uniform(0, 2 * np.pi, nc)
-    acc = rng.random(nc) < np.clip(1.0 - (r / R) ** 1.5, 0.0, 1.0)
-    acc &= r > 0.4
-    r, a = r[acc], a[acc]
     X, Y = cam.x + r * np.cos(a), cam.y + r * np.sin(a)
     E = m["scene_E0"] + X
     N = m["scene_N0"] + m["flip"] * Y
@@ -2149,27 +2167,48 @@ def build_herbe(env, coll, cam):
     mx, mn = c.max(1), c.min(1)
     sat = np.where(mx > 1e-6, (mx - mn) / np.maximum(mx, 1e-6), 0.0)
     ok &= ~((sat < 0.14) & (L > 0.45)) & (L > 0.12)               # pas de chemin gris clair, pas d'ombre profonde
-    X, Y, E, N, c = X[ok], Y[ok], E[ok], N[ok], c[ok]
+    X, Y, E, N, c, r = X[ok], Y[ok], E[ok], N[ok], c[ok], r[ok]
+    if len(X) > int(CFG["herbe_max"]):
+        k = np.sort(rng.choice(len(X), int(CFG["herbe_max"]), replace=False))
+        X, Y, E, N, c, r = X[k], Y[k], E[k], N[k], c[k], r[k]
     n = len(X)
     if n == 0:
         log("herbe: aucun point retenu")
         return None
     Z = _z_sol(env, E, N)
-    cl = np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
-    cl = _ortho_comme_le_sol(cl) * float(CFG["herbe_luminosite"])
-    nb = int(CFG["herbe_lames"])
+    hc = CFG.get("herbe_couleur")
+    if hc:
+        sr = np.array(hc, np.float64)
+        cl = np.tile(np.where(sr <= 0.04045, sr / 12.92, ((sr + 0.055) / 1.055) ** 2.4), (n, 1))
+    else:
+        cl = np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
+        cl = _ortho_comme_le_sol(cl)
+    cl = cl * float(CFG["herbe_luminosite"])
+    # grossissement avec la distance: 1 jusqu'à 15 m, herbe_taille_loin à 120 m et au-delà
+    S = 1.0 + (float(CFG["herbe_taille_loin"]) - 1.0) * np.clip((r - 15.0) / 105.0, 0.0, 1.0)
+    prox = r <= float(CFG["herbe_rayon_proche"])
+    obs = []
+    for nom, sel, nb in (("Herbe", prox, int(CFG["herbe_lames"])), ("Herbe_loin", ~prox, int(CFG["herbe_lames_loin"]))):
+        if sel.any():
+            obs.append(_maillage_herbe(coll, nom, X[sel], Y[sel], Z[sel], cl[sel], S[sel], nb, rng))
+    log(f"herbe: {n:,} touffes dans {R:g} m autour de la caméra ({int(prox.sum()):,} à moins de {R1:g} m)")
+    return obs[0] if obs else None
+
+
+def _maillage_herbe(coll, nom, X, Y, Z, cl, S, nb, rng):
+    n = len(X)
     h0, h1 = CFG["herbe_hauteur"]
-    H = rng.uniform(h0, h1, n)
+    H = rng.uniform(h0, h1, n) * S
     tone = rng.uniform(0.85, 1.15, n)
     # lames: (n, nb) -> base décalée du centre, cap, inclinaison, largeur
-    et = float(CFG["herbe_etalement"])
-    bx = X[:, None] + rng.normal(0, et, (n, nb))
-    by = Y[:, None] + rng.normal(0, et, (n, nb))
+    et = float(CFG["herbe_etalement"]) * S[:, None]
+    bx = X[:, None] + rng.normal(0, 1.0, (n, nb)) * et
+    by = Y[:, None] + rng.normal(0, 1.0, (n, nb)) * et
     bz = Z[:, None] + np.zeros((n, nb))
     phi = rng.uniform(0, 2 * np.pi, (n, nb))
     lean = np.radians(rng.uniform(6, 38, (n, nb)))
     hl = H[:, None] * rng.uniform(0.6, 1.0, (n, nb))
-    w = rng.uniform(CFG["herbe_largeur"][0], CFG["herbe_largeur"][1], (n, nb))
+    w = rng.uniform(CFG["herbe_largeur"][0], CFG["herbe_largeur"][1], (n, nb)) * S[:, None]
     ux, uy = np.cos(phi), np.sin(phi)                  # direction d'inclinaison
     sx, sy = -uy, ux                                    # largeur de la lame (perpendiculaire)
     def pt(t, lean_f, wid):
@@ -2192,7 +2231,7 @@ def build_herbe(env, coll, cam):
     k = np.array([k0, k0, k1, k1, k2, k2])
     col = cl[:, None, None, :] * tone[:, None, None, None] * k[None, None, :, None] * np.ones((1, nb, 1, 1))
     col = np.clip(col, 0.0, 1.0).reshape(n * nb * 6, 3)
-    me = bpy.data.meshes.new("Herbe")
+    me = bpy.data.meshes.new(nom)
     me.vertices.add(len(V))
     me.vertices.foreach_set("co", V.astype(np.float32).ravel())
     nt = len(F)
@@ -2209,9 +2248,9 @@ def build_herbe(env, coll, cam):
     except Exception:
         va = me.attributes.new("col", "FLOAT_COLOR", "POINT")
         va.data.foreach_set("color", np.concatenate([col, np.ones((len(col), 1))], 1).astype(np.float32).ravel())
-    ob = bpy.data.objects.new("Herbe", me)
+    ob = bpy.data.objects.new(nom, me)
     coll.objects.link(ob)
-    mt = bpy.data.materials.new("Herbe")
+    mt = bpy.data.materials.new(nom)
     mt.use_nodes = True
     nt_ = mt.node_tree
     b = nt_.nodes["Principled BSDF"]
@@ -2230,7 +2269,7 @@ def build_herbe(env, coll, cam):
         nt_.links.new(ad.outputs[0], nt_.nodes["Material Output"].inputs["Surface"])
     ob.visible_shadow = bool(CFG["herbe_ombres"])
     me.materials.append(mt)
-    log(f"herbe: {n:,} touffes ({n * nb:,} lames, {nt:,} triangles) dans {R:g} m autour de la caméra")
+    log(f"{nom}: {n:,} touffes, {nb} lames, {nt:,} triangles")
     return ob
 
 
@@ -2372,6 +2411,16 @@ def build_oiseaux(env, coll, cam):
     OISEAUX.update(me=me, pos=np.array(pos), vit=np.array(vit), tg=tg, t0=np.array(t_dep), f=np.array(freq), ph=np.array(ph),
                    env=float(CFG["oiseaux_envergure"]))
     maj_oiseaux(0.0)
+    if CFG.get("oiseaux_dump"):
+        try:
+            Pa = np.array(pos)[:, ::60, :]           # une position par seconde
+            ob_ = [{"depart": float(t_dep[b]), "xy": [[float(x), float(y), float(z)] for x, y, z in Pa[b]]} for b in range(nb)]
+            json.dump({"scene_E0": m["scene_E0"], "scene_N0": m["scene_N0"], "flip": m["flip"],
+                       "camera": [float(cam.x), float(cam.y), float(cam.z)], "oiseaux": ob_},
+                      open(CFG["oiseaux_dump"], "w", encoding="utf-8"))
+            log(f"oiseaux: trajets écrits dans {CFG['oiseaux_dump']}")
+        except Exception as e:
+            log(f"oiseaux: écriture des trajets impossible ({e})")
     return ob
 
 
@@ -3007,6 +3056,37 @@ def build_terrain_material(env=None):
                 loin = mrange(camd.outputs["View Distance"], 250.0, 1400.0)
                 rel = math("ADD", _loin(0.08, 11.0), math("MULTIPLY", _loin(0.2, 17.0), 0.6))
                 h = math("ADD", h, math("MULTIPLY", math("MULTIPLY", math("MULTIPLY", rel, wcoeur), loin), 1.4 * LOIN))
+            BR = float(CFG["eau_brillance"])
+            if BR > 0:
+                # éclats de soleil: petites taches très claires (près de la caméra: ~1 m, de loin: ~4 m) emportées dans le sens du courant
+                dbr = N.new("ShaderNodeVectorMath")
+                dbr.operation = "SCALE"
+                L.new(dxy.outputs["Vector"], dbr.inputs[0])
+                L.new(math("MULTIPLY", T_eau, float(CFG["eau_brillance_vitesse"])), dbr.inputs["Scale"])
+
+                def _eclat(echelle, graine):
+                    v0 = N.new("ShaderNodeVectorMath")
+                    v0.operation = "SUBTRACT"
+                    L.new(geo.outputs["Position"], v0.inputs[0])
+                    L.new(dbr.outputs["Vector"], v0.inputs[1])
+                    v1 = N.new("ShaderNodeVectorMath")
+                    v1.operation = "SCALE"
+                    v1.inputs["Scale"].default_value = echelle
+                    L.new(v0.outputs["Vector"], v1.inputs[0])
+                    nz_ = N.new("ShaderNodeTexNoise")
+                    nz_.noise_dimensions = "4D"
+                    nz_.inputs["Detail"].default_value = 2.0
+                    nz_.inputs["W"].default_value = graine
+                    L.new(v1.outputs["Vector"], nz_.inputs["Vector"])
+                    return nz_.outputs["Fac"]
+                camb = N.new("ShaderNodeCameraData")
+                lb = mrange(camb.outputs["View Distance"], 60.0, 400.0)
+                e_pres = mrange(_eclat(1.1, 23.0), 0.60, 0.74)
+                e_loin = mrange(_eclat(0.28, 31.0), 0.58, 0.72)
+                e = math("ADD", math("MULTIPLY", e_pres, math("SUBTRACT", 1.0, lb)), math("MULTIPLY", e_loin, lb))
+                glint = math("MULTIPLY", math("MULTIPLY", e, wcoeur), BR * float(CFG["eau_brillance_force"]))
+                bsdf.inputs["Emission Color"].default_value = (1.0, 0.97, 0.9, 1)
+                L.new(glint, bsdf.inputs["Emission Strength"])
             h = math("SUBTRACT", h, math("MULTIPLY", refl, 0.08))
             L.new(math("SUBTRACT", math("SUBTRACT", 0.95, math("MULTIPLY", wq, 0.89)), math("MULTIPLY", refl, 0.06)), bsdf.inputs["Roughness"])
         else:

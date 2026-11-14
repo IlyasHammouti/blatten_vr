@@ -1,5 +1,5 @@
 {
-  "_doc": "Réglages du FILM (lus par config.json -> scene.reglages). Peau continue + blocs (mixte), poussière V3 en 3 étapes, titre d'intro sombre, arbres et maisons qui ne disparaissent plus (CDC du 31 oct., décisions du 1er nov.). Décisions du 7 nov. après les tests: arbres en grappes, sol nettoyé près de la caméra seulement (image 10 cm), saturation 1,25, titre en Palatino, qualité pleine (96 échantillons), fin gardée jusqu'à 53 s. Arbres (7 nov., test-arbres): détaillés EZ-Tree (gratuit, MIT) jusqu'à 1000 m (décision d'Ilyas: la limite à 500 m se voyait sur le versant d'en face; fondu entre 850 et 1150 m); couleur des arbres tirée de l'image aérienne (mêmes réglages que le sol) et calée sur la forêt de l'image qu'ils recouvrent: gains mesurés (arbres simples 3 à 4 fois trop sombres et trop verts, arbres détaillés 2 fois trop sombres et trop jaunes), appliqués à 90 %; 2e mesure (7 nov., 23 h 27): couleurs bornées = arbres moitié plus sombres, gains refaits (x 2,2 à 2,4); arbres détaillés teintés par la luminosité de la texture (plus de dominante bleue). 3e mesure (8 nov., 0 h): mesure par zones de forêt entières (versant d'en face haut et bas, fond de vallée, pente proche): luminosité à 78-113 % de la photo, arbres détaillés trop verts (rouge relevé, plus sombres au loin), arbres simples sans ombres projetées (déjà dans la photo) et bas des couronnes moins assombri. 4e mesure (8 nov., 0 h 14): près et fond de vallée justes en luminosité mais arbres détaillés gris argenté, versant d'en face (950 m) 40 % trop sombre. Cause trouvée: la brume ne s'appliquait pas aux arbres ni aux bâtiments (seulement au sol). Brume ajoutée; gains recalculés avec la brume: arbres détaillés plus verts (rouge/vert 1,41, bleu/vert 1,22, entre le 3e test menthe et le 4e gris), plus sombres au-delà de 500 m; arbres simples presque constants avec la distance (la pente d'avant compensait la brume absente). Arbres détaillés en instances de nœuds de géométrie (RAM). Nuit du 13 au 14 nov. (tests sur fenêtres plates): arbres 10 % plus sombres (validé par Ilyas le 13), herbe v2 autour de la caméra (lames translucides, densité 35), oiseaux v2 (trois groupes qui fuient en passant à 20-35 m de la caméra entre t = 9 et 20 s), motif de touffes sur les arbres simples lointains (0,45; proposition de Claude, à confirmer). Pour revenir en arrière: herbe false, oiseaux false, arbres_touffes 0.",
+  "_doc": "Réglages du FILM (lus par config.json -> scene.reglages). Peau continue + blocs (mixte), poussière V3 en 3 étapes, titre d'intro sombre, arbres et maisons qui ne disparaissent plus (CDC du 31 oct., décisions du 1er nov.). Décisions du 7 nov. après les tests: arbres en grappes, sol nettoyé près de la caméra seulement (image 10 cm), saturation 1,25, titre en Palatino, qualité pleine (96 échantillons), fin gardée jusqu'à 53 s. Arbres (7 nov., test-arbres): détaillés EZ-Tree (gratuit, MIT) jusqu'à 1000 m (décision d'Ilyas: la limite à 500 m se voyait sur le versant d'en face; fondu entre 850 et 1150 m); couleur des arbres tirée de l'image aérienne (mêmes réglages que le sol) et calée sur la forêt de l'image qu'ils recouvrent: gains mesurés (arbres simples 3 à 4 fois trop sombres et trop verts, arbres détaillés 2 fois trop sombres et trop jaunes), appliqués à 90 %; 2e mesure (7 nov., 23 h 27): couleurs bornées = arbres moitié plus sombres, gains refaits (x 2,2 à 2,4); arbres détaillés teintés par la luminosité de la texture (plus de dominante bleue). 3e mesure (8 nov., 0 h): mesure par zones de forêt entières (versant d'en face haut et bas, fond de vallée, pente proche): luminosité à 78-113 % de la photo, arbres détaillés trop verts (rouge relevé, plus sombres au loin), arbres simples sans ombres projetées (déjà dans la photo) et bas des couronnes moins assombri. 4e mesure (8 nov., 0 h 14): près et fond de vallée justes en luminosité mais arbres détaillés gris argenté, versant d'en face (950 m) 40 % trop sombre. Cause trouvée: la brume ne s'appliquait pas aux arbres ni aux bâtiments (seulement au sol). Brume ajoutée; gains recalculés avec la brume: arbres détaillés plus verts (rouge/vert 1,41, bleu/vert 1,22, entre le 3e test menthe et le 4e gris), plus sombres au-delà de 500 m; arbres simples presque constants avec la distance (la pente d'avant compensait la brume absente). Arbres détaillés en instances de nœuds de géométrie (RAM). Nuit du 13 au 14 nov. (tests sur fenêtres plates): arbres 10 % plus sombres (validé par Ilyas le 13), herbe v2 autour de la caméra (lames translucides, densité 35), oiseaux v2 (trois groupes qui fuient en passant à 20-35 m de la caméra entre t = 9 et 20 s), motif de touffes sur les arbres simples lointains (0,45; proposition de Claude, à confirmer). Pour revenir en arrière: herbe false, oiseaux false, arbres_touffes 0. 14 nov. (retours d'Ilyas sur l'herbe): portée 250 m (touffes détaillées jusqu'à 25 m, plus grosses et plus rares au-delà), vert unique #64794A (herbe_couleur, plus de couleur de l'image aérienne), densité proche 60 au m2. Herbe: luminosité 1,3 pour approcher #64794A (mesuré hors film: sans cela le vert ressort 25 % trop sombre), densité 50 près, 4 à 25 m, 0,2 à 250 m (exposant 3), au plus 180 000 touffes.",
   "herite": [
     "mixte",
     "poussiere_v3"
@@ -42,8 +42,22 @@
     ],
     "arbres_luminosite": 0.9,
     "herbe": true,
-    "herbe_densite": 35.0,
     "oiseaux": true,
-    "arbres_touffes": 0.45
+    "arbres_touffes": 0.45,
+    "herbe_rayon": 250.0,
+    "herbe_rayon_proche": 25.0,
+    "herbe_densite_loin": 4.0,
+    "herbe_densite_fin": 0.2,
+    "herbe_lames_loin": 5,
+    "herbe_taille_loin": 2.5,
+    "herbe_max": 180000,
+    "herbe_couleur": [
+      0.392,
+      0.475,
+      0.29
+    ],
+    "herbe_densite": 50.0,
+    "herbe_decroissance": 3.0,
+    "herbe_luminosite": 1.3
   }
 }

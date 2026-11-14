@@ -1526,6 +1526,12 @@ JEUX_FENETRE = {
     # herbe v2 (lames translucides, plus larges, teinte du sol): fenêtre proche (comparable à D et E) et pente ouverte vers la vallée
     "herbe2": [("F_herbe_v2", "proche", [_LUM, "scene.herbe=true", "scene.herbe_densite=35"]),
                ("F_herbe_v2", "pente", [_LUM, "scene.herbe=true", "scene.herbe_densite=35"])],
+    # herbe du 14 nov. (retours d'Ilyas): 250 m, vert unique #64794A, plus dense; trois fenêtres (sol proche, pente, versant)
+    "herbe3": [("I_herbe_250m", "proche", [_LUM, "scene.herbe=true"]), ("I_herbe_250m", "pente", [_LUM, "scene.herbe=true"]),
+               ("I_herbe_250m", "versant", [_LUM, "scene.herbe=true"])],
+    # eau (14 nov.): éclats de soleil qui descendent le courant (nouveau réglage eau_brillance): sans, 1, 2,5
+    "eau": [("A_actuel", "versant", [_LUM]), ("B_brillance_1", "versant", [_LUM, "scene.eau_brillance=1.0"]),
+            ("C_brillance_2_5", "versant", [_LUM, "scene.eau_brillance=2.5"])],
 }
 
 
@@ -1605,6 +1611,54 @@ def cmd_test_oiseaux(cfg, paths, extra):
         return rc
     return subprocess.call([sys.executable, SCRIPTS["montage_film"], "--dir", out, "--format", "bande", "--fps", str(fps),
                             "--fondu", "0", "--crf", "14", "--out", os.path.join(out, "oiseaux_test.mp4")])
+
+
+def cmd_test_eau_clip(cfg, paths, extra):
+    """Clip plat de l'eau (fenêtre versant, 48 échantillons) avec les éclats de soleil (eau_brillance), pour voir le sens et la
+    vitesse du déplacement: 2 s de l'événement (t = 15 à 17), une image tous les 3 (1/10 s), vidéo lue à 10 images/s (3 fois plus lent).
+        python blatten.py test-eau-clip [--brillance 1.5]"""
+    b, extra = _option(extra, "--brillance", 1)
+    br = b[0] if b else "1.5"
+    n, fps = _film(cfg)
+    sc = cfg.get("scene") or {}
+    intro = float(sc.get("intro", 0.0))
+    de = int(round((intro + 15.0) * fps)) + 1
+    a = de + 60
+    f = FENETRES["versant"]
+    w = 2 * int(round((f["cap"][1] - f["cap"][0]) * PX_PAR_DEGRE / 2))
+    h = 2 * int(round((f["haut"][1] - f["haut"][0]) * PX_PAR_DEGRE / 2))
+    sa = []
+    for x in [f"scene.bande_cap=[{f['cap'][0]},{f['cap'][1]}]", f"scene.bande_haut=[{f['haut'][0]},{f['haut'][1]}]",
+              f"scene.rendu_res=[{w},{h}]", "scene.rendu_echantillons=48", "scene.rendu_seuil=0.02", _LUM, f"scene.eau_brillance={br}"]:
+        sa += ["--set", x]
+    nom = time.strftime("%Y%m%d_%H%M")
+    rc = _rendre_film(cfg, paths, "bande", os.path.join("render", "tests_eau_clip"), n, fps,
+                      ["--camera-confirmed", "--de", str(de), "--a", str(a), "--pas", "3", "--version", nom] + sa + extra, extrait=True)
+    out = DERNIER_DOSSIER["out"]
+    if rc != 0 or not out:
+        return rc
+    return subprocess.call([sys.executable, SCRIPTS["montage_film"], "--dir", out, "--format", "bande", "--fps", "10",
+                            "--fondu", "0", "--crf", "14", "--out", os.path.join(out, "eau_clip.mp4")])
+
+
+def cmd_carte_oiseaux(cfg, paths, extra):
+    """Carte des oiseaux et du glissement: trajets des oiseaux (départs, une position par seconde, étiquette toutes les 5 s) et front
+    du glissement toutes les 5 s, sur l'image aérienne. Construit la scène une fois (1 image de test à 4 échantillons) pour que
+    les trajets soient exactement ceux du film, puis dessine. Résultat: render/carte_oiseaux/carte_oiseaux.png et .txt.
+        python blatten.py carte-oiseaux [--rayon 700]"""
+    r, extra = _option(extra, "--rayon", 1)
+    dos = os.path.join(ROOT, "render", "carte_oiseaux")
+    os.makedirs(dos, exist_ok=True)
+    tj = os.path.join(dos, "trajets.json")
+    if os.path.exists(tj):
+        os.remove(tj)
+    cmd_test_oiseaux(cfg, paths, ["--t0", "9", "--t1", "9.1", "--set", "scene.rendu_echantillons=4",
+                                   "--set", "scene.oiseaux_dump=" + json.dumps(tj.replace("\\", "/"))])
+    if not os.path.exists(tj):
+        print("Trajets non écrits (scène sans oiseaux ou sans relevé d'arbres).")
+        return 1
+    return subprocess.call([sys.executable, os.path.join(SRC, "scene", "carte_oiseaux.py"), "--data", paths.cache, "--trajets", tj,
+                            "--out", os.path.join(dos, "carte_oiseaux"), "--rayon", r[0] if r else "700"])
 
 
 def cmd_nuit_envoi(cfg, paths, extra):
@@ -2448,7 +2502,7 @@ def cmd_menu(cfg, paths, extra):
 COMMANDS = {
     "status": cmd_status, "setup": cmd_setup, "download": cmd_download, "prep-env": cmd_prep_env, "prep-batiments": cmd_prep_batiments, "prep-vegetation": cmd_prep_vegetation, "env-complet": cmd_env_complet, "visible": cmd_visible,
     "prep-particules": cmd_prep_particules, "terrain": cmd_terrain, "views": cmd_views, "test360": cmd_test360,
-    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "eau-manuel": cmd_eau_manuel, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "titre-test": cmd_titre_test, "test-son": cmd_test_son, "test-couleurs": cmd_test_couleurs, "test-eau": cmd_test_eau, "test-final": cmd_test_final, "prep-sol": cmd_prep_sol, "test-aspect": cmd_test_aspect, "test-fenetre": cmd_test_fenetre, "test-oiseaux": cmd_test_oiseaux, "nuit-envoi": cmd_nuit_envoi, "test-arbres": cmd_test_arbres, "extrait": cmd_extrait, "test-bande": cmd_test_bande, "finir": cmd_finir, "son": cmd_son, "outro": cmd_outro, "cap": cmd_cap, "camera": cmd_camera, "paquet": cmd_paquet, "duo": cmd_duo, "duo-etat": cmd_duo_etat, "duo-envoyer": cmd_duo_envoyer, "duo-importer": cmd_duo_importer, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
+    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "eau-manuel": cmd_eau_manuel, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "titre-test": cmd_titre_test, "test-son": cmd_test_son, "test-couleurs": cmd_test_couleurs, "test-eau": cmd_test_eau, "test-final": cmd_test_final, "prep-sol": cmd_prep_sol, "test-aspect": cmd_test_aspect, "test-fenetre": cmd_test_fenetre, "test-oiseaux": cmd_test_oiseaux, "nuit-envoi": cmd_nuit_envoi, "carte-oiseaux": cmd_carte_oiseaux, "test-eau-clip": cmd_test_eau_clip, "test-arbres": cmd_test_arbres, "extrait": cmd_extrait, "test-bande": cmd_test_bande, "finir": cmd_finir, "son": cmd_son, "outro": cmd_outro, "cap": cmd_cap, "camera": cmd_camera, "paquet": cmd_paquet, "duo": cmd_duo, "duo-etat": cmd_duo_etat, "duo-envoyer": cmd_duo_envoyer, "duo-importer": cmd_duo_importer, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
 }
 
 
