@@ -75,7 +75,8 @@ def main():
 
     os.makedirs(os.path.join(a.out, "couches"), exist_ok=True)
     T = json.load(open(a.trajets, encoding="utf-8"))
-    meta = json.load(open(os.path.join(a.data, "meta.json"), encoding="utf-8"))
+    mf = os.path.join(a.data, "env_meta.json")
+    meta = json.load(open(mf if os.path.exists(mf) else os.path.join(a.data, "meta.json"), encoding="utf-8"))
     E0, N0, fl = T["scene_E0"], T["scene_N0"], T["flip"]
     cx, cy, _ = T["camera"]
     cE, cN = E0 + cx, N0 + fl * cy

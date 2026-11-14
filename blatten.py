@@ -1641,6 +1641,15 @@ def cmd_test_eau_clip(cfg, paths, extra):
                             "--fondu", "0", "--crf", "14", "--out", os.path.join(out, "eau_clip.mp4")])
 
 
+def cmd_qgis_oiseaux(cfg, paths, extra):
+    """Projet QGIS prêt à ouvrir pour placer les oiseaux: orthophoto, emprise de la masse toutes les 5 s, caméra, et deux couches vides
+    à remplir (oiseaux_depart: points; oiseaux_direction: lignes). Résultat: render/qgis_oiseaux/oiseaux.qgs (quelques secondes).
+        python blatten.py qgis-oiseaux"""
+    out = os.path.join(ROOT, "render", "qgis_oiseaux")
+    return subprocess.call([sys.executable, os.path.join(SRC, "environnement", "projet_oiseaux_qgis.py"),
+                            "--env", os.path.join(paths.cache, "env"), "--out", out])
+
+
 def cmd_carte_oiseaux(cfg, paths, extra):
     """Carte des oiseaux et du glissement: trajets des oiseaux (départs, une position par seconde, étiquette toutes les 5 s) et front
     du glissement toutes les 5 s, sur l'image aérienne. Construit la scène une fois (1 image de test à 4 échantillons) pour que
@@ -1657,7 +1666,7 @@ def cmd_carte_oiseaux(cfg, paths, extra):
     if not os.path.exists(tj):
         print("Trajets non écrits (scène sans oiseaux ou sans relevé d'arbres).")
         return 1
-    return subprocess.call([sys.executable, os.path.join(SRC, "scene", "carte_oiseaux.py"), "--data", paths.cache, "--trajets", tj,
+    return subprocess.call([sys.executable, os.path.join(SRC, "scene", "carte_oiseaux.py"), "--data", os.path.join(paths.cache, "env"), "--trajets", tj,
                             "--out", dos])
 
 
@@ -2502,7 +2511,7 @@ def cmd_menu(cfg, paths, extra):
 COMMANDS = {
     "status": cmd_status, "setup": cmd_setup, "download": cmd_download, "prep-env": cmd_prep_env, "prep-batiments": cmd_prep_batiments, "prep-vegetation": cmd_prep_vegetation, "env-complet": cmd_env_complet, "visible": cmd_visible,
     "prep-particules": cmd_prep_particules, "terrain": cmd_terrain, "views": cmd_views, "test360": cmd_test360,
-    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "eau-manuel": cmd_eau_manuel, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "titre-test": cmd_titre_test, "test-son": cmd_test_son, "test-couleurs": cmd_test_couleurs, "test-eau": cmd_test_eau, "test-final": cmd_test_final, "prep-sol": cmd_prep_sol, "test-aspect": cmd_test_aspect, "test-fenetre": cmd_test_fenetre, "test-oiseaux": cmd_test_oiseaux, "nuit-envoi": cmd_nuit_envoi, "carte-oiseaux": cmd_carte_oiseaux, "test-eau-clip": cmd_test_eau_clip, "test-arbres": cmd_test_arbres, "extrait": cmd_extrait, "test-bande": cmd_test_bande, "finir": cmd_finir, "son": cmd_son, "outro": cmd_outro, "cap": cmd_cap, "camera": cmd_camera, "paquet": cmd_paquet, "duo": cmd_duo, "duo-etat": cmd_duo_etat, "duo-envoyer": cmd_duo_envoyer, "duo-importer": cmd_duo_importer, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
+    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "eau-manuel": cmd_eau_manuel, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "titre-test": cmd_titre_test, "test-son": cmd_test_son, "test-couleurs": cmd_test_couleurs, "test-eau": cmd_test_eau, "test-final": cmd_test_final, "prep-sol": cmd_prep_sol, "test-aspect": cmd_test_aspect, "test-fenetre": cmd_test_fenetre, "test-oiseaux": cmd_test_oiseaux, "nuit-envoi": cmd_nuit_envoi, "carte-oiseaux": cmd_carte_oiseaux, "qgis-oiseaux": cmd_qgis_oiseaux, "test-eau-clip": cmd_test_eau_clip, "test-arbres": cmd_test_arbres, "extrait": cmd_extrait, "test-bande": cmd_test_bande, "finir": cmd_finir, "son": cmd_son, "outro": cmd_outro, "cap": cmd_cap, "camera": cmd_camera, "paquet": cmd_paquet, "duo": cmd_duo, "duo-etat": cmd_duo_etat, "duo-envoyer": cmd_duo_envoyer, "duo-importer": cmd_duo_importer, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
 }
 
 
