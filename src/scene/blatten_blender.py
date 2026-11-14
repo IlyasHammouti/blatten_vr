@@ -152,8 +152,13 @@ CFG = dict(
         (215.0, 255.0, 9, 9.7),   # à droite, plus loin
         (60.0, 100.0, 12, 10.5),  # à gauche
     ),
-    oiseaux_dist=(45.0, 110.0),   # m: distance caméra - arbre de départ (plus loin, un oiseau fait moins de 3 pixels en 360)
-    oiseaux_envergure=0.9,        # m (choucas, chocards: 0,7 à 0,9 m)
+    oiseaux_dist=(35.0, 80.0),    # m: distance caméra - arbre de départ
+    oiseaux_envergure=1.05,       # m (corneille noire: 0,93 à 1,04 m; choucas, chocards: 0,7 à 0,9 m)
+    oiseaux_mode="passage",       # "passage": ils fuient en passant près de la caméra (lisibles); "eloigne": ils s'éloignent (version du 13 nov.: des points de 3 pixels)
+    oiseaux_fuite_cap=308.0,      # degrés: cap de fuite, à l'opposé de l'événement (cap 128): fixe de quel côté de la caméra ils passent
+    oiseaux_passage=(20.0, 34.0), # m: distance latérale à la caméra au plus près
+    oiseaux_passage_haut=(3.0, 9.0),  # m au-dessus de la caméra au plus près
+    oiseaux_garde_sol=12.0,       # m: hauteur minimale au-dessus du relief une fois lancés (au-dessus des arbres)
     ortho_sol_suffixe="_sol",     # suffixe de l'image nettoyée lue quand ortho_sol la demande ("_sol_net": trame retirée sans flou, 13 nov.)
     arbres_luminosite=1.0,        # facteur sur la luminosité de TOUS les arbres, simples et détaillés (0.9 = 10 % plus sombres; retour d'Ilyas 9 nov.)
     arbres_touffes=0.0,           # arbres simples: contraste d'un motif de touffes de 2 à 3 m (0 = sans; 0.28 = facteur 0,72 à 1,28), contre l'aspect lisse au loin
@@ -2254,7 +2259,7 @@ def build_oiseaux(env, coll, cam):
     tg = np.arange(0.0, 45.0, dt)
     pos, vit, t_dep, freq, ph, vis = [], [], [], [], [], []
     for (c0, c1, nb, tdep) in CFG["oiseaux_groupes"]:
-        sel = np.where((cap >= c0) & (cap <= c1) & (d >= d0) & (d <= d1) & (Hh >= 9.0))[0]
+        sel = np.where((cap >= c0) & (cap <= c1) & (d >= d0) & (d <= d1) & (Hh >= 7.0))[0]
         if len(sel) == 0:
             log(f"oiseaux: aucun arbre pour les caps {c0:g}-{c1:g} à {d0:g}-{d1:g} m")
             continue
@@ -2264,6 +2269,59 @@ def build_oiseaux(env, coll, cam):
         zs = float(_z_sol(env, np.array([E]), np.array([N]))[0])
         top = np.array([X[i], Y[i], zs + 0.85 * Hh[i]])
         log(f"oiseaux: groupe de {nb} à l'arbre cap {cap[i]:.0f}°, {d[i]:.0f} m, haut de {Hh[i]:.0f} m, envol à t = {tdep:g} s")
+        if str(CFG.get("oiseaux_mode", "passage")) == "passage":
+            # fuite: du haut de l'arbre vers un point de passage près de la caméra (sur le côté, un peu plus haut qu'elle), puis tout droit
+            # en suivant le relief. Vus de la caméra, ils grossissent et passent à 20-35 m: lisibles (à 90 m un oiseau fait 3 pixels).
+            u = np.array([cam.x - X[i], cam.y - Y[i]])
+            u /= max(np.hypot(*u), 1e-6)
+            perp = np.array([-u[1], u[0]])
+            fc = math.radians(float(CFG["oiseaux_fuite_cap"]))
+            cote = 1.0 if perp @ np.array([math.sin(fc), math.cos(fc)]) >= 0 else -1.0     # ils passent du côté opposé à l'événement
+            for b in range(nb):
+                t0 = tdep + rng.uniform(0.0, 0.9)
+                p0 = top + np.array([rng.normal(0, 1.2), rng.normal(0, 1.2), rng.normal(0, 0.8)])
+                cible = np.array([cam.x, cam.y]) + cote * perp * rng.uniform(*CFG["oiseaux_passage"])
+                zc = cam.z + rng.uniform(*CFG["oiseaux_passage_haut"])
+                dirh = cible - p0[:2]
+                Lh = max(np.hypot(*dirh), 1.0)
+                dirh /= Lh
+                pb = np.array([-dirh[1], dirh[0]])
+                v0, v1 = rng.uniform(1.5, 3.0), rng.uniform(8.0, 10.5)
+                # trajet en fonction de la distance parcourue (pas de 0,25 m): ligne droite avec un léger zigzag, altitude = montée vers
+                # le point de passage puis 5 degrés, jamais sous le relief + garde (lissé sur 12 m)
+                ds = 0.25
+                sg = np.arange(0.0, 520.0, ds)
+                wob = 0.7 * np.sin(2 * np.pi * sg / rng.uniform(22.0, 34.0) + rng.uniform(0, 6.28)) * np.clip(sg / 15.0, 0.0, 1.0)
+                xy = p0[None, :2] + dirh[None, :] * sg[:, None] + pb[None, :] * wob[:, None]
+                zp = np.where(sg <= Lh, p0[2] + (zc - p0[2]) * np.clip(sg / Lh, 0.0, 1.0) ** 0.8,
+                              zc + (sg - Lh) * math.tan(math.radians(5.0)))
+                zg = _z_sol(env, m["scene_E0"] + xy[:, 0], m["scene_N0"] + m["flip"] * xy[:, 1]) \
+                    + float(CFG["oiseaux_garde_sol"]) * np.clip(sg / 25.0, 0.0, 1.0)
+                zz = np.maximum(zp, zg)
+                kk = 24
+                zz = np.convolve(np.pad(zz, kk, mode="edge"), np.ones(2 * kk + 1) / (2 * kk + 1), mode="valid")
+                zz = np.maximum(zz, p0[2] - 0.3)
+                pente = np.gradient(zz, ds)
+                # avance dans le temps: vitesse nominale (accélération au départ), ralentie quand la montée dépasserait 4 m/s
+                P = np.zeros((len(tg), 3))
+                sc_ = 0.0
+                for k, t in enumerate(tg):
+                    if t >= t0:
+                        vn = v0 + (v1 - v0) * (1 - math.exp(-(t - t0) / 1.3))
+                        pe = pente[min(int(sc_ / ds), len(sg) - 1)]
+                        sc_ = min(sc_ + min(vn, 4.0 / pe if pe > 0.4 else vn) * dt, sg[-1])
+                    j = sc_ / ds
+                    j0 = min(int(j), len(sg) - 2)
+                    f = j - j0
+                    P[k, :2] = xy[j0] * (1 - f) + xy[j0 + 1] * f
+                    P[k, 2] = zz[j0] * (1 - f) + zz[j0 + 1] * f
+                V = np.gradient(P, dt, axis=0) * (tg >= t0)[:, None]
+                pos.append(P)
+                vit.append(V)
+                t_dep.append(t0)
+                freq.append(rng.uniform(3.2, 4.4))
+                ph.append(rng.uniform(0, 2 * np.pi))
+            continue
         away = math.atan2(dx[i], dy[i])                  # cap de l'arbre vu de la caméra: ils s'éloignent dans cette direction, avec écart
         for b in range(nb):
             t0 = tdep + rng.uniform(0.0, 0.6)

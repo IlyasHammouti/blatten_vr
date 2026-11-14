@@ -12,3 +12,5 @@ envoi3b nuit-envoi
 perf_a test-oiseaux --t0 20 --t1 20.5 --pas 3
 perf_b test-oiseaux --t0 20 --t1 20.5 --pas 3 --persistent
 envoi4 nuit-envoi
+oiseaux2 test-oiseaux --t0 12 --t1 19.5 --pas 15
+envoi5 nuit-envoi

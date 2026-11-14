@@ -1582,7 +1582,7 @@ def cmd_test_oiseaux(cfg, paths, extra):
     cap, haut = (165.0, 250.0), (-35.0, 25.0)   # les arbres des envols sont sous l'horizon de la caméra
     if "--pas" not in extra:
         extra = extra + ["--pas", "6"]            # une image sur 6 (0,2 s): suffit pour juger taille et lisibilité
-    w, h = int(round((cap[1] - cap[0]) * PX_PAR_DEGRE)), int(round((haut[1] - haut[0]) * PX_PAR_DEGRE))
+    w, h = 2 * int(round((cap[1] - cap[0]) * PX_PAR_DEGRE / 2)), 2 * int(round((haut[1] - haut[0]) * PX_PAR_DEGRE / 2))   # pairs (vidéo H.264)
     nom = time.strftime("%Y%m%d_%H%M")
     sets = [f"scene.bande_cap=[{cap[0]},{cap[1]}]", f"scene.bande_haut=[{haut[0]},{haut[1]}]", f"scene.rendu_res=[{w},{h}]",
             "scene.rendu_echantillons=96", _LUM, "scene.herbe=true", "scene.oiseaux=true"]
