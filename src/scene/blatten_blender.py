@@ -145,7 +145,7 @@ CFG = dict(
     herbe_ombres=True,            # les lames projettent des ombres (sur le sol et entre elles)
     herbe_largeur=(0.014, 0.028), # m: largeur d'une lame à la base (une lame large tient lieu de plusieurs brins)
     herbe_etalement=0.08,         # m: écart type des pieds de lames autour du centre de la touffe
-    herbe_teinte=(0.8, 1.0, 1.2),  # facteur sur la couleur du sol: base, milieu, pointe de la lame
+    herbe_teinte=(0.7, 0.9, 1.05),  # facteur sur la couleur du sol: base, milieu, pointe de la lame
     oiseaux=False,                # envols d'oiseaux (build_oiseaux, 13 nov.): groupes partant d'arbres proches de la caméra
     oiseaux_groupes=(             # (cap min, cap max en degrés, nombre d'oiseaux, instant de l'envol en s de l'événement)
         (160.0, 195.0, 11, 9.0),  # à droite de l'événement (cap 128), vers le centre de la vue de départ
