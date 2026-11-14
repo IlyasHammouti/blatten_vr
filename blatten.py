@@ -1526,12 +1526,12 @@ JEUX_FENETRE = {
     # herbe v2 (lames translucides, plus larges, teinte du sol): fenêtre proche (comparable à D et E) et pente ouverte vers la vallée
     "herbe2": [("F_herbe_v2", "proche", [_LUM, "scene.herbe=true", "scene.herbe_densite=35"]),
                ("F_herbe_v2", "pente", [_LUM, "scene.herbe=true", "scene.herbe_densite=35"])],
-    # herbe du 14 nov. (retours d'Ilyas): 250 m, vert unique #64794A, plus dense; trois fenêtres (sol proche, pente, versant)
+    # herbe du 14 nov. (retours d'Ilyas): détaillée jusqu'à 50 m, puis jusqu'à 250 m, vert unique #64794A, plus dense; trois fenêtres
     "herbe3": [("I_herbe_250m", "proche", [_LUM, "scene.herbe=true"]), ("I_herbe_250m", "pente", [_LUM, "scene.herbe=true"]),
                ("I_herbe_250m", "versant", [_LUM, "scene.herbe=true"])],
     # eau (14 nov.): éclats de soleil qui descendent le courant (nouveau réglage eau_brillance): sans, 1, 2,5
-    "eau": [("A_actuel", "versant", [_LUM]), ("B_brillance_1", "versant", [_LUM, "scene.eau_brillance=1.0"]),
-            ("C_brillance_2_5", "versant", [_LUM, "scene.eau_brillance=2.5"])],
+    "eau": [("A_actuel", "versant", [_LUM]), ("B_brillance_3", "versant", [_LUM, "scene.eau_brillance=3.0"]),
+            ("C_brillance_8", "versant", [_LUM, "scene.eau_brillance=8.0"])],
 }
 
 
@@ -1616,9 +1616,9 @@ def cmd_test_oiseaux(cfg, paths, extra):
 def cmd_test_eau_clip(cfg, paths, extra):
     """Clip plat de l'eau (fenêtre versant, 48 échantillons) avec les éclats de soleil (eau_brillance), pour voir le sens et la
     vitesse du déplacement: 2 s de l'événement (t = 15 à 17), une image tous les 3 (1/10 s), vidéo lue à 10 images/s (3 fois plus lent).
-        python blatten.py test-eau-clip [--brillance 1.5]"""
+        python blatten.py test-eau-clip [--brillance 5]"""
     b, extra = _option(extra, "--brillance", 1)
-    br = b[0] if b else "1.5"
+    br = b[0] if b else "5"
     n, fps = _film(cfg)
     sc = cfg.get("scene") or {}
     intro = float(sc.get("intro", 0.0))
@@ -1658,7 +1658,7 @@ def cmd_carte_oiseaux(cfg, paths, extra):
         print("Trajets non écrits (scène sans oiseaux ou sans relevé d'arbres).")
         return 1
     return subprocess.call([sys.executable, os.path.join(SRC, "scene", "carte_oiseaux.py"), "--data", paths.cache, "--trajets", tj,
-                            "--out", os.path.join(dos, "carte_oiseaux"), "--rayon", r[0] if r else "700"])
+                            "--out", dos])
 
 
 def cmd_nuit_envoi(cfg, paths, extra):

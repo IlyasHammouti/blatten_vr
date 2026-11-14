@@ -144,7 +144,8 @@ CFG = dict(
     herbe_densite=20.0,           # touffes par m2 au pied de la caméra, décroît jusqu'à herbe_densite_loin à herbe_rayon_proche
     herbe_densite_loin=0.0,       # touffes par m2 à herbe_rayon_proche
     herbe_densite_fin=0.0,        # touffes par m2 au rayon herbe_rayon (décroissance linéaire entre les deux)
-    herbe_decroissance=2.0,       # exposant de la décroissance de la densité entre herbe_rayon_proche et herbe_rayon (1 = linéaire)
+    herbe_decroissance=2.0,
+    herbe_decroissance_proche=1.5,  # exposant de la décroissance de la densité entre la caméra et herbe_rayon_proche       # exposant de la décroissance de la densité entre herbe_rayon_proche et herbe_rayon (1 = linéaire)
     herbe_lames_loin=5,           # lames par touffe au-delà de herbe_rayon_proche
     herbe_taille_loin=1.0,        # facteur de taille des touffes (hauteur, largeur, étalement) à 120 m et au-delà
     oiseaux_dump="",              # chemin d'un .json où écrire les départs et trajets des oiseaux (carte-oiseaux)
@@ -2150,7 +2151,7 @@ def build_herbe(env, coll, cam):
     rng = np.random.default_rng(21)
     d0, d1, d2 = float(CFG["herbe_densite"]), float(CFG["herbe_densite_loin"]), float(CFG["herbe_densite_fin"])
     rr = np.linspace(0.0, R, 2001)
-    dens = np.where(rr < R1, d1 + (d0 - d1) * np.clip(1.0 - (rr / R1) ** 1.5, 0.0, 1.0),
+    dens = np.where(rr < R1, d1 + (d0 - d1) * np.clip(1.0 - rr / R1, 0.0, 1.0) ** float(CFG["herbe_decroissance_proche"]),
                     d2 + (d1 - d2) * np.clip(1.0 - (rr - R1) / max(R - R1, 1e-6), 0.0, 1.0) ** float(CFG["herbe_decroissance"]))
     dens = np.where(rr < 0.4, 0.0, dens)
     cum = np.concatenate([[0.0], np.cumsum(0.5 * (dens[1:] * rr[1:] + dens[:-1] * rr[:-1]) * np.diff(rr) * 2 * np.pi)])
@@ -3064,7 +3065,7 @@ def build_terrain_material(env=None):
                 L.new(dxy.outputs["Vector"], dbr.inputs[0])
                 L.new(math("MULTIPLY", T_eau, float(CFG["eau_brillance_vitesse"])), dbr.inputs["Scale"])
 
-                def _eclat(echelle, graine):
+                def _eclat(echelle, graine, scint=0.0):
                     v0 = N.new("ShaderNodeVectorMath")
                     v0.operation = "SUBTRACT"
                     L.new(geo.outputs["Position"], v0.inputs[0])
@@ -3076,13 +3077,18 @@ def build_terrain_material(env=None):
                     nz_ = N.new("ShaderNodeTexNoise")
                     nz_.noise_dimensions = "4D"
                     nz_.inputs["Detail"].default_value = 2.0
-                    nz_.inputs["W"].default_value = graine
+                    if scint:
+                        # scintillement: le motif fin change dans le temps (les vaguelettes renvoient le soleil puis plus)
+                        L.new(math("ADD", math("MULTIPLY", T_eau, scint), graine), nz_.inputs["W"])
+                    else:
+                        nz_.inputs["W"].default_value = graine
                     L.new(v1.outputs["Vector"], nz_.inputs["Vector"])
                     return nz_.outputs["Fac"]
                 camb = N.new("ShaderNodeCameraData")
                 lb = mrange(camb.outputs["View Distance"], 60.0, 400.0)
-                e_pres = mrange(_eclat(1.1, 23.0), 0.60, 0.74)
-                e_loin = mrange(_eclat(0.28, 31.0), 0.58, 0.72)
+                # plages de reflets (1 m près, 4 m loin) qui descendent le courant, criblées de points fins qui scintillent
+                e_pres = math("MULTIPLY", mrange(_eclat(1.1, 23.0), 0.52, 0.68), mrange(_eclat(6.0, 41.0, 2.5), 0.60, 0.70))
+                e_loin = math("MULTIPLY", mrange(_eclat(0.28, 31.0), 0.52, 0.66), mrange(_eclat(1.6, 47.0, 1.5), 0.56, 0.68))
                 e = math("ADD", math("MULTIPLY", e_pres, math("SUBTRACT", 1.0, lb)), math("MULTIPLY", e_loin, lb))
                 glint = math("MULTIPLY", math("MULTIPLY", e, wcoeur), BR * float(CFG["eau_brillance_force"]))
                 bsdf.inputs["Emission Color"].default_value = (1.0, 0.97, 0.9, 1)
