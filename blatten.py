@@ -1641,6 +1641,26 @@ def cmd_test_eau_clip(cfg, paths, extra):
                             "--fondu", "0", "--crf", "14", "--out", os.path.join(out, "eau_clip.mp4")])
 
 
+def cmd_essai_fumee(cfg, paths, extra):
+    """Essai de fumée simulée (Mantaflow) dans une scène à part: relief gris, fumée, caméra du film tournée vers l'événement.
+    Sorties: render/essai_fumee/<date>/fumee_t20.png, _t30, _t40, et fumee_clip.mp4 (une image toutes les 0,5 s). Voir tools/essai_fumee.py.
+        python blatten.py essai-fumee [--res 128] [--fps 15] [--fin 45] [--alpha -0.2] [--tourbillons 0.2] [--elan 0.7] [--densite 0.03]"""
+    out = os.path.join(ROOT, "render", "essai_fumee", time.strftime("%Y%m%d_%H%M"))
+    rc = run_blender(cfg, os.path.join(ROOT, "tools", "essai_fumee.py"), list(extra) + ["--data", paths.cache, "--out", out])
+    clip = os.path.join(out, "clip")
+    if os.path.isdir(clip) and any(f.endswith(".png") for f in os.listdir(clip)):
+        try:
+            import imageio_ffmpeg
+            subprocess.call([imageio_ffmpeg.get_ffmpeg_exe(), "-y", "-loglevel", "error", "-framerate", "6", "-i",
+                             os.path.join(clip, "clip_%04d.png"), "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "16",
+                             os.path.join(out, "fumee_clip.mp4")])
+            print("Clip:", os.path.join(out, "fumee_clip.mp4"))
+        except Exception as e:
+            print("Clip non monté (les images sont dans", clip, "):", e)
+    print("Sorties:", out)
+    return rc
+
+
 def cmd_qgis_oiseaux(cfg, paths, extra):
     """Projet QGIS prêt à ouvrir pour placer les oiseaux: orthophoto, emprise de la masse toutes les 5 s, caméra, et deux couches vides
     à remplir (oiseaux_depart: points; oiseaux_direction: lignes). Résultat: render/qgis_oiseaux/oiseaux.qgs (quelques secondes).
@@ -2511,7 +2531,7 @@ def cmd_menu(cfg, paths, extra):
 COMMANDS = {
     "status": cmd_status, "setup": cmd_setup, "download": cmd_download, "prep-env": cmd_prep_env, "prep-batiments": cmd_prep_batiments, "prep-vegetation": cmd_prep_vegetation, "env-complet": cmd_env_complet, "visible": cmd_visible,
     "prep-particules": cmd_prep_particules, "terrain": cmd_terrain, "views": cmd_views, "test360": cmd_test360,
-    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "eau-manuel": cmd_eau_manuel, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "titre-test": cmd_titre_test, "test-son": cmd_test_son, "test-couleurs": cmd_test_couleurs, "test-eau": cmd_test_eau, "test-final": cmd_test_final, "prep-sol": cmd_prep_sol, "test-aspect": cmd_test_aspect, "test-fenetre": cmd_test_fenetre, "test-oiseaux": cmd_test_oiseaux, "nuit-envoi": cmd_nuit_envoi, "carte-oiseaux": cmd_carte_oiseaux, "qgis-oiseaux": cmd_qgis_oiseaux, "test-eau-clip": cmd_test_eau_clip, "test-arbres": cmd_test_arbres, "extrait": cmd_extrait, "test-bande": cmd_test_bande, "finir": cmd_finir, "son": cmd_son, "outro": cmd_outro, "cap": cmd_cap, "camera": cmd_camera, "paquet": cmd_paquet, "duo": cmd_duo, "duo-etat": cmd_duo_etat, "duo-envoyer": cmd_duo_envoyer, "duo-importer": cmd_duo_importer, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
+    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "eau-manuel": cmd_eau_manuel, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "titre-test": cmd_titre_test, "test-son": cmd_test_son, "test-couleurs": cmd_test_couleurs, "test-eau": cmd_test_eau, "test-final": cmd_test_final, "prep-sol": cmd_prep_sol, "test-aspect": cmd_test_aspect, "test-fenetre": cmd_test_fenetre, "test-oiseaux": cmd_test_oiseaux, "nuit-envoi": cmd_nuit_envoi, "carte-oiseaux": cmd_carte_oiseaux, "qgis-oiseaux": cmd_qgis_oiseaux, "essai-fumee": cmd_essai_fumee, "test-eau-clip": cmd_test_eau_clip, "test-arbres": cmd_test_arbres, "extrait": cmd_extrait, "test-bande": cmd_test_bande, "finir": cmd_finir, "son": cmd_son, "outro": cmd_outro, "cap": cmd_cap, "camera": cmd_camera, "paquet": cmd_paquet, "duo": cmd_duo, "duo-etat": cmd_duo_etat, "duo-envoyer": cmd_duo_envoyer, "duo-importer": cmd_duo_importer, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
 }
 
 
