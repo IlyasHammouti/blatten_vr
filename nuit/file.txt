@@ -28,3 +28,6 @@ flic48 test-oiseaux --t0 30 --t1 30.3 --pas 1 --cap 95 165 --haut -30 30 --set s
 fige48 test-final --temps 17.5 30 --sans-variantes --set scene.rendu_echantillons=48 --set scene.rendu_seuil=0.02
 envoi9 nuit-envoi
 stop
+# --- nuit du 17 au 18 nov. (PC d'Ilyas allumé, dernière nuit avant le PC du frère)
+n2_controle test-final --temps 5 30 45 --sans-variantes --set scene.rendu_echantillons=48 --set scene.rendu_seuil=0.02
+n2_fumee128 essai-fumee --res 128 --fps 15 --fin 45
