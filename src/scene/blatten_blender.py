@@ -149,6 +149,8 @@ CFG = dict(
     herbe_lames_loin=5,           # lames par touffe au-delà de herbe_rayon_proche
     herbe_taille_loin=1.0,        # facteur de taille des touffes (hauteur, largeur, étalement) à 120 m et au-delà
     oiseaux_dump="",              # chemin d'un .json où écrire les départs et trajets des oiseaux (carte-oiseaux)
+    herbe_instances=False,        # true: touffes en instances (nœuds de géométrie): beaucoup moins de mémoire (RAM et carte) et de BVH par image
+    herbe_variantes=24,           # nombre de touffes modèles par type (proche, lointain) en mode instances
     herbe_max=170000,             # plafond du nombre de touffes (RAM)
     herbe_couleur=None,           # (r, g, b) sRGB 0..1: même vert partout; None = couleur de l'image aérienne
     herbe_lames=9,                # lames par touffe
@@ -2191,12 +2193,150 @@ def build_herbe(env, coll, cam):
     # grossissement avec la distance: 1 jusqu'à 15 m, herbe_taille_loin à 120 m et au-delà
     S = 1.0 + (float(CFG["herbe_taille_loin"]) - 1.0) * np.clip((r - 15.0) / 105.0, 0.0, 1.0)
     prox = r <= float(CFG["herbe_rayon_proche"])
+    if CFG["herbe_instances"]:
+        # instances: une vingtaine de touffes modèles répétées (nœuds de géométrie) au lieu d'un maillage de plusieurs millions de
+        # triangles. Mesuré hors film le 14 nov. (200 000 touffes): voir docs/FEUILLE_DE_ROUTE.md, chantier 22.
+        ob = _herbe_instances(coll, X, Y, Z, cl, S, prox, rng)
+        log(f"herbe: {n:,} touffes en instances dans {R:g} m autour de la caméra ({int(prox.sum()):,} à moins de {R1:g} m)")
+        return ob
     obs = []
     for nom, sel, nb in (("Herbe", prox, int(CFG["herbe_lames"])), ("Herbe_loin", ~prox, int(CFG["herbe_lames_loin"]))):
         if sel.any():
             obs.append(_maillage_herbe(coll, nom, X[sel], Y[sel], Z[sel], cl[sel], S[sel], nb, rng))
     log(f"herbe: {n:,} touffes dans {R:g} m autour de la caméra ({int(prox.sum()):,} à moins de {R1:g} m)")
     return obs[0] if obs else None
+
+
+def _materiau_herbe(nom, instances=False):
+    mt = bpy.data.materials.new(nom)
+    mt.use_nodes = True
+    nt_ = mt.node_tree
+    b = nt_.nodes["Principled BSDF"]
+    b.inputs["Roughness"].default_value = 0.9
+    at = nt_.nodes.new("ShaderNodeAttribute")
+    at.attribute_name, at.attribute_type = "col", "GEOMETRY"
+    coul = at.outputs["Color"]
+    if instances:        # couleur = dégradé du modèle (base sombre, pointe claire) x couleur de la touffe (attribut "coul" de l'instance)
+        ai = nt_.nodes.new("ShaderNodeAttribute")
+        ai.attribute_type, ai.attribute_name = "INSTANCER", "coul"
+        mx = nt_.nodes.new("ShaderNodeMix")
+        mx.data_type, mx.blend_type = "RGBA", "MULTIPLY"
+        mx.inputs["Factor"].default_value = 1.0
+        nt_.links.new(at.outputs["Color"], mx.inputs["A"])
+        nt_.links.new(ai.outputs["Color"], mx.inputs["B"])
+        coul = mx.outputs["Result"]
+    nt_.links.new(coul, b.inputs["Base Color"])
+    if CFG["herbe_translucide"]:
+        # une lame verticale ne reçoit sur chaque face que la moitié du ciel: avec la lumière qui la traverse (herbe translucide),
+        # elle retrouve la clarté du sol au lieu de sortir sombre sous ciel couvert
+        tr = nt_.nodes.new("ShaderNodeBsdfTranslucent")
+        ad = nt_.nodes.new("ShaderNodeAddShader")
+        nt_.links.new(coul, tr.inputs["Color"])
+        nt_.links.new(b.outputs[0], ad.inputs[0])
+        nt_.links.new(tr.outputs[0], ad.inputs[1])
+        nt_.links.new(ad.outputs[0], nt_.nodes["Material Output"].inputs["Surface"])
+    return mt
+
+
+def _modele_touffe(nom, nb, rng, mt):
+    """Une touffe modèle au pied en (0, 0, 0), de hauteur 1 pour sa plus haute lame (mise à l'échelle par instance)."""
+    et = float(CFG["herbe_etalement"])
+    bx, by = rng.normal(0, 1.0, nb) * et, rng.normal(0, 1.0, nb) * et
+    phi = rng.uniform(0, 2 * np.pi, nb)
+    lean = np.radians(rng.uniform(6, 38, nb))
+    hl = rng.uniform(0.6, 1.0, nb)
+    hl[0] = 1.0
+    w = rng.uniform(CFG["herbe_largeur"][0], CFG["herbe_largeur"][1], nb)
+    ux, uy = np.cos(phi), np.sin(phi)
+    sx, sy = -uy, ux
+    href = 0.5 * (CFG["herbe_hauteur"][0] + CFG["herbe_hauteur"][1])       # l'inclinaison est celle d'une touffe de hauteur moyenne
+    V, C = [], []
+    k0, k1, k2 = (float(x) for x in CFG["herbe_teinte"])
+    for t, lf, wf, kc in ((0.0, 0.0, 1.0, k0), (0.5, 0.5, 0.75, k1), (1.0, 1.0, 0.0, k2)):
+        d = href * hl * np.sin(lean * lf) * t
+        px, py, pz = bx + ux * d, by + uy * d, hl * t
+        wid = w * wf
+        V += [np.stack([px - sx * wid / 2, py - sy * wid / 2, pz], 1), np.stack([px + sx * wid / 2, py + sy * wid / 2, pz], 1)]
+        C += [np.full(nb, kc), np.full(nb, kc)]
+    V = np.stack(V, 1).reshape(nb * 6, 3)                    # par lame: bL, bR, mL, mR, tL, tR
+    C = np.stack(C, 1).reshape(nb * 6)
+    tri = np.array([[0, 1, 3], [0, 3, 2], [2, 3, 5]])
+    F = (np.arange(nb)[:, None, None] * 6 + tri[None, :, :]).reshape(-1, 3)
+    me = bpy.data.meshes.new(nom)
+    me.vertices.add(len(V))
+    me.vertices.foreach_set("co", V.astype(np.float32).ravel())
+    me.loops.add(len(F) * 3)
+    me.loops.foreach_set("vertex_index", F.astype(np.int32).ravel())
+    me.polygons.add(len(F))
+    me.polygons.foreach_set("loop_start", (np.arange(len(F)) * 3).astype(np.int32))
+    me.polygons.foreach_set("loop_total", np.full(len(F), 3, np.int32))
+    me.update()
+    ca = me.color_attributes.new("col", "FLOAT_COLOR", "POINT")
+    ca.data.foreach_set("color", np.stack([C, C, C, np.ones_like(C)], 1).astype(np.float32).ravel())
+    me.materials.append(mt)
+    return me
+
+
+def _herbe_instances(coll, X, Y, Z, cl, S, prox, rng):
+    n = len(X)
+    mt = _materiau_herbe("Herbe", instances=True)
+    cm = bpy.data.collections.new("ModelesHerbe")          # pas liée à la scène: les modèles ne sont rendus qu'en instances
+    nv = int(CFG["herbe_variantes"])
+    k = 0
+    for nom, nb in (("pres", int(CFG["herbe_lames"])), ("loin", int(CFG["herbe_lames_loin"]))):
+        for v in range(nv):
+            ob = bpy.data.objects.new(f"ModeleHerbe_{k:02d}", _modele_touffe(f"touffe_{nom}_{v:02d}", nb, rng, mt))
+            ob.color = (0.0, 0.0, 0.0, 1.0)
+            ob.visible_shadow = bool(CFG["herbe_ombres"])
+            cm.objects.link(ob)
+            k += 1
+    h0, h1 = CFG["herbe_hauteur"]
+    H = rng.uniform(h0, h1, n) * S
+    tone = rng.uniform(0.85, 1.15, n)
+    idx = (rng.integers(0, nv, n) + np.where(prox, 0, nv)).astype(np.int32)
+    me = bpy.data.meshes.new("Herbe_points")
+    me.vertices.add(n)
+    me.vertices.foreach_set("co", np.stack([X, Y, Z], 1).astype(np.float32).ravel())
+
+    def att(nom, typ, val, cle="value"):
+        a = me.attributes.new(nom, typ, "POINT")
+        a.data.foreach_set(cle, np.ascontiguousarray(val).ravel())
+    att("idx", "INT", idx)
+    att("cap", "FLOAT", rng.uniform(0, 2 * np.pi, n).astype(np.float32))
+    att("sca", "FLOAT_VECTOR", np.stack([S, S, H], 1).astype(np.float32), "vector")
+    att("coul", "FLOAT_COLOR", np.concatenate([np.clip(cl * tone[:, None], 0.0, 1.0), np.ones((n, 1))], 1).astype(np.float32), "color")
+    ng = bpy.data.node_groups.new("Herbe", "GeometryNodeTree")
+    ng.interface.new_socket("Geometry", in_out="INPUT", socket_type="NodeSocketGeometry")
+    ng.interface.new_socket("Geometry", in_out="OUTPUT", socket_type="NodeSocketGeometry")
+    N, L = ng.nodes, ng.links
+    gi, go = N.new("NodeGroupInput"), N.new("NodeGroupOutput")
+
+    def attr(nom, typ="FLOAT"):
+        na = N.new("GeometryNodeInputNamedAttribute")
+        na.data_type = typ
+        na.inputs["Name"].default_value = nom
+        return na.outputs["Attribute"]
+    ra = N.new("FunctionNodeAxisAngleToRotation")
+    ra.inputs["Axis"].default_value = (0.0, 0.0, 1.0)
+    L.new(attr("cap"), ra.inputs["Angle"])
+    ci = N.new("GeometryNodeCollectionInfo")
+    ci.inputs["Collection"].default_value = cm
+    ci.inputs["Separate Children"].default_value = True
+    ci.inputs["Reset Children"].default_value = True
+    io = N.new("GeometryNodeInstanceOnPoints")
+    L.new(gi.outputs[0], io.inputs["Points"])
+    L.new(ci.outputs[0], io.inputs["Instance"])
+    io.inputs["Pick Instance"].default_value = True
+    L.new(attr("idx", "INT"), io.inputs["Instance Index"])
+    L.new(ra.outputs["Rotation"], io.inputs["Rotation"])
+    L.new(attr("sca", "FLOAT_VECTOR"), io.inputs["Scale"])
+    L.new(io.outputs["Instances"], go.inputs[0])
+    ob = bpy.data.objects.new("Herbe", me)
+    ob.color = (0.0, 0.0, 0.0, 1.0)
+    ob.visible_shadow = bool(CFG["herbe_ombres"])
+    ob.modifiers.new("Herbe", "NODES").node_group = ng
+    coll.objects.link(ob)
+    return ob
 
 
 def _maillage_herbe(coll, nom, X, Y, Z, cl, S, nb, rng):
@@ -2254,23 +2394,7 @@ def _maillage_herbe(coll, nom, X, Y, Z, cl, S, nb, rng):
         va.data.foreach_set("color", np.concatenate([col, np.ones((len(col), 1))], 1).astype(np.float32).ravel())
     ob = bpy.data.objects.new(nom, me)
     coll.objects.link(ob)
-    mt = bpy.data.materials.new(nom)
-    mt.use_nodes = True
-    nt_ = mt.node_tree
-    b = nt_.nodes["Principled BSDF"]
-    b.inputs["Roughness"].default_value = 0.9
-    at = nt_.nodes.new("ShaderNodeAttribute")
-    at.attribute_name, at.attribute_type = "col", "GEOMETRY"
-    nt_.links.new(at.outputs["Color"], b.inputs["Base Color"])
-    if CFG["herbe_translucide"]:
-        # une lame verticale ne reçoit sur chaque face que la moitié du ciel: avec la lumière qui la traverse (herbe translucide),
-        # elle retrouve la clarté du sol au lieu de sortir sombre sous ciel couvert
-        tr = nt_.nodes.new("ShaderNodeBsdfTranslucent")
-        ad = nt_.nodes.new("ShaderNodeAddShader")
-        nt_.links.new(at.outputs["Color"], tr.inputs["Color"])
-        nt_.links.new(b.outputs[0], ad.inputs[0])
-        nt_.links.new(tr.outputs[0], ad.inputs[1])
-        nt_.links.new(ad.outputs[0], nt_.nodes["Material Output"].inputs["Surface"])
+    mt = _materiau_herbe(nom)
     ob.visible_shadow = bool(CFG["herbe_ombres"])
     me.materials.append(mt)
     log(f"{nom}: {n:,} touffes, {nb} lames, {nt:,} triangles")
