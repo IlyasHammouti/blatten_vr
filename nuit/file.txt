@@ -31,3 +31,4 @@ stop
 # --- nuit du 17 au 18 nov. (PC d'Ilyas allumé, dernière nuit avant le PC du frère)
 n2_controle test-final --temps 5 30 45 --sans-variantes --set scene.rendu_echantillons=48 --set scene.rendu_seuil=0.02
 n2_fumee128 essai-fumee --res 128 --fps 15 --fin 45
+n2_instances test-final --temps 5 --sans-variantes --set scene.rendu_echantillons=48 --set scene.rendu_seuil=0.02 --set scene.herbe_instances=true
