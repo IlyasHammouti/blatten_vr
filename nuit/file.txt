@@ -36,7 +36,7 @@ n2_instances test-final --temps 5 --sans-variantes --set scene.rendu_echantillon
 n3_oiseaux test-oiseaux --t0 3 --t1 9 --cap 150 260 --haut -35 25 --set scene.rendu_echantillons=48 --set scene.rendu_seuil=0.02
 # n3_fumee192 arretee le 17 nov. a t = 33 s (jugee suffisante par Ilyas)
 n3_t45 test-final --temps 45 --sans-variantes --set scene.rendu_echantillons=48 --set scene.rendu_seuil=0.02
-n3_t45_biais test-final --temps 45 --sans-variantes --set scene.rendu_echantillons=48 --set scene.rendu_seuil=0.02 --set scene.rendu_volumes_biaises=true --set scene.rendu_pas_volumes=2
-n3_arbres700 test-final --temps 5 --sans-variantes --set scene.rendu_echantillons=48 --set scene.rendu_seuil=0.02 --set scene.arbres_modeles_dist=700
+# reporte sur le PC du frere (banc d'essai): n3_t45_biais
+# reporte sur le PC du frere (banc d'essai): n3_arbres700
 # n3_fumee128b abandonnee (le 192 repond a la question)
-n4_oiseaux test-oiseaux --t0 3 --t1 9 --cap 150 260 --haut -35 25 --set scene.rendu_echantillons=48 --set scene.rendu_seuil=0.02
+# reporte sur le PC du frere (banc d'essai): n4_oiseaux
