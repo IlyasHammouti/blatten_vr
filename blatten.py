@@ -973,6 +973,11 @@ def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ra
         suivante = min((i for i in cibles if i > d0 and _faite(i)), default=None)
         if suivante:                      # ne pas refaire les images déjà rendues au-delà d'un trou
             d1 = min(d1, suivante - k_film)
+        arret = os.path.join(ROOT, "render", "ARRET.txt")      # arret a distance: creer ce fichier, le rendu s'arrete a la fin du paquet en cours
+        if os.path.exists(arret):
+            print(f"\nFichier {arret} trouve: arret propre, {len(manquantes)} images restantes. Pour reprendre, supprimer ce fichier "
+                  f"puis relancer la meme commande (reprise a l'image {d0}).", flush=True)
+            return 0
         if heure_fin and duree_paquet and time.time() + 1.15 * duree_paquet > heure_fin:
             print(f"\nHeure limite atteinte: le prochain paquet (~{duree_paquet / 60:.0f} min) ne finirait pas à temps. "
                   f"{len(manquantes)} images restantes; relancer la même commande pour reprendre à l'image {d0}.", flush=True)
