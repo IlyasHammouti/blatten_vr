@@ -5,6 +5,11 @@ echo Fermez le navigateur et Spotify. Duree: environ 2 h 30 sur une RTX 3060.
 echo Cinq reglages, chaque image 360 finale est mesuree (temps, memoire de la carte, RAM libre).
 echo A la fin le bilan est ecrit dans render\bench_frere\bilan_bench.txt, envoyez-le a Claude.
 echo.
+rem Les rendus vont sur D: (C: est presque plein): render devient une jonction vers D:\BLATTEN_Ilyas\render
+if not exist D:\BLATTEN_Ilyas\render mkdir D:\BLATTEN_Ilyas\render
+dir /AL /B 2>nul | findstr /X /C:"render" >nul
+if errorlevel 1 call :versD
+if errorlevel 1 exit /b 1
 git fetch -q origin
 git reset -q --hard origin/main
 python -m pip install -q imageio-ffmpeg pillow numpy
@@ -36,3 +41,17 @@ python tools\bench_frere.py
 echo.
 echo Termine. Envoyez render\bench_frere\bilan_bench.txt a Claude.
 pause
+exit /b 0
+
+:versD
+echo Deplacement du dossier render vers D:\BLATTEN_Ilyas\render ...
+if exist render robocopy render D:\BLATTEN_Ilyas\render /E /MOVE /NFL /NDL /NJH /NJS >nul
+if exist render rmdir render 2>nul
+if exist render goto :echecD
+mklink /J render D:\BLATTEN_Ilyas\render
+exit /b 0
+
+:echecD
+echo ERREUR: le dossier render n'a pas pu etre deplace. Fermez Blender et relancez ce fichier.
+pause
+exit /b 1
