@@ -209,6 +209,10 @@ CFG = dict(
     arbres_grappes=True,        # feuillus, pins cembro et arbustes en grappes (silhouette irrégulière, creux ombrés); False: couronnes lisses (avant le 7 nov.)
     rendu_echantillons=None,    # échantillons par pixel (None: ceux du preset, 96 en final)
     rendu_seuil=None,           # seuil de bruit de l'échantillonnage adaptatif (None: défaut de Blender, 0,01); plus grand = plus rapide
+    rendu_volumes_biaises=False,  # Blender 5: le pas des volumes n'agit qu'en mode « biaisé » (ancien calcul par pas); false = calcul sans biais (défaut de Blender 5)
+    rendu_debruitage_prefiltre=None,   # None = défaut de Blender (ACCURATE); "FAST" ou "NONE": débruitage plus rapide
+    rendu_debruitage_qualite=None,     # None = défaut (HIGH); "BALANCED" ou "FAST"
+    rendu_chrono=True,            # journal du temps par phase de chaque image (synchronisation, textures, calcul, débruitage...)
     rendu_pas_volumes=None,     # pas de calcul de la poussière (None: 1,5); 3 = deux fois moins de pas, plus rapide, un peu plus de bruit
     rendu_rebonds=None,         # rebonds de lumière au plus (None: défaut de Blender, 12)
     rendu_tuile=None,           # taille des tuiles de rendu en pixels (None: 2048, défaut de Blender); 1024 ou 512 = moins de mémoire sur la carte
@@ -3820,7 +3824,81 @@ def prepare_viewports(center):
                     log("vue 3D:", e)
 
 
+CHRONO = dict(phase=None, t=None, d={}, mem=0.0, t_image=None, cumul={}, n=0)
+_PHASES = (("Denois", "débruitage"), ("Sample", "calcul"), ("Rendering", "calcul"), ("Path Tracing", "calcul"),
+           ("BVH", "BVH"), ("Images", "textures"), ("Loading", "textures"), ("Device", "envoi à la carte"), ("Kernel", "envoi à la carte"),
+           ("Synchron", "synchronisation"), ("Updating", "synchronisation"), ("Initializ", "synchronisation"),
+           ("Finish", "fin"), ("Sav", "écriture"), ("Writ", "écriture"), ("Composit", "fin"))
+
+
+def _chrono_phase(txt):
+    for cle, nom in _PHASES:
+        if cle in txt:
+            return nom
+    return "autre"
+
+
+def _chrono_bascule(nom):
+    now = time.time()
+    if CHRONO["phase"] is not None and CHRONO["t"] is not None:
+        CHRONO["d"][CHRONO["phase"]] = CHRONO["d"].get(CHRONO["phase"], 0.0) + now - CHRONO["t"]
+    CHRONO["phase"], CHRONO["t"] = nom, now
+
+
+def _chrono_stats(*a):
+    """Appelé par Blender à chaque changement d'état du rendu (texte « Mem: ... | Updating BVH », « Sample 12/48 »...)."""
+    try:
+        txt = a[0] if a and isinstance(a[0], str) else ""
+        i = txt.find("Mem:")
+        if i >= 0:
+            try:
+                CHRONO["mem"] = max(CHRONO["mem"], float(txt[i + 4:].split("M")[0].strip().replace(",", ".")))
+            except Exception:
+                pass
+        nom = _chrono_phase(txt.split("|")[-1])
+        if nom != CHRONO["phase"]:
+            _chrono_bascule(nom)
+    except Exception:
+        pass
+
+
+def _chrono_debut(scene, *a):
+    CHRONO.update(phase=None, t=None, d={}, mem=0.0, t_image=time.time())
+    _chrono_bascule("préparation")
+
+
+def _chrono_fin(scene, *a):
+    try:
+        _chrono_bascule(None)
+        d = CHRONO["d"]
+        tot = time.time() - (CHRONO["t_image"] or time.time())
+        ordre = ("préparation", "synchronisation", "BVH", "textures", "envoi à la carte", "calcul", "débruitage", "fin", "écriture", "autre")
+        det = ", ".join(f"{k} {d[k]:.0f}" for k in ordre if d.get(k, 0.0) >= 0.5)
+        log(f"chrono image {scene.frame_current}: {tot:.0f} s = {det} (s); mémoire du rendu {CHRONO['mem']:.0f} Mo")
+        for k, v in d.items():
+            CHRONO["cumul"][k] = CHRONO["cumul"].get(k, 0.0) + v
+        CHRONO["n"] += 1
+        if CHRONO["n"] > 1:
+            n = CHRONO["n"]
+            log("chrono moyenne sur %d images: " % n + ", ".join(f"{k} {CHRONO['cumul'][k] / n:.0f}" for k in ordre
+                                                                 if CHRONO["cumul"].get(k, 0.0) / n >= 0.5) + " (s)")
+    except Exception as e:
+        log("chrono:", e)
+
+
+def installer_chrono():
+    H = bpy.app.handlers
+    for lst, f in ((H.render_stats, _chrono_stats), (H.render_pre, _chrono_debut), (H.render_post, _chrono_fin)):
+        if f not in lst:
+            lst.append(f)
+
+
 def setup_render(scene, out_dir):
+    if CFG["rendu_chrono"]:
+        try:
+            installer_chrono()
+        except Exception as e:
+            log("chrono non installé:", e)
     p = PRESETS[CFG["preset"]]
     r = scene.render
     r.engine = "CYCLES"
@@ -3867,6 +3945,12 @@ def setup_render(scene, out_dir):
             scene.cycles.volume_step_rate = float(CFG["rendu_pas_volumes"])
         if CFG["rendu_rebonds"]:
             scene.cycles.max_bounces = int(CFG["rendu_rebonds"])
+        if CFG["rendu_volumes_biaises"]:
+            scene.cycles.volume_biased = True
+        if CFG["rendu_debruitage_prefiltre"]:
+            scene.cycles.denoising_prefilter = str(CFG["rendu_debruitage_prefiltre"])
+        if CFG["rendu_debruitage_qualite"]:
+            scene.cycles.denoising_quality = str(CFG["rendu_debruitage_qualite"])
         if CFG["arbres_modeles"]:   # feuillage en cartes découpées: un rayon traverse plusieurs cartes transparentes
             scene.cycles.transparent_max_bounces = max(int(scene.cycles.transparent_max_bounces), 24)
         if CFG["rendu_tuile"]:    # tampons de l'image découpés: moins de mémoire sur la carte, débruitage sur l'image entière
@@ -3874,7 +3958,7 @@ def setup_render(scene, out_dir):
             scene.cycles.tile_size = int(CFG["rendu_tuile"])
         log(f"rendu: {scene.render.resolution_x} x {scene.render.resolution_y}, {scene.cycles.samples} échantillons, seuil adaptatif "
             f"{scene.cycles.adaptive_threshold:g}, pas des volumes {scene.cycles.volume_step_rate:g}, rebonds {scene.cycles.max_bounces}, "
-            f"tuiles {scene.cycles.tile_size}")
+            f"tuiles {scene.cycles.tile_size}" + (", volumes biaisés" if CFG["rendu_volumes_biaises"] else ""))
     except Exception as e:
         log("réglages de vitesse:", e)
     scene.cycles.use_denoising = True
