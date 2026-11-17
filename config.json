@@ -17,7 +17,7 @@
     ]
   },
   "film": {
-    "_doc": "CDC du 31 oct. (docs/CDC_V1.md): 8 s de paysage (titre 5 s puis fondu), puis l'événement en temps réel de t = 0 à 53 s, fondu au noir rapide de 52 à 53 s au montage. (8 + 53) x 30 = 1830 images. Outro ajoutée au montage.",
-    "images": 1830
+    "_doc": "CDC du 31 oct. (docs/CDC_V1.md): 8 s de paysage (titre 5 s puis fondu), puis l'événement en temps réel de t = 0 à 53 s, fondu au noir rapide de 52 à 53 s au montage. (8 + 53) x 30 = 1830 images; passé à 25 i/s le 17 nov. (décision d'Ilyas): (8 + 53) x 25 = 1525 images. Outro ajoutée au montage.",
+    "images": 1525
   }
 }
