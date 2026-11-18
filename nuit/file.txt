@@ -7,6 +7,6 @@ fum_c essai-fumee --res 96 --fps 10 --fin 30 --source 3.5 --k 12000 --alpha 0.05
 # 2e serie (18 nov., apres comparaison fum_a/b/c: panaches trop legers qui montent; on veut une coulee lourde qui rase le sol, emission le long de toute la matiere)
 fum_d essai-fumee --res 96 --fps 10 --fin 30 --source 5 --k 12000 --alpha -0.3 --tourbillons 0.4 --elan 0.9 --vref 15 --emission 1.5 --echant 32 --largeur 960 --fixes 12,20,28 --clip 0
 fum_e essai-fumee --res 96 --fps 10 --fin 45 --source 5 --k 12000 --alpha -0.1 --tourbillons 0.4 --elan 0.9 --vref 15 --emission 1.5 --echant 32 --largeur 960 --fixes 12,28,45 --clip 0
-fum_f essai-fumee --res 96 --fps 10 --fin 45 --source 5 --k 20000 --alpha -0.3 --tourbillons 0.4 --elan 1.0 --vref 10 --emission 2.5 --echant 32 --largeur 960 --fixes 12,28,45 --clip 0
-# fum_d est deja lance a fin 30: on le refait a 45 s pour le comparer a e et f aux instants tardifs (12, 28, 45 s)
-fum_d45 essai-fumee --res 96 --fps 10 --fin 45 --source 5 --k 12000 --alpha -0.3 --tourbillons 0.4 --elan 0.9 --vref 15 --emission 1.5 --echant 32 --largeur 960 --fixes 12,28,45 --clip 0
+# 18 nov.: choix de Claude apres comparaison a-e = reglages de fum_d. fum_f (coupe a 1 h 10 pour liberer le PC) et fum_d45 abandonnes.
+# Simulation finale: 53 s, 25 images/s, resolution 128 (voir cmd_fumee_simu). Sortie: <cache>/fumee/cache/data/*.vdb
+fumee_finale fumee-simu

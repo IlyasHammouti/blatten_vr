@@ -1672,7 +1672,11 @@ def cmd_fumee_simu(cfg, paths, extra):
     Sortie: <cache>/fumee/cache/data/*.vdb. Reprise impossible en cours de route (Mantaflow repart de zéro): compter plusieurs heures.
         python blatten.py fumee-simu [--res 192] [--source 3.5] [--k 12000] [--alpha -0.1] [--tourbillons 0.4] [--elan 0.7]"""
     n, fps = _film(cfg)
-    opts = ["--fps", str(fps), "--fin", "53", "--sans-rendu", "1", "--data", paths.cache, "--out", os.path.join(paths.cache, "fumee")]
+    # Reglages de la simulation finale: ceux de fum_d (18 nov., meilleur des essais a-e), a la resolution 128 (96 pour les essais).
+    # Emetteurs: 5 cellules a res 96 = 6.7 cellules a res 128 (meme taille en metres). Resolution 192 abandonnee: cout en N^4, environ 40 h.
+    opts = ["--res", "128", "--fps", str(fps), "--fin", "53", "--source", "6.7", "--k", "12000", "--alpha", "-0.3",
+            "--tourbillons", "0.4", "--elan", "0.9", "--vref", "15", "--emission", "1.5",
+            "--sans-rendu", "1", "--data", paths.cache, "--out", os.path.join(paths.cache, "fumee")]
     return run_blender(cfg, os.path.join(ROOT, "tools", "essai_fumee.py"), list(extra) + opts)
 
 
