@@ -99,6 +99,12 @@ REGLAGES = dict(
     vieux_creux=0.35,
     vieux_pleins=1.3,
     niveaux_v3=(1.0, 0.5, 0.25, 0.125),
+    # ---- modele="mantaflow" (18 nov.): la poussière est une VRAIE simulation de gaz (tools/essai_fumee.py, Mantaflow), calculée une
+    #      fois à l'avance (cache VDB, une grille "density" par image du film), puis lue ici comme un volume animé. La densité est
+    #      creusée par le même bruit 3D que les autres modèles (aspect de bouffées fines que la grille de 13 à 17 m ne donne pas seule).
+    mantaflow_dossier="",    # dossier des .vdb (vide: <cache>/fumee/cache/data)
+    mantaflow_decalage=(0.0, 0.0, 0.0),   # m: décalage du volume si la grille n'est pas au bon endroit (à lire dans le journal)
+    mantaflow_echelle=1.0,
 )
 
 STATE = dict(classes=[], S=None, R=None, nmax=0, noeud_t=None, erreur=False, v3=False, typ=None, noeuds_t=[])
@@ -388,6 +394,8 @@ def construire(scene, coll, seq, to_blender, cfg, log, reglages=None):
     if not R["poussiere"] or cfg.get("no_poussiere"):
         log("poussière: désactivée")
         return False
+    if R["modele"] == "mantaflow":
+        return _construire_mantaflow(scene, coll, R, cfg, log)
     S = sources(seq, to_blender, R, log)
     if R["modele"] == "trois_etapes":
         return _construire_v3(scene, coll, S, R, log)
@@ -411,6 +419,42 @@ def construire(scene, coll, seq, to_blender, cfg, log, reglages=None):
         log("poussière: réglages de volume Cycles:", e)
     STATE.update(classes=classes, S=S, R=R, nmax=nmax, noeud_t=tmp, erreur=False)
     log(f"poussière: {nmax:,} bouffées possibles en {len(classes)} classes de densité, grille {R['voxel']:g} m, extinction {R['densite']:g}/m")
+    return True
+
+
+def _construire_mantaflow(scene, coll, R, cfg, log):
+    """Lit le cache VDB d'une simulation Mantaflow (une image du film = un fichier) comme un volume animé."""
+    import glob
+    import re
+    d = R["mantaflow_dossier"] or os.path.join(str(cfg.get("data_dir") or "."), "fumee", "cache", "data")
+    fich = sorted(glob.glob(os.path.join(d, "*.vdb")))
+    if not fich:
+        raise SystemExit(f"Poussière mantaflow: aucun fichier .vdb dans {d} (lancer la simulation: python blatten.py fumee-simu)")
+    num = [int(m.group(1)) for m in (re.search(r"(\d+)\.vdb$", os.path.basename(f)) for f in fich) if m]
+    if len(num) != len(fich) or num != list(range(num[0], num[0] + len(num))):
+        raise SystemExit(f"Poussière mantaflow: les fichiers de {d} ne forment pas une suite continue ({len(fich)} fichiers, de {num[0] if num else '?'} à {num[-1] if num else '?'})")
+    vol = bpy.data.volumes.new("Fumee")
+    vol.filepath = fich[0]
+    vol.is_sequence = True
+    vol.frame_start = num[0]
+    vol.frame_duration = len(num)
+    vol.frame_offset = 0
+    vol.sequence_mode = "CLIP"
+    obj = bpy.data.objects.new("Fumee", vol)
+    obj.location = tuple(float(x) for x in R["mantaflow_decalage"])
+    obj.scale = (float(R["mantaflow_echelle"]),) * 3
+    coll.objects.link(obj)
+    mat, tmp = _materiau(R)
+    vol.materials.append(mat)
+    _reglages_cycles(scene, log)
+    try:
+        vol.grids.load(scene.frame_current)
+        for g in vol.grids:
+            log(f"poussière mantaflow: grille {g.name} ({g.channels} canal), matrice {[[round(x, 3) for x in r] for r in g.matrix_object]}")
+    except Exception as e:
+        log("poussière mantaflow: lecture des grilles:", e)
+    STATE.update(mantaflow=True, classes=[], noeud_t=tmp, erreur=False, R=R)
+    log(f"poussière: simulation Mantaflow, {len(fich)} images VDB (de {num[0]} à {num[-1]}) lues dans {d}, extinction {R['densite']:g}/m")
     return True
 
 
@@ -476,6 +520,12 @@ def _maj_v3(t):
 
 def maj(t):
     """Place les bouffées à l'instant t (secondes simulées). Sans effet si le panache n'a pas été construit."""
+    if STATE.get("mantaflow"):
+        try:
+            STATE["noeud_t"].outputs[0].default_value = float(t)
+        except Exception:
+            STATE["erreur"] = True
+        return
     if not STATE["classes"] or STATE["erreur"]:
         return
     try:
