@@ -13,6 +13,7 @@ Principe
   - Sorties dans --out: images fixes à t = 20, 30, 40 s (fumee_tXX.png), suite clip_NNNN.png toutes les 0,5 s, cache VDB (cache/).
 
 Lancé par: python blatten.py essai-fumee [--res 128] [--fps 15] [--fin 45] [--alpha -0.2] [--tourbillons 0.2] [--elan 0.7]
+  [--source 0.8] (taille des émetteurs en cellules) [--k 3000] (nombre d'émetteurs) [--vref 40] [--emission 1.0] [--sans-rendu 1] (simulation seule) [--fixes 12,20,28] (instants des images fixes) [--clip 0] (pas de clip)
 Jamais essayé sur le PC (écrit le 17 nov. dans le cloud, où Mantaflow ne tourne pas): premier lancement = test de la chaîne.
 """
 import json
@@ -28,7 +29,7 @@ import numpy as np
 def args():
     a = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
     d = dict(res=128, fps=15, fin=45.0, alpha=-0.2, tourbillons=0.2, elan=0.7, densite=0.03, data="", out="", echant=48,
-             largeur=1280, sans_rendu=0, k=3000, sans_simu=0)
+             largeur=1280, sans_rendu=0, k=3000, sans_simu=0, source=0.8, vref=40.0, emission=1.0, tuile=0, fixes="20,30,40", clip=1)
     i = 0
     while i < len(a):
         k = a[i].lstrip("-").replace("-", "_")
@@ -172,7 +173,7 @@ mt.node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value = 0.95
 me.materials.append(mt)
 
 # --- émetteur
-s = 0.8 * (X1 - X0) / int(A["res"])
+s = float(A["source"]) * (X1 - X0) / int(A["res"])      # taille des émetteurs (--source: en cellules de simulation)
 tet = np.array([[1, 1, 1], [1, -1, -1], [-1, 1, -1], [-1, -1, 1]], float) * s / 2
 P, Vv = etat(0.0)
 vv = (P[:, None, :] + tet[None, :, :]).reshape(-1, 3)
@@ -189,14 +190,14 @@ if not A["sans_simu"]:
     mf.fluid_type = "FLOW"
     fs = mf.flow_settings
     fs.flow_type, fs.flow_behavior, fs.flow_source = "SMOKE", "INFLOW", "MESH"
-    fs.density, fs.temperature, fs.surface_distance, fs.volume_density = 1.0, 0.0, 1.0, 1.0
+    fs.density, fs.temperature, fs.surface_distance, fs.volume_density = float(A["emission"]), 0.0, 1.0, 1.0
     fs.use_initial_velocity = True
     fs.velocity_factor = float(A["elan"])
     fs.density_vertex_group = "poids"
 emi.hide_render = bool(not A["sans_simu"])      # sans simulation (contrôle du cadrage): on voit les émetteurs
 if A["sans_simu"]:
     dom.hide_render = True
-VREF = 40.0
+VREF = float(A["vref"])
 
 
 def maj(scene, *a):
@@ -270,7 +271,7 @@ try:
 except Exception as e:
     print("[fumee] rendu sur processeur:", e, flush=True)
 
-fixes = {int(round(t * fps)) + 1: t for t in (20.0, 30.0, 40.0)}
+fixes = {int(round(float(t) * fps)) + 1: float(t) for t in str(A["fixes"]).split(",") if t}
 pas_clip = max(1, int(round(0.5 * fps)))
 t0 = time.time()
 kclip = 0
@@ -282,9 +283,9 @@ for f in range(sc.frame_start, sc.frame_end + 1):
     if A["sans_rendu"]:
         continue
     if f in fixes:
-        r.filepath = os.path.join(OUT, f"fumee_t{int(fixes[f]):02d}.png")
+        r.filepath = os.path.join(OUT, f"fumee_t{fixes[f]:g}.png")
         bpy.ops.render.render(write_still=True)
-    if (f - 1) % pas_clip == 0 and t >= 8.0:
+    if A["clip"] and (f - 1) % pas_clip == 0 and t >= 8.0:
         kclip += 1
         r.filepath = os.path.join(OUT, "clip", f"clip_{kclip:04d}.png")
         bpy.ops.render.render(write_still=True)

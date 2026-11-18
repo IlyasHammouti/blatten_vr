@@ -1,42 +1,6 @@
-# File du veilleur de nuit (tools/veilleur.py). Une ligne = <identifiant> <arguments de blatten.py>.
-# Le veilleur relit ce fichier depuis GitHub entre deux commandes; une ligne déjà faite n'est pas refaite.
-envoi0 nuit-envoi --heures 4
-oiseaux1 test-oiseaux --t0 10.4 --t1 12.4 --pas 10
-envoi1 nuit-envoi
-herbe2 test-fenetre herbe2
-envoi2 nuit-envoi
-final1 test-final --temps 10.8 30 --sans-variantes --set scene.herbe=true --set scene.herbe_densite=35 --set scene.oiseaux=true --set scene.arbres_luminosite=0.9
-envoi3 nuit-envoi
-versant19 test-fenetre versant19
-envoi3b nuit-envoi
-perf_a test-oiseaux --t0 20 --t1 20.5 --pas 3
-perf_b test-oiseaux --t0 20 --t1 20.5 --pas 3 --persistent
-envoi4 nuit-envoi
-oiseaux2 test-oiseaux --t0 12 --t1 19.5 --pas 15
-envoi5 nuit-envoi
-ref30 test-final --temps 30 --sans-variantes --set scene.herbe=true --set scene.herbe_densite=35 --set scene.oiseaux=true --set scene.arbres_luminosite=0.9
-vit1 test-final --temps 30 --sans-variantes --set scene.herbe=true --set scene.herbe_densite=35 --set scene.oiseaux=true --set scene.arbres_luminosite=0.9 --set scene.rendu_echantillons=48 --set scene.rendu_seuil=0.02
-vit2 test-final --temps 30 --sans-variantes --set scene.herbe=true --set scene.herbe_densite=35 --set scene.oiseaux=true --set scene.arbres_luminosite=0.9 --set scene.rendu_rebonds=6
-vit3 test-final --temps 30 --sans-variantes --set scene.herbe=true --set scene.herbe_densite=35 --set scene.oiseaux=true --set scene.arbres_luminosite=0.9 --set scene.rendu_echantillons=48 --set scene.rendu_seuil=0.02 --set scene.rendu_rebonds=6
-envoi6 nuit-envoi
-oiseaux3 test-oiseaux --t0 14 --t1 20.5 --pas 3 --cap 170 290 --haut -25 40
-envoi7 nuit-envoi
-fige1 test-final --temps 17.5 --sans-variantes
-envoi8 nuit-envoi
-flic96 test-oiseaux --t0 30 --t1 30.3 --pas 1 --cap 95 165 --haut -30 30
-flic48 test-oiseaux --t0 30 --t1 30.3 --pas 1 --cap 95 165 --haut -30 30 --set scene.rendu_echantillons=48 --set scene.rendu_seuil=0.02
-fige48 test-final --temps 17.5 30 --sans-variantes --set scene.rendu_echantillons=48 --set scene.rendu_seuil=0.02
-envoi9 nuit-envoi
-stop
-# --- nuit du 17 au 18 nov. (PC d'Ilyas allumé, dernière nuit avant le PC du frère)
-n2_controle test-final --temps 5 30 45 --sans-variantes --set scene.rendu_echantillons=48 --set scene.rendu_seuil=0.02
-n2_fumee128 essai-fumee --res 128 --fps 15 --fin 45
-n2_instances test-final --temps 5 --sans-variantes --set scene.rendu_echantillons=48 --set scene.rendu_seuil=0.02 --set scene.herbe_instances=true
-# --- 17 nov. matin: Ilyas dans le train, PC allumé
-n3_oiseaux test-oiseaux --t0 3 --t1 9 --cap 150 260 --haut -35 25 --set scene.rendu_echantillons=48 --set scene.rendu_seuil=0.02
-# n3_fumee192 arretee le 17 nov. a t = 33 s (jugee suffisante par Ilyas)
-n3_t45 test-final --temps 45 --sans-variantes --set scene.rendu_echantillons=48 --set scene.rendu_seuil=0.02
-# reporte sur le PC du frere (banc d'essai): n3_t45_biais
-# reporte sur le PC du frere (banc d'essai): n3_arbres700
-# n3_fumee128b abandonnee (le 192 repond a la question)
-# reporte sur le PC du frere (banc d'essai): n4_oiseaux
+# File du veilleur du PC du frere (nouvelle file le 18 nov.; ancienne file du PC d'Ilyas: nuit/archive/file_pc_ilyas_17nov.txt).
+# Une ligne = <identifiant> <arguments de blatten.py>. Une ligne deja faite n'est pas refaite.
+# Reglage de la fumee Mantaflow (basse resolution, simulation 30 s, 3 images fixes, pas de clip)
+fum_a essai-fumee --res 96 --fps 10 --fin 30 --source 2.5 --k 6000 --alpha -0.2 --echant 32 --largeur 960 --fixes 12,20,28 --clip 0
+fum_b essai-fumee --res 96 --fps 10 --fin 30 --source 3.5 --k 12000 --alpha -0.1 --tourbillons 0.4 --echant 32 --largeur 960 --fixes 12,20,28 --clip 0
+fum_c essai-fumee --res 96 --fps 10 --fin 30 --source 3.5 --k 12000 --alpha 0.05 --tourbillons 0.4 --elan 0.9 --echant 32 --largeur 960 --fixes 12,20,28 --clip 0
