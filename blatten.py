@@ -1801,7 +1801,7 @@ def cmd_reprise_test2(cfg, paths, extra):
 def cmd_fumee_simu(cfg, paths, extra):
     """Simulation de la fumée (Mantaflow) du film, SANS rendu: écrit le cache VDB lu ensuite par la poussière du film
     (reglages/fumee.json, modèle "mantaflow"). Une image de simulation par image du film (25 i/s), t = 0 à 53 s.
-    Sortie: <cache>/fumee/cache/data/*.vdb. Reprise impossible en cours de route (Mantaflow repart de zéro): compter plusieurs heures.
+    Sortie: <cache>/fumee/cache/data/*.vdb. Pas de reprise possible apres un plantage (Blender efface le cache d'une scene recreee par script, 2 tests le 18 nov.): compter plusieurs heures.
         python blatten.py fumee-simu [--res 192] [--source 3.5] [--k 12000] [--alpha -0.1] [--tourbillons 0.4] [--elan 0.7]"""
     n, fps = _film(cfg)
     # Reglages de la simulation finale: ceux de fum_d (18 nov., meilleur des essais a-e), a la resolution 128 (96 pour les essais).
@@ -1809,6 +1809,22 @@ def cmd_fumee_simu(cfg, paths, extra):
     opts = ["--res", "128", "--fps", str(fps), "--fin", "53", "--source", "6.7", "--k", "12000", "--alpha", "-0.3",
             "--tourbillons", "0.4", "--elan", "0.9", "--vref", "15", "--emission", "1.5",
             "--sans-rendu", "1", "--data", paths.cache, "--out", os.path.join(paths.cache, "fumee")]
+    # Constat du 18 nov. (2 tests): Blender efface le cache d'une scene recreee par script (aucune reprise possible, ni en frame_set ni en bake_data).
+    # Donc: si une simulation precedente a laisse des images, on les MET DE COTE (fumee_partiel_<date>) avant de recommencer: elles servent de secours
+    # (les premieres secondes de fumee restent utilisables si la simulation plante tard). Et on empeche la mise en veille de Windows pendant le calcul.
+    sortie = os.path.join(paths.cache, "fumee")
+    if os.path.isdir(os.path.join(sortie, "cache", "data")) and glob.glob(os.path.join(sortie, "cache", "data", "*.vdb")):
+        dest = sortie + "_partiel_" + time.strftime("%Y%m%d_%H%M%S")
+        print(f"[fumee-simu] images d'une simulation precedente mises de cote: {dest}", flush=True)
+        shutil.move(sortie, dest)
+    os.makedirs(sortie, exist_ok=True)
+    if os.name == "nt":
+        try:
+            import ctypes
+            ctypes.windll.kernel32.SetThreadExecutionState(0x80000000 | 0x00000001)       # ES_CONTINUOUS | ES_SYSTEM_REQUIRED: pas de veille
+            print("[fumee-simu] mise en veille de Windows bloquee pendant la simulation", flush=True)
+        except Exception as e:
+            print("[fumee-simu] veille non bloquee:", e, flush=True)
     return run_blender(cfg, os.path.join(ROOT, "tools", "essai_fumee.py"), list(extra) + opts)
 
 
