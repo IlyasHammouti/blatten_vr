@@ -1,0 +1,4 @@
+{
+  "_doc": "Poussiere du film = simulation Mantaflow (python blatten.py fumee-simu). A heriter APRES poussiere_v3 pour remplacer le modele procedural.",
+  "poussiere": {"modele": "mantaflow", "densite": 0.03}
+}
