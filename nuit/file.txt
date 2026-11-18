@@ -9,6 +9,8 @@ fum_d essai-fumee --res 96 --fps 10 --fin 30 --source 5 --k 12000 --alpha -0.3 -
 fum_e essai-fumee --res 96 --fps 10 --fin 45 --source 5 --k 12000 --alpha -0.1 --tourbillons 0.4 --elan 0.9 --vref 15 --emission 1.5 --echant 32 --largeur 960 --fixes 12,28,45 --clip 0
 # 18 nov.: choix de Claude apres comparaison a-e = reglages de fum_d. fum_f (coupe a 1 h 10 pour liberer le PC) et fum_d45 abandonnes.
 # Simulation finale: 53 s, 25 images/s, resolution 128 (voir cmd_fumee_simu). Sortie: <cache>/fumee/cache/data/*.vdb
+# 18 nov. soir: 1) test de reprise apres plantage (petit, ~15 min), 2) simulation finale, 3) brouillon 360 du son apres la simulation.
+reprise_test reprise-test
+fumee_finale fumee-simu
 # Brouillon 360 tres basse qualite pour juger le son spatial (demande d'Ilyas, 18 nov.): 960x480, 8 echantillons, 1 image sur 5 (intro 1 sur 10), poussiere actuelle (le son ne depend pas de l'image). Montage + son AmbiX a la fin.
 brouillon_son render --version brouillon_son --pas 5 --intro-pas 10 --paquet 40 --set scene.rendu_res=[960,480] --set scene.rendu_echantillons=8 --set scene.rendu_seuil=0.1
-fumee_finale fumee-simu
