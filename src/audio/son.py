@@ -247,7 +247,15 @@ def main():
         sys.exit(f"Pas de poussiere_sources_*.npz dans {cache} (lancer un rendu avec la poussière une fois)")
     cam = np.array(json.load(open(os.path.join(ROOT, "camera.json"), encoding="utf-8"))["cam"], np.float64)
     sc = cfg.get("scene") or {}
-    intro, fps = float(sc.get("intro", 0.0)), float(sc.get("fps", 30))
+    fps = sc.get("fps")
+    for nom in reversed(sc.get("reglages") or []):         # fps du film: config.json, sinon reglages/<jeu>.json (film.json: 25)
+        if fps:
+            break
+        try:
+            fps = (json.load(open(os.path.join(ROOT, "reglages", nom + ".json"), encoding="utf-8")).get("scene") or {}).get("fps")
+        except Exception:
+            pass
+    intro, fps = float(sc.get("intro", 0.0)), float(fps or 30)
     film = int((cfg.get("film") or {}).get("images", 1830)) / fps
     total = film + float(R["outro"])
     n = int(round(total * SR))

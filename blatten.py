@@ -789,10 +789,26 @@ def cmd_bench_compare(cfg, paths, extra):
     mod.compare(os.path.join(ROOT, "bench_results"))
 
 
+def _fps_film(cfg):
+    """Images par seconde du film: scene.fps de config.json s'il y est, sinon celui des jeux de reglages/ listes dans scene.reglages
+    (reglages/film.json: 25). Corrige le 18 nov. un defaut de 30 i/s cote Python (le film Blender, lui, etait deja a 25)."""
+    sc = cfg.get("scene") or {}
+    if sc.get("fps"):
+        return int(sc["fps"])
+    for nom in reversed(sc.get("reglages") or []):
+        try:
+            d = _load_json(os.path.join(ROOT, "reglages", nom + ".json"))
+            if (d.get("scene") or {}).get("fps"):
+                return int(d["scene"]["fps"])
+        except Exception:
+            pass
+    return 30
+
+
 def _film(cfg):
     """Réglages du film (config.json, clé "film"): plage d'images, fps."""
     f = cfg.get("film") or {}
-    return int(f.get("images", 1350)), int((cfg.get("scene") or {}).get("fps", 30))
+    return int(f.get("images", 1350)), _fps_film(cfg)
 
 
 # Brouillon de TOUTE la simulation (0 à 202 s): 6 images par seconde simulée pendant la phase active (0-70 s),
@@ -929,7 +945,7 @@ def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ra
     # Intro (paysage immobile, seuls l'eau et les arbres proches bougent): --intro-pas K ne rend qu'une image sur K des 5 premières
     # secondes et recopie chaque image sur les K-1 suivantes (gain: (K-1)/K des 150 images d'intro; l'eau et le vent avancent alors à 30/K images/s).
     k_intro = int(pas_intro[0]) if pas_intro else 1
-    n_intro = min(n, int(round(float((cfg.get("scene") or {}).get("intro", 0.0)) * int((cfg.get("scene") or {}).get("fps", 30)))))
+    n_intro = min(n, int(round(float((cfg.get("scene") or {}).get("intro", 0.0)) * _fps_film(cfg))))
     if k_intro > 1 and n_intro > 1 and (PLAGE["de"] or 1) <= n_intro:
         cles = [i for i in range(1, n_intro + 1, k_intro)]
         if any(not os.path.exists(os.path.join(out, f"frame_{i:04d}{ext}")) for i in cles):
