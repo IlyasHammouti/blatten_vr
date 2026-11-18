@@ -39,7 +39,7 @@ SR = 48000
 C = 343.0
 
 DEFAUTS = dict(
-    ambiance_db=-30.0, ambiance_fond_db=-42.0,    # niveau RMS de la forêt (dBFS) au calme et sous l'écoulement
+    ambiance_db=-30.0, ambiance_fond_db=-90.0,    # niveau RMS de la forêt (dBFS) au calme et sous l'écoulement
     depart=0.9, grondement=0.8, seisme=0.5, impacts=0.7, souffle=0.9,
     distance_ref=1500.0,          # m: distance où le gain de distance vaut 1
     passe_bas_proche=4000.0, passe_bas_loin=350.0,   # Hz: aigus étouffés avec la distance
@@ -52,7 +52,9 @@ DEFAUTS = dict(
     precurseur=6.0,               # s: grondement sismique qui monte AVANT l'arrivée du son aérien (les ondes du sol arrivent bien plus vite)
     precurseur_gain=0.45,         # niveau atteint par ce grondement (1 = niveau du grondement sourd plein)
     attaque=1.5,                  # s: montée en douceur du grand éboulement (le début du fichier est une attaque franche)
-    foret_lissage=6.0,            # s: la forêt baisse sur cette durée, en commençant avant l'arrivée du glissement (0 = 0,1 s comme avant)
+    foret_maintien=1,             # 1 = une fois l'événement installé, la forêt (oiseaux compris) ne revient plus
+    foret_seuil=0.04,             # niveau de l'écoulement (échelle de l'ancien 0,2) à partir duquel la forêt est complètement coupée
+    foret_lissage=4.0,            # s: la forêt baisse en douceur sur cette durée, en commençant avant l'arrivée du glissement (0 = 0,1 s comme avant)
     plafond=0.89,                 # crête maximale après le limiteur
 )
 
@@ -311,10 +313,14 @@ def main():
     foret = boucle(lis("ambiance_foret.wav", 2), n)
     rms = np.sqrt((foret ** 2).mean()) + 1e-9
     ef = env * gain
+    ef = np.where(t < t0 - float(R["precurseur"]) - 1.0, 0.0, ef)    # ignore les petits transitoires du début (la forêt reste au calme)
+    if R["foret_maintien"]:
+        ef = np.maximum.accumulate(ef)           # pas de retour de la forêt dans les creux de l'écoulement
     if R["foret_lissage"] > 0:                   # la forêt s'efface lentement et commence avant l'arrivée du glissement
         ef = moyenne_centree(ef, R["foret_lissage"] * SR)
-    db = R["ambiance_db"] + (R["ambiance_fond_db"] - R["ambiance_db"]) * np.clip(ef / 0.2, 0, 1)
+    db = R["ambiance_db"] + (R["ambiance_fond_db"] - R["ambiance_db"]) * np.clip(ef / R["foret_seuil"], 0, 1)
     g_amb = (10 ** (db / 20)) / rms
+    log('forêt dBFS aux secondes 1,4,6,8,10,12,14,16,18,20,25,45: ' + ' '.join(f'{db[int(x * SR)]:.0f}' for x in (1, 4, 6, 8, 10, 12, 14, 16, 18, 20, 25, 45) if x * SR < n))
     amb[:, 0] += g_amb * 0.5 * (foret[:, 0] + foret[:, 1])
     amb[:, 1] += g_amb * 0.5 * (foret[:, 0] - foret[:, 1])
     amb = limiteur(amb, R["plafond"])        # limiteur à anticipation (sans marches de gain: pas de crépitement)
