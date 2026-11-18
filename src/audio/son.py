@@ -47,6 +47,12 @@ DEFAUTS = dict(
     cap_face_360=200.0, cap_face_bande=170.0,
     fondu_fin=1.0, outro=8.0,
     volume_db=9.0,                # 9 nov.: écoulement (éboulement) plus fort, seule différence avec la première version
+    # 18 nov. (Ilyas: la transition entre le calme et le glissement est trop brute). Niveaux inchangés une fois le glissement installé;
+    # seules les premières secondes changent. 0 partout = comportement du 9 nov.
+    precurseur=6.0,               # s: grondement sismique qui monte AVANT l'arrivée du son aérien (les ondes du sol arrivent bien plus vite)
+    precurseur_gain=0.45,         # niveau atteint par ce grondement (1 = niveau du grondement sourd plein)
+    attaque=1.5,                  # s: montée en douceur du grand éboulement (le début du fichier est une attaque franche)
+    foret_lissage=6.0,            # s: la forêt baisse sur cette durée, en commençant avant l'arrivée du glissement (0 = 0,1 s comme avant)
     plafond=0.89,                 # crête maximale après le limiteur
 )
 
@@ -134,6 +140,20 @@ def limiteur(x, plafond=0.89, relache=0.25, anticipe=0.006):
     gb = (cs[2 * k + 1:2 * k + 1 + nb] - cs[:nb]) / (2 * k + 1)
     gs = np.interp(np.arange(len(r)), (np.arange(nb) + 0.5) * b, gb)
     return np.clip(x * gs[:, None], -plafond, plafond).astype(np.float32)
+
+
+def lisse3(x):
+    """smoothstep 0..1"""
+    x = np.clip(x, 0.0, 1.0)
+    return x * x * (3.0 - 2.0 * x)
+
+
+def moyenne_centree(x, n):
+    """Moyenne glissante centrée de largeur n échantillons (O(len(x)))."""
+    n = max(1, int(n) | 1)
+    k = n // 2
+    cs = np.concatenate([[0.0], np.cumsum(np.concatenate([np.full(k, x[0]), x, np.full(k, x[-1])]))])
+    return (cs[n:n + len(x)] - cs[:len(x)]) / n
 
 
 def boucle(src, n):
@@ -246,12 +266,25 @@ def main():
     # 2. départ: grand éboulement à l'arrivée du premier son
     t0 = float(tr["arr"].min())
     ton = lis("eboulement_tonnerre.wav")[:, 0]
-    dep = filtre_distance(place(ton, n, t0)) * R["depart"] * gd * np.clip(0.4 + ener, 0, 1.2)
+    ton_f = ton.copy()
+    ka = int(R["attaque"] * SR)
+    if ka > 0:                                   # montée douce du début du fichier (attaque franche)
+        ton_f[:ka] *= lisse3(np.arange(min(ka, len(ton_f))) / ka)
+    dep = filtre_distance(place(ton_f, n, t0)) * R["depart"] * gd * np.clip(0.4 + ener, 0, 1.2)
     amb += encoder(dep, cap, el, R["cap_face_360"])
     # 3. grondement continu (grondement sourd + séisme), suit l'énergie
     gr = place(lis("grondement_sourd.wav")[:, 0], n, t0 - 1.0) * R["grondement"] + place(lis("seisme_grondement.wav")[:, 0], n, t0 + 2.0) * R["seisme"]
+    pre = float(R["precurseur"])
+    if pre > 0:      # le grondement principal monte en quelques secondes au lieu d'un saut à t0
+        ener = ener * lisse3((t - (t0 - 1.0)) / (pre / 2.0 + 1.0))
     gr = filtre_distance(gr) * gd * ener
     amb += encoder(gr, cap, el, R["cap_face_360"])
+    if pre > 0:      # précurseur sismique: grondement grave qui s'installe avant le son aérien, même direction
+        rb = lis("grondement_sourd.wav")[:, 0]
+        pr = place(boucle(rb, int((pre + 3.0) * SR)), n, t0 - pre)
+        pr = passe_bas(pr, 120.0) * lisse3((t - (t0 - pre)) / pre) * float(R["precurseur_gain"]) * R["grondement"]
+        pr *= 1.0 - lisse3((t - t0) / 3.0)          # s'efface sous le grondement principal
+        amb += encoder(pr * gd, cap, el, R["cap_face_360"])
     # 4. impacts dans la vallée: même éboulement (second départ dans le fichier), quand l'énergie au fond est forte
     z = np.load(srcs[-1])
     zf = np.percentile(z["P"][..., 2][z["W"] > 0.05], 2)
@@ -277,7 +310,10 @@ def main():
     # 1. ambiance forêt (stéréo -> W + Y), à un niveau fixe en dBFS, baisse sous l'écoulement
     foret = boucle(lis("ambiance_foret.wav", 2), n)
     rms = np.sqrt((foret ** 2).mean()) + 1e-9
-    db = R["ambiance_db"] + (R["ambiance_fond_db"] - R["ambiance_db"]) * np.clip(env * gain / 0.2, 0, 1)
+    ef = env * gain
+    if R["foret_lissage"] > 0:                   # la forêt s'efface lentement et commence avant l'arrivée du glissement
+        ef = moyenne_centree(ef, R["foret_lissage"] * SR)
+    db = R["ambiance_db"] + (R["ambiance_fond_db"] - R["ambiance_db"]) * np.clip(ef / 0.2, 0, 1)
     g_amb = (10 ** (db / 20)) / rms
     amb[:, 0] += g_amb * 0.5 * (foret[:, 0] + foret[:, 1])
     amb[:, 1] += g_amb * 0.5 * (foret[:, 0] - foret[:, 1])
