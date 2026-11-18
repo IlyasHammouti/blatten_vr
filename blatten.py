@@ -1724,6 +1724,64 @@ def cmd_reprise_test(cfg, paths, extra):
     return 0
 
 
+def cmd_reprise_test2(cfg, paths, extra):
+    """2e test de reprise (18 nov.): le 1er a montre que relancer la simulation recommence a zero (meme duree que la reference).
+    Ici: T1 = simulation par frame_set (comme la simulation finale en cours) tuee a 80 images, puis reprise par bake_data;
+    T2 = simulation par bake_data tuee a 80 images, puis reprise par bake_data. Reference: reprise_test/C (214 s).
+    Reprise reelle = duree nettement inferieure a la reference ET tailles des images identiques a la reference. Verdict dans reprise_test2/resultat.txt."""
+    exe = find_blender(cfg)
+    script = os.path.join(ROOT, "tools", "essai_fumee.py")
+    base = os.path.join(paths.cache, "reprise_test2")
+    ref_dir = os.path.join(paths.cache, "reprise_test", "C")
+    shutil.rmtree(base, ignore_errors=True)
+    os.makedirs(base, exist_ok=True)
+    env = dict(os.environ, BLATTEN_ROOT=ROOT)
+
+    def tailles(d):
+        t = {}
+        for f in glob.glob(os.path.join(d, "cache", "data", "*.vdb")):
+            m = re.search(r"(\d+)\.vdb$", f)
+            if m:
+                t[int(m.group(1))] = t.get(int(m.group(1)), 0) + os.path.getsize(f)
+        return t
+
+    def lancer(nom, bake, tuer_a=None, tag=""):
+        out = os.path.join(base, nom)
+        o = ["--res", "48", "--fps", "25", "--fin", "6", "--source", "2.5", "--k", "12000", "--alpha", "-0.3", "--tourbillons", "0.4",
+             "--elan", "0.9", "--vref", "15", "--emission", "1.5", "--sans-rendu", "1", "--bake", str(bake), "--data", paths.cache, "--out", out]
+        t0 = time.time()
+        with open(os.path.join(base, f"{nom}{tag}.log"), "w", encoding="utf-8", errors="replace") as lg:
+            pr = subprocess.Popen([exe, "-b", "--python", script, "--"] + o, env=env, stdout=lg, stderr=subprocess.STDOUT)
+            while pr.poll() is None:
+                time.sleep(2)
+                if tuer_a and len(tailles(out)) >= tuer_a:
+                    pr.kill()
+                    pr.wait()
+                    print(f"[reprise2] {nom}{tag}: tue apres {len(tailles(out))} images ({time.time() - t0:.0f} s)", flush=True)
+                    return time.time() - t0
+        print(f"[reprise2] {nom}{tag}: termine, code {pr.returncode}, {time.time() - t0:.0f} s, {len(tailles(out))} images", flush=True)
+        return time.time() - t0
+
+    ref = tailles(ref_dir)
+    txt = [f"reference (frame_set, sans interruption): {len(ref)} images, 214 s"]
+    for nom, bake1 in (("T1", 0), ("T2", 1)):
+        lancer(nom, bake1, tuer_a=80, tag="_1")
+        k = max(tailles(os.path.join(base, nom)) or [0])
+        d2 = lancer(nom, 1, tag="_2")
+        ap = tailles(os.path.join(base, nom))
+        rat = sorted(ap[i] / ref[i] for i in ref if i in ap and i > k and ref[i] > 0)
+        med = rat[len(rat) // 2] if rat else None
+        rat_av = sorted(ap[i] / ref[i] for i in ref if i in ap and i <= k and ref[i] > 0)
+        med_av = rat_av[len(rat_av) // 2] if rat_av else None
+        ok = bool(rat) and 0.85 <= med <= 1.18 and len(ap) >= len(ref) - 1 and d2 < 0.8 * 214
+        txt += [f"{nom} ({'bake_data' if bake1 else 'frame_set'} puis reprise par bake_data): arret a l'image {k}, reprise {d2:.0f} s, images finales {len(ap)}, "
+                f"tailles/ref avant arret {med_av if med_av is None else round(med_av, 3)}, apres arret {med if med is None else round(med, 3)} -> "
+                + ("REPRISE OK" if ok else "REPRISE NON CONFIRMEE")]
+    open(os.path.join(base, "resultat.txt"), "w", encoding="utf-8").write("\n".join(txt) + "\n")
+    print("\n".join(txt), flush=True)
+    return 0
+
+
 def cmd_fumee_simu(cfg, paths, extra):
     """Simulation de la fumée (Mantaflow) du film, SANS rendu: écrit le cache VDB lu ensuite par la poussière du film
     (reglages/fumee.json, modèle "mantaflow"). Une image de simulation par image du film (25 i/s), t = 0 à 53 s.
@@ -2608,7 +2666,7 @@ def cmd_menu(cfg, paths, extra):
 COMMANDS = {
     "status": cmd_status, "setup": cmd_setup, "download": cmd_download, "prep-env": cmd_prep_env, "prep-batiments": cmd_prep_batiments, "prep-vegetation": cmd_prep_vegetation, "env-complet": cmd_env_complet, "visible": cmd_visible,
     "prep-particules": cmd_prep_particules, "terrain": cmd_terrain, "views": cmd_views, "test360": cmd_test360,
-    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "eau-manuel": cmd_eau_manuel, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "titre-test": cmd_titre_test, "test-son": cmd_test_son, "test-couleurs": cmd_test_couleurs, "test-eau": cmd_test_eau, "test-final": cmd_test_final, "prep-sol": cmd_prep_sol, "test-aspect": cmd_test_aspect, "test-fenetre": cmd_test_fenetre, "test-oiseaux": cmd_test_oiseaux, "nuit-envoi": cmd_nuit_envoi, "carte-oiseaux": cmd_carte_oiseaux, "qgis-oiseaux": cmd_qgis_oiseaux, "essai-fumee": cmd_essai_fumee, "fumee-simu": cmd_fumee_simu, "reprise-test": cmd_reprise_test, "test-eau-clip": cmd_test_eau_clip, "test-arbres": cmd_test_arbres, "extrait": cmd_extrait, "test-bande": cmd_test_bande, "finir": cmd_finir, "son": cmd_son, "outro": cmd_outro, "cap": cmd_cap, "camera": cmd_camera, "paquet": cmd_paquet, "duo": cmd_duo, "duo-etat": cmd_duo_etat, "duo-envoyer": cmd_duo_envoyer, "duo-importer": cmd_duo_importer, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
+    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "eau-manuel": cmd_eau_manuel, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "titre-test": cmd_titre_test, "test-son": cmd_test_son, "test-couleurs": cmd_test_couleurs, "test-eau": cmd_test_eau, "test-final": cmd_test_final, "prep-sol": cmd_prep_sol, "test-aspect": cmd_test_aspect, "test-fenetre": cmd_test_fenetre, "test-oiseaux": cmd_test_oiseaux, "nuit-envoi": cmd_nuit_envoi, "carte-oiseaux": cmd_carte_oiseaux, "qgis-oiseaux": cmd_qgis_oiseaux, "essai-fumee": cmd_essai_fumee, "fumee-simu": cmd_fumee_simu, "reprise-test": cmd_reprise_test, "reprise-test2": cmd_reprise_test2, "test-eau-clip": cmd_test_eau_clip, "test-arbres": cmd_test_arbres, "extrait": cmd_extrait, "test-bande": cmd_test_bande, "finir": cmd_finir, "son": cmd_son, "outro": cmd_outro, "cap": cmd_cap, "camera": cmd_camera, "paquet": cmd_paquet, "duo": cmd_duo, "duo-etat": cmd_duo_etat, "duo-envoyer": cmd_duo_envoyer, "duo-importer": cmd_duo_importer, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
 }
 
 

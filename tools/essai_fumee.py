@@ -29,7 +29,7 @@ import numpy as np
 def args():
     a = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
     d = dict(res=128, fps=15, fin=45.0, alpha=-0.2, tourbillons=0.2, elan=0.7, densite=0.03, data="", out="", echant=48,
-             largeur=1280, sans_rendu=0, k=3000, sans_simu=0, source=0.8, vref=40.0, emission=1.0, tuile=0, fixes="20,30,40", clip=1)
+             largeur=1280, sans_rendu=0, k=3000, sans_simu=0, source=0.8, vref=40.0, emission=1.0, tuile=0, fixes="20,30,40", clip=1, bake=0)
     i = 0
     while i < len(a):
         k = a[i].lstrip("-").replace("-", "_")
@@ -116,7 +116,8 @@ if not A["sans_simu"]:
     ds.use_adaptive_domain = True
     ds.adapt_margin = 4
     ds.adapt_threshold = 0.002
-    ds.cache_type = "REPLAY"
+    ds.cache_type = "MODULAR" if A["bake"] else "REPLAY"      # --bake 1: simulation par bake_data, reprenable apres un plantage
+    ds.cache_resumable = True
     ds.cache_directory = os.path.join(OUT, "cache")
     ds.cache_data_format = "OPENVDB"
     ds.cache_frame_start, ds.cache_frame_end = sc.frame_start, sc.frame_end
@@ -270,6 +271,27 @@ try:
             continue
 except Exception as e:
     print("[fumee] rendu sur processeur:", e, flush=True)
+
+if A["bake"] and not A["sans_simu"]:
+    import re as _re
+    import glob as _glob
+    dd = os.path.join(OUT, "cache", "data")
+    deja = sorted({int(m.group(1)) for f in _glob.glob(os.path.join(dd, "*.vdb")) for m in [_re.search(r"(\d+)\.vdb$", f)] if m})
+    if deja:
+        try:
+            ds.cache_frame_pause_data = max(deja)
+            print(f"[fumee] REPRISE: {len(deja)} images deja ecrites, reprise apres l'image {max(deja)} (pause_data={ds.cache_frame_pause_data})", flush=True)
+        except Exception as e:
+            print("[fumee] reprise impossible:", e, flush=True)
+    t_b = time.time()
+
+    def prog(scene, *a):
+        if scene.frame_current % fps == 0:
+            print(f"[fumee] simulation: image {scene.frame_current}/{sc.frame_end} (t = {(scene.frame_current - 1) / fps:.1f} s), {time.time() - t_b:.0f} s écoulées", flush=True)
+    bpy.app.handlers.frame_change_post.append(prog)
+    bpy.ops.fluid.bake_data()
+    print(f"[fumee] terminé (bake): {time.time() - t_b:.0f} s, sorties dans {OUT}", flush=True)
+    sys.exit(0)
 
 fixes = {int(round(float(t) * fps)) + 1: float(t) for t in str(A["fixes"]).split(",") if t}
 pas_clip = max(1, int(round(0.5 * fps)))
