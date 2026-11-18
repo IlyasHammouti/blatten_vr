@@ -4,3 +4,7 @@
 fum_a essai-fumee --res 96 --fps 10 --fin 30 --source 2.5 --k 6000 --alpha -0.2 --echant 32 --largeur 960 --fixes 12,20,28 --clip 0
 fum_b essai-fumee --res 96 --fps 10 --fin 30 --source 3.5 --k 12000 --alpha -0.1 --tourbillons 0.4 --echant 32 --largeur 960 --fixes 12,20,28 --clip 0
 fum_c essai-fumee --res 96 --fps 10 --fin 30 --source 3.5 --k 12000 --alpha 0.05 --tourbillons 0.4 --elan 0.9 --echant 32 --largeur 960 --fixes 12,20,28 --clip 0
+# 2e serie (18 nov., apres comparaison fum_a/b/c: panaches trop legers qui montent; on veut une coulee lourde qui rase le sol, emission le long de toute la matiere)
+fum_d essai-fumee --res 96 --fps 10 --fin 30 --source 5 --k 12000 --alpha -0.3 --tourbillons 0.4 --elan 0.9 --vref 15 --emission 1.5 --echant 32 --largeur 960 --fixes 12,20,28 --clip 0
+fum_e essai-fumee --res 96 --fps 10 --fin 30 --source 5 --k 12000 --alpha -0.1 --tourbillons 0.4 --elan 0.9 --vref 15 --emission 1.5 --echant 32 --largeur 960 --fixes 12,20,28 --clip 0
+fum_f essai-fumee --res 96 --fps 10 --fin 30 --source 5 --k 20000 --alpha -0.3 --tourbillons 0.4 --elan 1.0 --vref 10 --emission 2.5 --echant 32 --largeur 960 --fixes 12,20,28 --clip 0
