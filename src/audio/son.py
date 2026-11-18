@@ -52,11 +52,12 @@ DEFAUTS = dict(
     precurseur=6.0,               # s: grondement sismique qui monte AVANT l'arrivée du son aérien (les ondes du sol arrivent bien plus vite)
     precurseur_gain=0.45,         # niveau atteint par ce grondement (1 = niveau du grondement sourd plein)
     attaque=1.5,                  # s: montée en douceur du grand éboulement (le début du fichier est une attaque franche)
-    # Courbe de la forêt dessinée par Ilyas le 18 nov. (extrait 2): [temps du film en s, baisse en dB par rapport au calme]. Remplace le calcul
+    # Courbe de la forêt dessinée par Ilyas le 18 nov. (2e dessin, sur l'extrait 3): [temps du film en s, baisse en dB par rapport au calme]. Remplace le calcul
     # automatique ci-dessous; mettre [] pour revenir au calcul automatique (la forêt baisse alors avec l'énergie de l'écoulement).
-    foret_courbe=[[13.3, 0], [14, -1.5], [15, -3], [16, -5], [17.2, -7], [18, -8.5], [19, -11], [20, -12], [22, -13], [23, -15], [24, -16.5],
-                  [26, -21], [28, -23.5], [30, -26], [32, -28.5], [33, -31.5], [34, -33.5], [35, -36.5], [35.5, -39.5], [36, -41.5], [38, -46.5],
-                  [39, -51.5], [40, -56.5], [42, -66.5]],
+    foret_courbe=[[6, 0], [8, -0.4], [10, -1.1], [11, -1.5], [12, -2.2], [13, -2.5], [14, -3.4], [15, -4.7], [16, -6.3], [17, -8.3],
+                  [18, -11], [19, -13.3], [20, -15.9], [21, -18.9], [22, -22], [23, -24.1], [24, -27], [25, -30.5], [26, -34.1],
+                  [27, -38.6], [28, -42.3], [29, -45.7], [30, -48.1], [31, -50.6], [32, -52.3], [33, -54], [34, -57], [35, -63],
+                  [36, -70], [38, -80]],
     foret_maintien=1,             # 1 = une fois l'événement installé, la forêt (oiseaux compris) ne revient plus
     foret_seuil=0.04,             # niveau de l'écoulement (échelle de l'ancien 0,2) à partir duquel la forêt est complètement coupée
     foret_lissage=4.0,            # s: la forêt baisse en douceur sur cette durée, en commençant avant l'arrivée du glissement (0 = 0,1 s comme avant)
@@ -330,6 +331,8 @@ def main():
         db = R["ambiance_db"] + np.interp(t, ct, cd)
         db = np.maximum(moyenne_centree(db, SR // 2), R["ambiance_fond_db"])      # coins arrondis (0,5 s)
     g_amb = (10 ** (db / 20)) / rms
+    if os.environ.get('BLATTEN_SON_DEBUG'):
+        np.save(os.path.join(a.out, 'foret_db.npy'), db)
     log('forêt dBFS aux secondes 1,4,6,8,10,12,14,16,18,20,25,45: ' + ' '.join(f'{db[int(x * SR)]:.0f}' for x in (1, 4, 6, 8, 10, 12, 14, 16, 18, 20, 25, 45) if x * SR < n))
     amb[:, 0] += g_amb * 0.5 * (foret[:, 0] + foret[:, 1])
     amb[:, 1] += g_amb * 0.5 * (foret[:, 0] - foret[:, 1])
