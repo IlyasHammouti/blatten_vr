@@ -24,3 +24,6 @@ fumee_d002 test-final --temps 30 45 --sans-variantes --reglages film fumee --set
 
 # 19 nov. ~10h: Ilyas veut voir le rendu aux reglages du 17 nov. (son clip prefere): simulation res 128, 25 i/s, 53 s, avec clip (960x540, toutes les 0,5 s) et images fixes t=20,30,40,50. Sortie: <cache>/fumee_17nov (la simulation de la nuit reste dans <cache>/fumee).
 # RETIRE 19 nov. ~10h45: Ilyas n'a pas demande ce lancement, annule. (fumee17 fumee-17nov)
+
+# 19 nov. ~11h30: test de la poussiere en couche separee (demande d Ilyas), 960x480, 24 echantillons, t = 30 et 45 s: A complet, B sans poussiere, C poussiere seule (holdout). ~6 images basse qualite.
+couches test-couches --temps 30 45

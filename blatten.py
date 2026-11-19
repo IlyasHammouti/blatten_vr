@@ -1423,6 +1423,41 @@ def _sonde_bilan(chemin, depuis):
     return gpu, tot, ram
 
 
+def cmd_test_couches(cfg, paths, extra):
+    """Test de la poussière en couche séparée, TRÈS basse qualité (960 x 480, 24 échantillons): pour chaque instant, A = film complet (référence),
+    B = film SANS poussière, C = poussière SEULE sur fond transparent (le reste en holdout). B + C superposés doivent ressembler à A.
+        python blatten.py test-couches [--temps 30 45] [--res 960x480] [--ech 24]
+    -> render/tests/couches/<date>/<A_complet|B_sans|C_seule>_t<T>s/frame_0001.(jpg|png), bilan.json (minutes par image)"""
+    temps, extra = _option(extra, "--temps")
+    temps = [float(x) for x in (temps or ["30", "45"])]
+    rs, extra = _option(extra, "--res", 1)
+    ech, extra = _option(extra, "--ech", 1)
+    w, h = (int(x) for x in (rs[0] if rs else "960x480").lower().split("x"))
+    comm = [f"scene.rendu_res=[{w},{h}]", f"scene.rendu_echantillons={int(ech[0]) if ech else 24}"]
+    essais = []
+    for t in temps:
+        essais += [("A_complet", t, comm), ("B_sans", t, comm + ["poussiere.poussiere=false"]), ("C_seule", t, comm + ["scene.couche=seule"])]
+    base = os.path.join(ROOT, "render", "tests", "couches", time.strftime("%Y%m%d_%H%M"))
+    bilan = []
+    for nom, t, sets in essais:
+        out = os.path.join(base, f"{nom}_t{t:g}s")
+        os.makedirs(out, exist_ok=True)
+        print(f"\n>>> {nom}, t = {t:g} s -> {out}", flush=True)
+        _attendre_ram(7.0)
+        t0 = time.time()
+        sa = []
+        for x in sets:
+            sa += ["--set", x]
+        run_blender(cfg, SCRIPTS["scene"], scene_args(cfg, paths) + ["--preset", "final", "--mono", "--camera-confirmed",
+                    "--render-frame", "1", "--render-time", f"{t:g}", "--out", out] + sa + extra, fond=True)
+        dt = (time.time() - t0) / 60
+        ok = any(os.path.exists(os.path.join(out, f"frame_0001.{e}")) for e in ("jpg", "png"))
+        bilan.append(dict(variante=nom, t=t, ok=ok, minutes=round(dt, 2), reglages=sets))
+        print(f"{'OK' if ok else 'ÉCHEC'}: {nom} t = {t:g} s: {dt:.1f} min (construction comprise)", flush=True)
+        json.dump(bilan, open(os.path.join(base, "bilan.json"), "w", encoding="utf-8"), indent=1)
+    print(f"\nImages et bilan: {base}")
+
+
 def cmd_test_final(cfg, paths, extra):
     """Une image FINALE (3840x1920, réglages du film) aux instants les plus lourds: temps, pic de mémoire de la carte, RAM libre
     minimale; puis deux réglages plus rapides au moment le plus lourd, à comparer à l'oeil. Donne une estimation du film entier.
@@ -2723,7 +2758,7 @@ def cmd_menu(cfg, paths, extra):
 COMMANDS = {
     "status": cmd_status, "setup": cmd_setup, "download": cmd_download, "prep-env": cmd_prep_env, "prep-batiments": cmd_prep_batiments, "prep-vegetation": cmd_prep_vegetation, "env-complet": cmd_env_complet, "visible": cmd_visible,
     "prep-particules": cmd_prep_particules, "terrain": cmd_terrain, "views": cmd_views, "test360": cmd_test360,
-    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "eau-manuel": cmd_eau_manuel, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "titre-test": cmd_titre_test, "test-son": cmd_test_son, "test-couleurs": cmd_test_couleurs, "test-eau": cmd_test_eau, "test-final": cmd_test_final, "prep-sol": cmd_prep_sol, "test-aspect": cmd_test_aspect, "test-fenetre": cmd_test_fenetre, "test-oiseaux": cmd_test_oiseaux, "nuit-envoi": cmd_nuit_envoi, "carte-oiseaux": cmd_carte_oiseaux, "qgis-oiseaux": cmd_qgis_oiseaux, "essai-fumee": cmd_essai_fumee, "fumee-simu": cmd_fumee_simu, "fumee-17nov": cmd_fumee_17nov, "reprise-test": cmd_reprise_test, "reprise-test2": cmd_reprise_test2, "test-eau-clip": cmd_test_eau_clip, "test-arbres": cmd_test_arbres, "extrait": cmd_extrait, "test-bande": cmd_test_bande, "finir": cmd_finir, "son": cmd_son, "outro": cmd_outro, "cap": cmd_cap, "camera": cmd_camera, "paquet": cmd_paquet, "duo": cmd_duo, "duo-etat": cmd_duo_etat, "duo-envoyer": cmd_duo_envoyer, "duo-importer": cmd_duo_importer, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
+    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "eau-manuel": cmd_eau_manuel, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "titre-test": cmd_titre_test, "test-son": cmd_test_son, "test-couleurs": cmd_test_couleurs, "test-eau": cmd_test_eau, "test-final": cmd_test_final, "test-couches": cmd_test_couches, "prep-sol": cmd_prep_sol, "test-aspect": cmd_test_aspect, "test-fenetre": cmd_test_fenetre, "test-oiseaux": cmd_test_oiseaux, "nuit-envoi": cmd_nuit_envoi, "carte-oiseaux": cmd_carte_oiseaux, "qgis-oiseaux": cmd_qgis_oiseaux, "essai-fumee": cmd_essai_fumee, "fumee-simu": cmd_fumee_simu, "fumee-17nov": cmd_fumee_17nov, "reprise-test": cmd_reprise_test, "reprise-test2": cmd_reprise_test2, "test-eau-clip": cmd_test_eau_clip, "test-arbres": cmd_test_arbres, "extrait": cmd_extrait, "test-bande": cmd_test_bande, "finir": cmd_finir, "son": cmd_son, "outro": cmd_outro, "cap": cmd_cap, "camera": cmd_camera, "paquet": cmd_paquet, "duo": cmd_duo, "duo-etat": cmd_duo_etat, "duo-envoyer": cmd_duo_envoyer, "duo-importer": cmd_duo_importer, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
 }
 
 

@@ -216,6 +216,7 @@ CFG = dict(
     rendu_pas_volumes=None,     # pas de calcul de la poussière (None: 1,5); 3 = deux fois moins de pas, plus rapide, un peu plus de bruit
     rendu_rebonds=None,         # rebonds de lumière au plus (None: défaut de Blender, 12)
     rendu_tuile=None,           # taille des tuiles de rendu en pixels (None: 2048, défaut de Blender); 1024 ou 512 = moins de mémoire sur la carte
+    couche="",                  # "" = film complet; "seule" = SEULE la poussière sur fond transparent (PNG RGBA; tout le reste en « holdout »: masque correctement la poussière, sans être rendu); pour la version sans poussière: poussiere.poussiere=false. Superposition: python blatten.py couche-poussiere
     rendu_res=None,             # définition [largeur, hauteur] à la place de celle du preset (ex. [1920, 960]: extrait 360 FHD aux réglages finaux)
     titre_style="blanc",    # "blanc" (lumineux, discret) ou "sombre" (lettres sombres éclairées par le ciel)
     titre_emission=1.2,     # intensité du blanc (1 = environ la luminosité du ciel couvert)
@@ -3915,6 +3916,20 @@ def setup_render(scene, out_dir):
     else:
         r.image_settings.file_format = "PNG"
         r.image_settings.color_depth = "16" if CFG["preset"] == "final" else "8"
+    if CFG["couche"] == "seule":
+        # couche de poussière seule: fond transparent, tout le reste (relief, arbres, eau, matière, bâtiments, herbe, titre) en holdout:
+        # invisible mais cache la poussière derrière lui. Sortie PNG RGBA (alpha droit).
+        r.film_transparent = True
+        r.image_settings.file_format = "PNG"
+        r.image_settings.color_mode = "RGBA"
+        r.image_settings.color_depth = "16" if CFG["preset"] == "final" and not CFG["rendu_res"] else "8"
+        nh = 0
+        for o in scene.objects:
+            if o.name.startswith(("Poussiere_", "Fumee")) or o.type not in ("MESH", "CURVE", "SURFACE", "META", "FONT", "CURVES", "POINTCLOUD", "VOLUME"):
+                continue
+            o.is_holdout = True
+            nh += 1
+        log(f"couche poussière seule: fond transparent, {nh} objets en holdout")
     r.filepath = os.path.join(out_dir, "frame_")
     try:  # AgX/Filmic délavent fortement ce ciel; Standard + exposition réduite
         scene.view_settings.view_transform = "Standard"
