@@ -33,3 +33,6 @@ voile_003 test-bande --temps 30 45 --reglages film multistrate17
 voile_001 test-bande --temps 30 45 --reglages film multistrate17 --set poussiere.strate_simulee=0.001
 voile_008 test-bande --temps 30 45 --reglages film multistrate17 --set poussiere.strate_simulee=0.008
 voile_ref test-bande --temps 30 45 --reglages film
+
+# 19 nov. ~14h45, GO d'Ilyas: RENDU FINAL, poussiere procedurale seule (reglages du film, sans voile simule), un seul PC pour l'instant. 1525 images 3840x1920, 48 echantillons, reprise automatique (relancer la meme commande si coupure), paquets de 40 images. Dossier: <render>/final/final_v1. Arret propre a distance: creer render/ARRET.txt (fin du paquet en cours). Apres: commande finir (outro, son AmbiX, montage, metadonnees 360).
+final_v1 render --version final_v1
