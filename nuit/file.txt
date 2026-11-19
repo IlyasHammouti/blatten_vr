@@ -27,3 +27,9 @@ fumee_d002 test-final --temps 30 45 --sans-variantes --reglages film fumee --set
 
 # 19 nov. ~11h30: test de la poussiere en couche separee (demande d Ilyas), 960x480, 24 echantillons, t = 30 et 45 s: A complet, B sans poussiere, C poussiere seule (holdout). ~6 images basse qualite.
 # MIS EN ATTENTE 19 nov. ~11h50 (Ilyas: apres la simulation fumee17, on regarde d'abord le resultat, rien ne part tout seul): couches test-couches --temps 30 45
+
+# 19 nov. ~14h30, GO d'Ilyas: test du voile simule (fumee17, 17 nov.) sur la poussiere procedurale du film, a plat (preset bande: cadre 130 x 65 degres vers le glissement, 2560x1280, 24 echantillons, PAS de 360), t = 30 et 45 s, 3 opacites du voile + reference sans voile.
+voile_003 test-bande --temps 30 45 --reglages film multistrate17
+voile_001 test-bande --temps 30 45 --reglages film multistrate17 --set poussiere.strate_simulee=0.001
+voile_008 test-bande --temps 30 45 --reglages film multistrate17 --set poussiere.strate_simulee=0.008
+voile_ref test-bande --temps 30 45 --reglages film
