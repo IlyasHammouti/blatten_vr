@@ -913,6 +913,8 @@ def _empecher_veille():
 
 def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ram_min=7.0, extrait=False):
     _empecher_veille()
+    inverse = "--inverse" in extra      # rend les paquets du haut vers le bas (de la dernière image manquante vers la première): voir cmd_render
+    extra = [x for x in extra if x != "--inverse"]
     extra, paquet, pause, heure_fin = _options_nuit(extra, paquet)
     out = os.path.join(ROOT, out_rel)
     # Les images du rendu FINAL (plusieurs Go) peuvent aller sur un autre disque: clé "render_dir" de config.local.json
@@ -984,11 +986,19 @@ def _rendre_film(cfg, paths, preset, out_rel, n, fps_video, extra, paquet=40, ra
         if not manquantes:
             rc = 0
             break
-        d0 = manquantes[0]
-        d1 = min(d0 + (PAQUET - 1) * k_film, a_)
-        suivante = min((i for i in cibles if i > d0 and _faite(i)), default=None)
-        if suivante:                      # ne pas refaire les images déjà rendues au-delà d'un trou
-            d1 = min(d1, suivante - k_film)
+        if inverse:
+            # de haut en bas: le paquet se termine à la dernière image manquante et remonte tant que les images d'en dessous manquent aussi
+            ms = set(manquantes)
+            d1 = manquantes[-1]
+            d0 = d1
+            while d0 - k_film in ms and (d1 - d0) // k_film + 1 < PAQUET:
+                d0 -= k_film
+        else:
+            d0 = manquantes[0]
+            d1 = min(d0 + (PAQUET - 1) * k_film, a_)
+            suivante = min((i for i in cibles if i > d0 and _faite(i)), default=None)
+            if suivante:                  # ne pas refaire les images déjà rendues au-delà d'un trou
+                d1 = min(d1, suivante - k_film)
         arret = os.path.join(ROOT, "render", "ARRET.txt")      # arret a distance: creer ce fichier, le rendu s'arrete a la fin du paquet en cours
         if os.path.exists(arret):
             print(f"\nFichier {arret} trouve: arret propre, {len(manquantes)} images restantes. Pour reprendre, supprimer ce fichier "
@@ -1187,7 +1197,9 @@ def cmd_render(cfg, paths, extra):
     """Film complet (fenêtre du film de config.json, réglages reglages/film.json), reprise automatique.
         python blatten.py render                          HD: 3840x1920, 96 échantillons (preset final) -> render/final (ou render_dir/final)
         python blatten.py render --qualite brouillon      basse définition: 1920x960, 16 échantillons -> render/film_brouillon
-        options: --pas 2 (une image sur deux), --intro-pas 3, --de N --a M (partage entre deux PC), --jusqu-a 07:00, --paquet N"""
+        options: --pas 2 (une image sur deux), --intro-pas 3, --de N --a M (partage entre deux PC), --jusqu-a 07:00, --paquet N,
+        --inverse (19 nov.: rend de la dernière image manquante vers la première, par paquets qui remontent; avec --a M, c'est
+        le PC le plus lent qui part de M et remonte pendant que l'autre PC rend du début vers la fin)"""
     n, fps = _film(cfg)
     q, extra = _option(extra, "--qualite", 1)
     q = (q or ["final"])[0]

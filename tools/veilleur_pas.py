@@ -6,6 +6,13 @@ import os, shlex, subprocess, sys, time
 
 RACINE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FILE = os.path.join(RACINE, "nuit", "file.txt")
+try:    # 19 nov.: un PC peut avoir sa propre file ("file_nuit": "nuit/file_ilyas.txt" dans config.local.json, non suivi par git)
+    import json
+    _cl = json.load(open(os.path.join(RACINE, "config.local.json"), encoding="utf-8"))
+    if _cl.get("file_nuit"):
+        FILE = os.path.join(RACINE, _cl["file_nuit"])
+except Exception:
+    pass
 DOS = os.path.join(RACINE, "render", "nuit")
 FAITS = os.path.join(DOS, "faits.txt")
 JOURNAL = os.path.join(DOS, "journal.txt")
