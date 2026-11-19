@@ -14,3 +14,6 @@ reprise_test reprise-test
 fumee_finale fumee-simu
 # Brouillon 360 tres basse qualite pour juger le son spatial (demande d'Ilyas, 18 nov.): 960x480, 8 echantillons, 1 image sur 5 (intro 1 sur 10), poussiere actuelle (le son ne depend pas de l'image). Montage + son AmbiX a la fin.
 # RETIRE 18 nov. 21h: fin de simulation trop tardive, GPU libre pour les images de controle. Relancer apres: brouillon_son render --version brouillon_son --pas 5 --intro-pas 10 --paquet 40 --set scene.rendu_res=[960,480] --set scene.rendu_echantillons=8 --set scene.rendu_seuil=0.1
+
+# 19 nov.: 3 images de controle pleine resolution avec la fumee Mantaflow (t = 5, 30, 45 s), lancees automatiquement a la fin de la simulation.
+controle_fumee test-final --temps 5 30 45 --sans-variantes --reglages film fumee
