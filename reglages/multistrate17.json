@@ -1,0 +1,4 @@
+{
+  "_doc": "Poussiere MULTISTRATE avec la simulation aux reglages du 17 nov. (python blatten.py fumee-17nov, cache <cache>/fumee_17nov). A heriter APRES poussiere_v3: --reglages film multistrate17.",
+  "poussiere": {"modele": "multistrate", "strate_procedurale": 1.0, "strate_simulee": 0.003, "strate_simulee_debut": 0.0, "strate_simulee_fondu": 10.0, "mantaflow_dossier": "D:/BLATTEN_Ilyas/cache/fumee_17nov/cache/data"}
+}

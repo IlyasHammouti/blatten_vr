@@ -1,0 +1,4 @@
+{
+  "_doc": "Poussiere MULTISTRATE: poussiere procedurale v3 + voile de gaz simule (cache Mantaflow de la nuit du 18 nov., <cache>/fumee) de faible opacite par-dessus. A heriter APRES poussiere_v3: --reglages film multistrate. Reglages: strate_procedurale (x densite), strate_simulee (1/m), strate_simulee_debut / strate_simulee_fondu (s).",
+  "poussiere": {"modele": "multistrate", "strate_procedurale": 1.0, "strate_simulee": 0.002, "strate_simulee_debut": 0.0, "strate_simulee_fondu": 10.0}
+}

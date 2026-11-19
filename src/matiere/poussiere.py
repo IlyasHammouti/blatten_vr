@@ -105,6 +105,13 @@ REGLAGES = dict(
     mantaflow_dossier="",    # dossier des .vdb (vide: <cache>/fumee/cache/data)
     mantaflow_decalage=(-1300.0, -1600.0, 1350.0),   # m: coin minimal du domaine de simulation (X0, Y0, Z0 de tools/essai_fumee.py): la grille VDB n'a pas de translation, son indice 0 est ce coin
     mantaflow_echelle=1.0,
+    # ---- modele="multistrate" (19 nov.): STRATES de poussière superposées: la poussière procédurale (poussiere_v3, sa densité x strate_procedurale)
+    #      + un voile de gaz simulé (cache Mantaflow) de densité strate_simulee, faible pour qu'on voie à travers jusqu'à la matière et à la
+    #      poussière du dessous. Le voile apparaît à l'instant de l'événement strate_simulee_debut (s) et monte en strate_simulee_fondu secondes.
+    strate_procedurale=1.0,       # multiplicateur de la densité (extinction) de la poussière procédurale
+    strate_simulee=0.002,         # 1/m: extinction du voile simulé (0.03 = beaucoup trop sombre, 0.002 = voile léger)
+    strate_simulee_debut=0.0,     # s (temps de l'événement): début de l'apparition du voile
+    strate_simulee_fondu=10.0,    # s: durée de la montée du voile à pleine densité (0 = d'un coup)
 )
 
 STATE = dict(classes=[], S=None, R=None, nmax=0, noeud_t=None, erreur=False, v3=False, typ=None, noeuds_t=[])
@@ -338,6 +345,7 @@ def _materiau(R):
     dens2 = N.new("ShaderNodeMath")
     dens2.operation = "MULTIPLY"
     dens2.inputs[1].default_value = float(R["densite"])
+    dens2.name = "densite_finale"
     L.new(dens.outputs[0], dens2.inputs[0])
 
     diff = N.new("ShaderNodeVolumeScatter")
@@ -397,6 +405,17 @@ def construire(scene, coll, seq, to_blender, cfg, log, reglages=None):
     if R["modele"] == "mantaflow":
         return _construire_mantaflow(scene, coll, R, cfg, log)
     S = sources(seq, to_blender, R, log)
+    if R["modele"] == "multistrate":
+        Rp = dict(R)
+        Rp["densite"] = float(R["densite"]) * float(R["strate_procedurale"])
+        ok = _construire_v3(scene, coll, S, Rp, log)
+        Rm = dict(R)
+        Rm["densite"] = float(R["strate_simulee"])
+        STATE["multi"] = _mantaflow_objets(scene, coll, Rm, cfg, log)
+        STATE["multi"]["Rs"] = Rm
+        log(f"poussière multistrate: procédurale x {R['strate_procedurale']:g} + voile simulé {R['strate_simulee']:g}/m "
+            f"(début {R['strate_simulee_debut']:g} s, fondu {R['strate_simulee_fondu']:g} s)")
+        return ok
     if R["modele"] == "trois_etapes":
         return _construire_v3(scene, coll, S, R, log)
     nmax = int(S["P"].shape[0] * S["P"].shape[1])
@@ -422,17 +441,17 @@ def construire(scene, coll, seq, to_blender, cfg, log, reglages=None):
     return True
 
 
-def _construire_mantaflow(scene, coll, R, cfg, log):
-    """Lit le cache VDB d'une simulation Mantaflow (une image du film = un fichier) comme un volume animé."""
+def _mantaflow_objets(scene, coll, R, cfg, log):
+    """Lit le cache VDB d'une simulation Mantaflow (une image du film = un fichier) comme un volume animé. Rend le dictionnaire d'état (volume, objet, numéros, fps, noeuds)."""
     import glob
     import re
-    d = R["mantaflow_dossier"] or os.path.join(str(cfg.get("data_dir") or "."), "fumee", "cache", "data")
-    fich = sorted(glob.glob(os.path.join(d, "*.vdb")))
+    d_ = R["mantaflow_dossier"] or os.path.join(str(cfg.get("data_dir") or "."), "fumee", "cache", "data")
+    fich = sorted(glob.glob(os.path.join(d_, "*.vdb")))
     if not fich:
-        raise SystemExit(f"Poussière mantaflow: aucun fichier .vdb dans {d} (lancer la simulation: python blatten.py fumee-simu)")
+        raise SystemExit(f"Poussière mantaflow: aucun fichier .vdb dans {d_} (lancer la simulation: python blatten.py fumee-simu)")
     num = [int(m.group(1)) for m in (re.search(r"(\d+)\.vdb$", os.path.basename(f)) for f in fich) if m]
     if len(num) != len(fich) or num != list(range(num[0], num[0] + len(num))):
-        raise SystemExit(f"Poussière mantaflow: les fichiers de {d} ne forment pas une suite continue ({len(fich)} fichiers, de {num[0] if num else '?'} à {num[-1] if num else '?'})")
+        raise SystemExit(f"Poussière mantaflow: les fichiers de {d_} ne forment pas une suite continue ({len(fich)} fichiers, de {num[0] if num else '?'} à {num[-1] if num else '?'})")
     vol = bpy.data.volumes.new("Fumee")
     vol.filepath = fich[0]
     vol.is_sequence = True
@@ -456,9 +475,15 @@ def _construire_mantaflow(scene, coll, R, cfg, log):
             log(f"poussière mantaflow: grille {g.name} ({g.channels} canal), matrice {[[round(x, 3) for x in r] for r in g.matrix_object]}")
     except Exception as e:
         log("poussière mantaflow: lecture des grilles:", e)
-    STATE.update(mantaflow=True, classes=[], noeud_t=tmp, erreur=False, R=R, mf_vol=vol, mf_obj=obj,
-                 mf_num=(num[0], num[-1]), mf_fps=scene.render.fps / scene.render.fps_base, mf_scene=scene)
-    log(f"poussière: simulation Mantaflow, {len(fich)} images VDB (de {num[0]} à {num[-1]}) lues dans {d}, extinction {R['densite']:g}/m")
+    d = dict(mf_vol=vol, mf_obj=obj, mf_num=(num[0], num[-1]), mf_fps=scene.render.fps / scene.render.fps_base, mf_scene=scene,
+             noeud_t=tmp, noeud_dens=mat.node_tree.nodes.get("densite_finale"), dens0=float(R["densite"]))
+    log(f"poussière: simulation Mantaflow, {len(fich)} images VDB (de {num[0]} à {num[-1]}) lues dans {d_}, extinction {R['densite']:g}/m")
+    return d
+
+
+def _construire_mantaflow(scene, coll, R, cfg, log):
+    d = _mantaflow_objets(scene, coll, R, cfg, log)
+    STATE.update(mantaflow=True, classes=[], erreur=False, R=R, **d)
     return True
 
 
@@ -522,16 +547,35 @@ def _maj_v3(t):
         nd.outputs[0].default_value = float(t)
 
 
+def _maj_mf(d, t, R=None):
+    """Volume simulé à l'instant t (secondes de l'événement): choisit le fichier VDB de l'image et, en multistrate, le fondu d'apparition."""
+    d["noeud_t"].outputs[0].default_value = float(t)
+    # image de simulation = t * fps + 1 (la simulation commence à t = 0 avec l'image 1); pendant l'intro t reste à 0: volume masqué
+    n0, n1 = d["mf_num"]
+    n = min(max(int(round(t * d["mf_fps"])) + n0, n0), n1)
+    d["mf_obj"].hide_render = d["mf_obj"].hide_viewport = (t <= 0.0)
+    d["mf_vol"].frame_offset = n - d["mf_scene"].frame_current
+    if R is not None and d.get("noeud_dens") is not None:
+        f = float(R["strate_simulee_fondu"])
+        a = (t - float(R["strate_simulee_debut"])) / f if f > 0 else (1.0 if t >= float(R["strate_simulee_debut"]) else 0.0)
+        a = min(max(a, 0.0), 1.0)
+        a = a * a * (3.0 - 2.0 * a)
+        d["noeud_dens"].inputs[1].default_value = d["dens0"] * a
+        if a <= 0.0:
+            d["mf_obj"].hide_render = True
+
+
 def maj(t):
     """Place les bouffées à l'instant t (secondes simulées). Sans effet si le panache n'a pas été construit."""
+    if STATE.get("multi"):
+        try:
+            _maj_mf(STATE["multi"], t, STATE["multi"]["Rs"])
+        except Exception as e:
+            STATE["multi"] = None
+            print("[poussiere] ERREUR voile simulé, coupé pour la suite:", repr(e), flush=True)
     if STATE.get("mantaflow"):
         try:
-            STATE["noeud_t"].outputs[0].default_value = float(t)
-            # image de simulation = t * fps + 1 (la simulation commence à t = 0 avec l'image 1); pendant l'intro t reste à 0: volume masqué
-            n0, n1 = STATE["mf_num"]
-            n = min(max(int(round(t * STATE["mf_fps"])) + n0, n0), n1)
-            STATE["mf_obj"].hide_render = STATE["mf_obj"].hide_viewport = (t <= 0.0)
-            STATE["mf_vol"].frame_offset = n - STATE["mf_scene"].frame_current
+            _maj_mf(STATE, t)
         except Exception as e:
             STATE["erreur"] = True
             print("[poussiere] ERREUR mantaflow:", repr(e), flush=True)
