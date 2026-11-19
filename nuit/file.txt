@@ -36,3 +36,6 @@ voile_ref test-bande --temps 30 45 --reglages film
 
 # 19 nov. ~14h45, GO d'Ilyas: RENDU FINAL, poussiere procedurale seule (reglages du film, sans voile simule), un seul PC pour l'instant. 1525 images 3840x1920, 48 echantillons, reprise automatique (relancer la meme commande si coupure), paquets de 40 images. Dossier: <render>/final/final_v1. Arret propre a distance: creer render/ARRET.txt (fin du paquet en cours). Apres: commande finir (outro, son AmbiX, montage, metadonnees 360).
 final_v1 render --version final_v1
+
+# 19 nov. ~16h40, GO d'Ilyas: Samy repart de la FIN du film vers le debut (le PC d'Ilyas rend du debut vers la fin a partir de l'image 41, les deux se rejoignent vers l'image 800). Arret propre du rendu ascendant demande par render/ARRET.txt (fin du paquet 1 a 40), puis cette ligne. Le veilleur supprime ARRET.txt avant de la lancer. Meme version final_v1: les images deja faites sont sautees. Arret propre ensuite: creer ARRET.txt.
+final_v1_inv render --version final_v1 --inverse --paquet 40

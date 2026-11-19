@@ -77,6 +77,13 @@ def main():
         etat("file vide: attente de nouvelles commandes")
         return 0
     ident, args = prochaine.split()[0], shlex.split(prochaine, posix=True)[1:]
+    arret = os.path.join(RACINE, "render", "ARRET.txt")       # un arrêt demandé a servi à finir la commande précédente: il ne doit pas bloquer la suivante
+    if os.path.exists(arret):
+        try:
+            os.remove(arret)
+            note("ARRET.txt supprimé avant de lancer la commande suivante")
+        except OSError as e:
+            note(f"ARRET.txt non supprimé: {e}")
     note(f"début {ident}: blatten.py {' '.join(args)}")
     etat(f"en cours: {ident}")
     t0 = time.time()
