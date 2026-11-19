@@ -103,7 +103,7 @@ REGLAGES = dict(
     #      fois à l'avance (cache VDB, une grille "density" par image du film), puis lue ici comme un volume animé. La densité est
     #      creusée par le même bruit 3D que les autres modèles (aspect de bouffées fines que la grille de 13 à 17 m ne donne pas seule).
     mantaflow_dossier="",    # dossier des .vdb (vide: <cache>/fumee/cache/data)
-    mantaflow_decalage=(0.0, 0.0, 0.0),   # m: décalage du volume si la grille n'est pas au bon endroit (à lire dans le journal)
+    mantaflow_decalage=(-1300.0, -1600.0, 1350.0),   # m: coin minimal du domaine de simulation (X0, Y0, Z0 de tools/essai_fumee.py): la grille VDB n'a pas de translation, son indice 0 est ce coin
     mantaflow_echelle=1.0,
 )
 
@@ -436,8 +436,11 @@ def _construire_mantaflow(scene, coll, R, cfg, log):
     vol = bpy.data.volumes.new("Fumee")
     vol.filepath = fich[0]
     vol.is_sequence = True
-    vol.frame_start = num[0]
-    vol.frame_duration = len(num)
+    # Le fichier affiché est choisi à chaque image par maj(t): numéro = scene_frame - frame_start + 1 + frame_offset (Blender),
+    # donc frame_start 1 et frame_offset = numéro voulu - image courante. Durée large: le CLIP de Blender porte sur l'image
+    # de la scène (et non sur le numéro de fichier), le film dépasse les 1326 images de la simulation.
+    vol.frame_start = 1
+    vol.frame_duration = 100000
     vol.frame_offset = 0
     vol.sequence_mode = "CLIP"
     obj = bpy.data.objects.new("Fumee", vol)
@@ -448,12 +451,13 @@ def _construire_mantaflow(scene, coll, R, cfg, log):
     vol.materials.append(mat)
     _reglages_cycles(scene, log)
     try:
-        vol.grids.load(scene.frame_current)
+        vol.grids.load()
         for g in vol.grids:
             log(f"poussière mantaflow: grille {g.name} ({g.channels} canal), matrice {[[round(x, 3) for x in r] for r in g.matrix_object]}")
     except Exception as e:
         log("poussière mantaflow: lecture des grilles:", e)
-    STATE.update(mantaflow=True, classes=[], noeud_t=tmp, erreur=False, R=R)
+    STATE.update(mantaflow=True, classes=[], noeud_t=tmp, erreur=False, R=R, mf_vol=vol, mf_obj=obj,
+                 mf_num=(num[0], num[-1]), mf_fps=scene.render.fps / scene.render.fps_base, mf_scene=scene)
     log(f"poussière: simulation Mantaflow, {len(fich)} images VDB (de {num[0]} à {num[-1]}) lues dans {d}, extinction {R['densite']:g}/m")
     return True
 
@@ -523,8 +527,14 @@ def maj(t):
     if STATE.get("mantaflow"):
         try:
             STATE["noeud_t"].outputs[0].default_value = float(t)
-        except Exception:
+            # image de simulation = t * fps + 1 (la simulation commence à t = 0 avec l'image 1); pendant l'intro t reste à 0: volume masqué
+            n0, n1 = STATE["mf_num"]
+            n = min(max(int(round(t * STATE["mf_fps"])) + n0, n0), n1)
+            STATE["mf_obj"].hide_render = STATE["mf_obj"].hide_viewport = (t <= 0.0)
+            STATE["mf_vol"].frame_offset = n - STATE["mf_scene"].frame_current
+        except Exception as e:
             STATE["erreur"] = True
+            print("[poussiere] ERREUR mantaflow:", repr(e), flush=True)
         return
     if not STATE["classes"] or STATE["erreur"]:
         return
