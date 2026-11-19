@@ -22,8 +22,16 @@ Rendre la même version `final_v1` DU DÉBUT VERS LA FIN à partir de l'image 41
 - `git fetch origin` puis `git reset --hard origin/main` (le dernier commit doit contenir `render --inverse` ; `git log --oneline -3`).
 - Blender : même version que Samy, 5.2.2 LTS, empreinte d13f752e3b9c. Vérifier avec `python tools/verifier_donnees.py` (affiche et écrit render/empreinte_pc.json).
 - Valeurs attendues (celles de Samy) : `empreinte_code` = f3665c17f1195b25 ; données : meta.json 19353 octets, poussiere_sources_2de6490876.npz 2546966 octets, all_particles_0 à 201 (202 fichiers, 6545464 octets chacun), dossier env complet (Terrain_mesh_8m.blend 106024732 octets, Terrain_mesh_16m.blend 37916964, Terrain_mesh_24m.blend 16808256, Release_mesh_4m.blend 1859740). `donnees_manquantes` doit être vide. Si le nom du fichier poussiere_sources_ diffère : les données sont d'une autre version, il faut les renvoyer (zip depuis Samy).
+- config.local.json : il ne doit contenir QUE des chemins (blender, data_root, cache_dir, swisstopo_dir, johan_dir, render_dir) et éventuellement file_nuit. Aucun réglage de scène (pas de clé « set », « scene », « poussiere », etc.) : ces clés changeraient l'image. Samy a : blender D:/Program Files/Blender/blender.exe, data_root D:/BLATTEN_Ilyas, cache_dir D:/BLATTEN_Ilyas/cache, swisstopo_dir D:/BLATTEN_Ilyas/swisstopo, johan_dir D:/BLATTEN_Ilyas, render_dir D:/BLATTEN_Ilyas/render (les chemins de ce PC peuvent être différents, c'est normal).
+- La police C:/Windows/Fonts/pala.ttf (Palatino Linotype, titre du film) doit exister sur ce PC ; ortho_10cm.jpg doit être dans les données.
 - Pilote NVIDIA à jour (nvidia-smi), au moins 60 Go libres sur le disque du dossier render, mise en veille désactivée, mises à jour Windows en pause, config.local.json présent (data_root, cache_dir, render_dir, blender).
 - Rapport à Ilyas : liste OK / pas OK, et ce qu'il doit envoyer s'il manque quelque chose.
+
+## Étape 1 bis : contrôle croisé (seulement sur go d'Ilyas, ~5 min de rendu, il garantit que ce PC fait la même image que Samy)
+Rendre UNE image dans une version à part : `python blatten.py render --version verif_croise --de 21 --a 21`. Puis :
+- `python tools/controle_croise.py reglages <render_dir>/final/verif_croise/reglages_effectifs.json` : doit répondre « REGLAGES IDENTIQUES » (62 paramètres). Sinon, ne pas continuer : donner la liste à Ilyas.
+- `python tools/controle_croise.py image <render_dir>/final/verif_croise/frame_0021.jpg` (pip install pillow si besoin) : doit répondre « IMAGE COMPATIBLE » (différence moyenne < 2/255). Limite à dire à Ilyas : ce test attrape les écarts grossiers (réglage manquant, texture ou police absente), pas les petites différences de bruit entre cartes graphiques. La garantie vient surtout de l'égalité du code, des réglages effectifs, des données et de Blender.
+Le dossier verif_croise n'est jamais mélangé au film.
 
 ## Étape 2 : lancement (seulement sur go d'Ilyas)
 Double-clic ou commande : `Lancer_rendu_final_pc_ilyas.bat` = `python blatten.py render --version final_v1 --de 41 --paquet 12`. Le premier paquet (images 41 à 52) est le test de démarrage : surveiller « out of memory », images noires ou minuscules (la commande les détecte), Blender qui se ferme. Si ça échoue deux paquets de suite, la commande s'arrête seule : prévenir Ilyas et ne pas relancer en boucle.

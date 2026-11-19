@@ -1,0 +1,150 @@
+{
+ "matiere": {
+  "rendu": "mixte"
+ },
+ "poussiere": {
+  "absorption": 0.25,
+  "age_opaque": 20.0,
+  "albedo": [
+   0.75,
+   0.64,
+   0.5
+  ],
+  "anisotropie": 0.3,
+  "bruit_creux": 0.05,
+  "bruit_grand": 140.0,
+  "bruit_petit": 35.0,
+  "bruit_pleins": 1.6,
+  "couleur_absorption": [
+   0.55,
+   0.46,
+   0.34
+  ],
+  "croissance": 6.0,
+  "densite": 0.035,
+  "fraction": 0.35,
+  "frein": 25.0,
+  "modele": "trois_etapes",
+  "montee": 2.5,
+  "montee_duree": 50.0,
+  "rayon0": 35.0,
+  "rayon_max": 350.0,
+  "transparence_jeune": 0.25,
+  "voxel": 20.0,
+  "voxel_jeune": 12.0
+ },
+ "scene": {
+  "arbres_gain": [
+   5.24,
+   4.57,
+   5.05
+  ],
+  "arbres_gain_proche": [
+   5.59,
+   4.38,
+   5.56
+  ],
+  "arbres_grappes": true,
+  "arbres_luminosite": 0.9,
+  "arbres_modeles": true,
+  "arbres_modeles_dist": 1000.0,
+  "arbres_modeles_gain": [
+   5.09,
+   3.61,
+   4.39
+  ],
+  "arbres_modeles_gain_loin": [
+   4.19,
+   2.97,
+   3.61
+  ],
+  "arbres_ombrage_bas": 0.8,
+  "arbres_simples_ombre": false,
+  "arbres_touffes": 0.45,
+  "eau_brillance": 3.0,
+  "fps": 25,
+  "herbe": true,
+  "herbe_couleur": [
+   0.392,
+   0.475,
+   0.29
+  ],
+  "herbe_decroissance": 3.0,
+  "herbe_decroissance_proche": 2.0,
+  "herbe_densite": 50.0,
+  "herbe_densite_fin": 0.2,
+  "herbe_densite_loin": 3.0,
+  "herbe_instances": true,
+  "herbe_lames_loin": 7,
+  "herbe_luminosite": 1.3,
+  "herbe_max": 210000,
+  "herbe_rayon": 250.0,
+  "herbe_rayon_proche": 50.0,
+  "herbe_taille_loin": 2.5,
+  "no_ensevelis": true,
+  "oiseaux": true,
+  "oiseaux_manuel": [
+   [
+    2628470.2,
+    1140831.8,
+    224.8,
+    3.0,
+    3
+   ],
+   [
+    2629891.1,
+    1140058.2,
+    8.5,
+    20.0,
+    6
+   ],
+   [
+    2629464.0,
+    1139892.1,
+    237.0,
+    23.0,
+    9
+   ],
+   [
+    2629409.5,
+    1139994.1,
+    261.7,
+    32.0,
+    5
+   ],
+   [
+    2629580.3,
+    1140245.6,
+    24.2,
+    39.0,
+    8
+   ],
+   [
+    2629224.4,
+    1140200.5,
+    266.4,
+    41.0,
+    7
+   ],
+   [
+    2628894.6,
+    1140475.7,
+    48.3,
+    45.0,
+    6
+   ]
+  ],
+  "oiseaux_px_min": 2.0,
+  "ortho_saturation": 1.25,
+  "ortho_sol": [
+   "ortho_10cm.jpg"
+  ],
+  "rendu_echantillons": 48,
+  "rendu_seuil": 0.02,
+  "titre": true,
+  "titre_police": "C:/Windows/Fonts/pala.ttf",
+  "titre_style": "sombre",
+  "tree_ortho": 0.85,
+  "vent_force": 0.09
+ }
+}
