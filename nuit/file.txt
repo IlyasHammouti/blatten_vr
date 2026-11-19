@@ -17,3 +17,7 @@ fumee_finale fumee-simu
 
 # 19 nov.: 3 images de controle pleine resolution avec la fumee Mantaflow (t = 5, 30, 45 s), lancees automatiquement a la fin de la simulation.
 controle_fumee test-final --temps 5 30 45 --sans-variantes --reglages film fumee
+
+# 19 nov.: la fumee a densite 0.03 est beaucoup trop sombre (t = 45 s: tout noir). Deux densites plus faibles, t = 30 et 45 s.
+fumee_d006 test-final --temps 30 45 --sans-variantes --reglages film fumee --set poussiere.densite=0.006
+fumee_d002 test-final --temps 30 45 --sans-variantes --reglages film fumee --set poussiere.densite=0.002
