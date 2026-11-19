@@ -1798,6 +1798,31 @@ def cmd_reprise_test2(cfg, paths, extra):
     return 0
 
 
+def cmd_fumee_17nov(cfg, paths, extra):
+    """Simulation de fumée avec les réglages PAR DÉFAUT de l'essai du 17 nov. (ceux du clip fumee192_clip_t0_33s.mp4: émetteurs de 0,8 cellule,
+    3000 particules, émission 1, élan 0,7, alpha -0,2, tourbillons 0,2) à la résolution 128, 25 images/s, 53 s, avec rendu du clip
+    (scène grise, 960 x 540, une image toutes les 0,5 s à partir de t = 8 s) et d'images fixes. N'écrase PAS la simulation de la nuit du 18 nov.:
+    sortie dans <cache>/fumee_17nov (cache VDB dans cache/data, clip dans clip/clip_NNNN.png, fixes fumee_tNN.png).
+    Lecture par le film: reglages/fumee17.json (mantaflow_dossier). Pas de reprise possible apres un plantage."""
+    n, fps = _film(cfg)
+    sortie = os.path.join(paths.cache, "fumee_17nov")
+    if os.path.isdir(os.path.join(sortie, "cache", "data")) and glob.glob(os.path.join(sortie, "cache", "data", "*.vdb")):
+        dest = sortie + "_partiel_" + time.strftime("%Y%m%d_%H%M%S")
+        print(f"[fumee-17nov] images d'une simulation precedente mises de cote: {dest}", flush=True)
+        shutil.move(sortie, dest)
+    os.makedirs(sortie, exist_ok=True)
+    opts = ["--res", "128", "--fps", str(fps), "--fin", "53", "--echant", "24", "--largeur", "960", "--clip", "1", "--clip-pas", "0.5",
+            "--fixes", "20,30,40,50", "--data", paths.cache, "--out", sortie]
+    if os.name == "nt":
+        try:
+            import ctypes
+            ctypes.windll.kernel32.SetThreadExecutionState(0x80000000 | 0x00000001)
+            print("[fumee-17nov] mise en veille de Windows bloquee pendant la simulation", flush=True)
+        except Exception as e:
+            print("[fumee-17nov] veille non bloquee:", e, flush=True)
+    return run_blender(cfg, os.path.join(ROOT, "tools", "essai_fumee.py"), list(extra) + opts)
+
+
 def cmd_fumee_simu(cfg, paths, extra):
     """Simulation de la fumée (Mantaflow) du film, SANS rendu: écrit le cache VDB lu ensuite par la poussière du film
     (reglages/fumee.json, modèle "mantaflow"). Une image de simulation par image du film (25 i/s), t = 0 à 53 s.
@@ -2698,7 +2723,7 @@ def cmd_menu(cfg, paths, extra):
 COMMANDS = {
     "status": cmd_status, "setup": cmd_setup, "download": cmd_download, "prep-env": cmd_prep_env, "prep-batiments": cmd_prep_batiments, "prep-vegetation": cmd_prep_vegetation, "env-complet": cmd_env_complet, "visible": cmd_visible,
     "prep-particules": cmd_prep_particules, "terrain": cmd_terrain, "views": cmd_views, "test360": cmd_test360,
-    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "eau-manuel": cmd_eau_manuel, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "titre-test": cmd_titre_test, "test-son": cmd_test_son, "test-couleurs": cmd_test_couleurs, "test-eau": cmd_test_eau, "test-final": cmd_test_final, "prep-sol": cmd_prep_sol, "test-aspect": cmd_test_aspect, "test-fenetre": cmd_test_fenetre, "test-oiseaux": cmd_test_oiseaux, "nuit-envoi": cmd_nuit_envoi, "carte-oiseaux": cmd_carte_oiseaux, "qgis-oiseaux": cmd_qgis_oiseaux, "essai-fumee": cmd_essai_fumee, "fumee-simu": cmd_fumee_simu, "reprise-test": cmd_reprise_test, "reprise-test2": cmd_reprise_test2, "test-eau-clip": cmd_test_eau_clip, "test-arbres": cmd_test_arbres, "extrait": cmd_extrait, "test-bande": cmd_test_bande, "finir": cmd_finir, "son": cmd_son, "outro": cmd_outro, "cap": cmd_cap, "camera": cmd_camera, "paquet": cmd_paquet, "duo": cmd_duo, "duo-etat": cmd_duo_etat, "duo-envoyer": cmd_duo_envoyer, "duo-importer": cmd_duo_importer, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
+    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "eau-manuel": cmd_eau_manuel, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "titre-test": cmd_titre_test, "test-son": cmd_test_son, "test-couleurs": cmd_test_couleurs, "test-eau": cmd_test_eau, "test-final": cmd_test_final, "prep-sol": cmd_prep_sol, "test-aspect": cmd_test_aspect, "test-fenetre": cmd_test_fenetre, "test-oiseaux": cmd_test_oiseaux, "nuit-envoi": cmd_nuit_envoi, "carte-oiseaux": cmd_carte_oiseaux, "qgis-oiseaux": cmd_qgis_oiseaux, "essai-fumee": cmd_essai_fumee, "fumee-simu": cmd_fumee_simu, "fumee-17nov": cmd_fumee_17nov, "reprise-test": cmd_reprise_test, "reprise-test2": cmd_reprise_test2, "test-eau-clip": cmd_test_eau_clip, "test-arbres": cmd_test_arbres, "extrait": cmd_extrait, "test-bande": cmd_test_bande, "finir": cmd_finir, "son": cmd_son, "outro": cmd_outro, "cap": cmd_cap, "camera": cmd_camera, "paquet": cmd_paquet, "duo": cmd_duo, "duo-etat": cmd_duo_etat, "duo-envoyer": cmd_duo_envoyer, "duo-importer": cmd_duo_importer, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
 }
 
 

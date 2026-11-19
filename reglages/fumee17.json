@@ -1,0 +1,4 @@
+{
+  "_doc": "Poussiere du film = simulation Mantaflow aux reglages du 17 nov. (python blatten.py fumee-17nov), cache dans <cache>/fumee_17nov. A heriter APRES poussiere_v3.",
+  "poussiere": {"modele": "mantaflow", "densite": 0.03, "mantaflow_dossier": "D:/BLATTEN_Ilyas/cache/fumee_17nov/cache/data"}
+}

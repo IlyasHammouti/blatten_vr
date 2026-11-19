@@ -13,7 +13,7 @@ Principe
   - Sorties dans --out: images fixes à t = 20, 30, 40 s (fumee_tXX.png), suite clip_NNNN.png toutes les 0,5 s, cache VDB (cache/).
 
 Lancé par: python blatten.py essai-fumee [--res 128] [--fps 15] [--fin 45] [--alpha -0.2] [--tourbillons 0.2] [--elan 0.7]
-  [--source 0.8] (taille des émetteurs en cellules) [--k 3000] (nombre d'émetteurs) [--vref 40] [--emission 1.0] [--sans-rendu 1] (simulation seule) [--fixes 12,20,28] (instants des images fixes) [--clip 0] (pas de clip)
+  [--source 0.8] (taille des émetteurs en cellules) [--k 3000] (nombre d'émetteurs) [--vref 40] [--emission 1.0] [--sans-rendu 1] (simulation seule) [--fixes 12,20,28] (instants des images fixes) [--clip 0] (pas de clip) [--clip-pas 0.5] (secondes entre deux images du clip)
 Jamais essayé sur le PC (écrit le 17 nov. dans le cloud, où Mantaflow ne tourne pas): premier lancement = test de la chaîne.
 """
 import json
@@ -29,7 +29,7 @@ import numpy as np
 def args():
     a = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
     d = dict(res=128, fps=15, fin=45.0, alpha=-0.2, tourbillons=0.2, elan=0.7, densite=0.03, data="", out="", echant=48,
-             largeur=1280, sans_rendu=0, k=3000, sans_simu=0, source=0.8, vref=40.0, emission=1.0, tuile=0, fixes="20,30,40", clip=1, bake=0)
+             largeur=1280, sans_rendu=0, k=3000, sans_simu=0, source=0.8, vref=40.0, emission=1.0, tuile=0, fixes="20,30,40", clip=1, bake=0, clip_pas=0.5)
     i = 0
     while i < len(a):
         k = a[i].lstrip("-").replace("-", "_")
@@ -294,7 +294,7 @@ if A["bake"] and not A["sans_simu"]:
     sys.exit(0)
 
 fixes = {int(round(float(t) * fps)) + 1: float(t) for t in str(A["fixes"]).split(",") if t}
-pas_clip = max(1, int(round(0.5 * fps)))
+pas_clip = max(1, int(round(float(A["clip_pas"]) * fps)))
 t0 = time.time()
 kclip = 0
 for f in range(sc.frame_start, sc.frame_end + 1):
