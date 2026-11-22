@@ -48,6 +48,7 @@ def main(argv=None):
     ap.add_argument("--son")
     ap.add_argument("--out")
     ap.add_argument("--crf", type=int, default=16)
+    ap.add_argument("--preset", default="slow")
     a = ap.parse_args(argv)
     files = sorted(glob.glob(os.path.join(a.dir, "frame_*.png")) + glob.glob(os.path.join(a.dir, "frame_*.jpg")))
     files = [f for f in files if os.path.getsize(f) > 0]
@@ -92,7 +93,7 @@ def main(argv=None):
         cmd += (["-ss", f"{decal:.3f}"] if decal > 0 else []) + ["-i", a.son]
         sortie += ["-map", f"{k}:a", "-c:a", "aac", "-b:a", "320k" if a.format == "bande" else "512k", "-shortest"]
     cmd += ["-filter_complex", filt] + sortie
-    cmd += ["-c:v", "libx264", "-preset", "slow", "-crf", str(a.crf), "-pix_fmt", "yuv420p", "-movflags", "+faststart", out]
+    cmd += ["-c:v", "libx264", "-preset", a.preset, "-crf", str(a.crf), "-pix_fmt", "yuv420p", "-movflags", "+faststart", out]
     log(f"{n} images ({duree:.1f} s) + outro {a.outro_duree if a.outro else 0:g} s, son: {os.path.basename(a.son) if a.son else 'aucun'}")
     rc = subprocess.call(cmd)
     if rc != 0:

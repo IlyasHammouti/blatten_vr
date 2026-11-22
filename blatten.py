@@ -1084,7 +1084,14 @@ def _finir_film(cfg, out, fmt, fps=30):
     der = int((cfg.get("film") or {}).get("derniere_image", 0))
     a = (["--dir", out, "--format", fmt, "--fps", str(fps)] + (["--derniere", str(der)] if der else [])
          + (["--outro", png] if png else []) + (["--son", wav] if wav else []))
-    return subprocess.call([sys.executable, SCRIPTS["montage_film"]] + a)
+    rc = subprocess.call([sys.executable, SCRIPTS["montage_film"]] + a)
+    if rc == 0:      # version legere (qualite visuelle correcte, ~100 Mo) pour l'envoyer a Ilyas par le chat: la version pleine qualite reste sur le PC
+        try:
+            subprocess.call([sys.executable, SCRIPTS["montage_film"]] + a + ["--crf", "27", "--preset", "medium",
+                                                                           "--out", os.path.join(out, f"film_{fmt}_apercu.mp4")])
+        except Exception:
+            traceback.print_exc()
+    return rc
 
 
 def _reparer_images(out, fmt, k=2):
