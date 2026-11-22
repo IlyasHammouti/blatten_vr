@@ -1,6 +1,6 @@
-heure_paris=2026-11-22 17:56
-derniere=532
-faites=492
-plus_1h=6
+heure_paris=2026-11-22 18:56
+derniere=539
+faites=499
+plus_1h=7
 plage=ascendante
 statut=en_cours
