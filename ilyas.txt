@@ -1,6 +1,6 @@
-heure_paris=
-derniere=
-faites=
-plus_1h=
+heure_paris=2026-11-22 15:46
+derniere=519
+faites=479
+plus_1h=6
 plage=ascendante
-statut=
+statut=arrete
