@@ -1,5 +1,5 @@
 {
-  "_doc": "Outro text (src/scene/outro.py). One line = one text, or [text, relative size]. Blank line = space. Validated by Ilyas on 22 Nov 2026, English. Replace [group members].",
+  "_doc": "Outro text (src/scene/outro.py). One line = one text, or [text, relative size]. Blank line = space. Validated by Ilyas on 22 Nov 2026, English.",
   "lignes": [
     [
       "Blatten, 28 May 2025",
@@ -33,7 +33,7 @@
       0.8
     ],
     [
-      "3D modelling, rendering and sound: Ilyas Hammouti, [group members]",
+      "3D modelling, rendering and sound: Ilyas Hammouti, Maxime Lescarret and Justin Mocogni",
       0.8
     ],
     [
