@@ -1,8 +1,8 @@
-heure_paris=2026-11-22 17:00
-derniere=758
-faites=829
-plus_1h=20
-max_manquante=767
+heure_paris=2026-11-22 18:00
+derniere=699
+faites=850
+plus_1h=21
+max_manquante=727
 plage=descendante
 statut=en_cours
 note=faites inclut les images 1 a 40
