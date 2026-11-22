@@ -1,7 +1,7 @@
-heure_paris=2026-11-22 23:00
+heure_paris=2026-11-22 23:37
 derniere=542
 faites=502
 plus_1h=0
 plage=ascendante
-statut=pause
-note=envoi termine
+statut=arrete
+note=pc ilyas eteint, supervision terminee
