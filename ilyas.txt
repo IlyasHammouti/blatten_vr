@@ -1,6 +1,7 @@
-heure_paris=2026-11-22 18:56
+heure_paris=2026-11-22 19:26
 derniere=539
 faites=499
-plus_1h=7
+plus_1h=
 plage=ascendante
-statut=en_cours
+statut=injoignable
+note=PC non joignable a 19:26, valeurs de 18:56
