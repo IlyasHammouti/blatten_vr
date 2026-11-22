@@ -1081,7 +1081,9 @@ def _finir_film(cfg, out, fmt, fps=30):
     if rs != 0 or not os.path.exists(wav):
         print("!! son non calculé, montage sans son", flush=True)
         wav = None
-    a = ["--dir", out, "--format", fmt, "--fps", str(fps)] + (["--outro", png] if png else []) + (["--son", wav] if wav else [])
+    der = int((cfg.get("film") or {}).get("derniere_image", 0))
+    a = (["--dir", out, "--format", fmt, "--fps", str(fps)] + (["--derniere", str(der)] if der else [])
+         + (["--outro", png] if png else []) + (["--son", wav] if wav else []))
     return subprocess.call([sys.executable, SCRIPTS["montage_film"]] + a)
 
 
@@ -1142,7 +1144,7 @@ def cmd_finir(cfg, paths, extra):
             print("!! des images restent suspectes après réparation, voir _images_ratees et verif", flush=True)
     except Exception:
         traceback.print_exc()
-    rc = _finir_film(cfg, out, fmt)
+    rc = _finir_film(cfg, out, fmt, _fps_film(cfg))
     if rc == 0:
         _marquer_termine(out)
     return rc

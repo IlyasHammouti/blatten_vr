@@ -41,6 +41,8 @@ def main(argv=None):
     ap.add_argument("--format", choices=("bande", "360"), default="bande")
     ap.add_argument("--fps", type=float, default=30.0)
     ap.add_argument("--fondu", type=float, default=1.0, help="s de fondu au noir à la fin du film")
+    ap.add_argument("--derniere", type=int, default=0,
+                    help="numéro de la dernière image gardée (écran noir à partir de là): l'image d'avant est à moitié noire, celle-ci noire, puis l'outro")
     ap.add_argument("--outro")
     ap.add_argument("--outro-duree", type=float, default=8.0)
     ap.add_argument("--son")
@@ -56,12 +58,20 @@ def main(argv=None):
     n = nums[-1] - nums[0] + 1
     if len(nums) != n:
         log(f"!! {n - len(nums)} images manquantes entre {nums[0]} et {nums[-1]}: la vidéo s'arrêtera à la première manquante")
+    if a.derniere and nums[-1] >= a.derniere:
+        nums = [x for x in nums if x <= a.derniere]
+        n = nums[-1] - nums[0] + 1
+    else:
+        a.derniere = 0
     duree = n / a.fps
     out = a.out or os.path.join(a.dir, f"film_{a.format}.mp4")
     ff = ffmpeg_exe()
     cmd = [ff, "-y", "-v", "error", "-stats", "-framerate", f"{a.fps:g}", "-start_number", str(nums[0]),
            "-i", os.path.join(a.dir, f"frame_%04d{ext}")]
-    if a.fondu > 0:
+    if a.derniere:        # coupe nette à l'image `derniere` (déjà noire), fondu sur les 2 dernières images: 1468 à 50 %, 1469 noire
+        filt = (f"[0:v]trim=end_frame={n},setpts=PTS-STARTPTS,format=yuv420p,"
+                f"fade=t=out:st={(a.derniere - 2 - nums[0] + 1) / a.fps:.4f}:d={2 / a.fps:.4f}[film]")
+    elif a.fondu > 0:
         filt = f"[0:v]format=yuv420p,fade=t=out:st={max(0.0, duree - a.fondu):.3f}:d={a.fondu:g}[film]"
     else:              # extrait au milieu du film: pas de fondu au noir
         filt = "[0:v]format=yuv420p[film]"

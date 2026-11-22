@@ -256,7 +256,8 @@ def main():
         except Exception:
             pass
     intro, fps = float(sc.get("intro", 0.0)), float(fps or 30)
-    film = int((cfg.get("film") or {}).get("images", 1830)) / fps
+    cf = cfg.get("film") or {}
+    film = int(cf.get("derniere_image") or cf.get("images", 1830)) / fps     # le film s'arrête à derniere_image (écran noir)
     total = film + float(R["outro"])
     n = int(round(total * SR))
     t = np.arange(n) / SR

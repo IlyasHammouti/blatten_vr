@@ -1,11 +1,61 @@
 {
-  "_doc": "Texte de l'outro (src/scene/outro.py). Une ligne = un texte, ou [texte, taille relative]. Remplacer les [balises]. Ligne vide = espace.",
+  "_doc": "Outro text (src/scene/outro.py). One line = one text, or [text, relative size]. Blank line = space. Validated by Ilyas on 22 Nov 2026, English. Replace [group members].",
   "lignes": [
-    ["[TEXTE DE FIN: message principal]", 1.4],
+    [
+      "Blatten, 28 May 2025",
+      1.2
+    ],
     "",
-    "Simulation: Johan Gaume (ETH Zurich / WSL-SLF)",
-    "[Réalisation: noms]",
+    [
+      "The village was evacuated before the collapse,",
+      1.2
+    ],
+    [
+      "thanks to those who modelled the risk,",
+      1.2
+    ],
+    [
+      "the teams who evacuated the valley on the ground,",
+      1.2
+    ],
+    [
+      "and the cooperation of its residents.",
+      1.2
+    ],
     "",
-    ["Sounds: klankbeeld (CC BY 4.0), craigsmith (CC0), via freesound.org", 0.7]
+    [
+      "A thought for the 64-year-old sheep farmer who lost his life.",
+      1.0
+    ],
+    "",
+    [
+      "Landslide simulation: Johan Gaume",
+      0.8
+    ],
+    [
+      "3D modelling, rendering and sound: Ilyas Hammouti, [group members]",
+      0.8
+    ],
+    [
+      "Journées Mouvements de Terrain, Laboratoire de Géographie Physique (CNRS)",
+      0.7
+    ],
+    [
+      "Université Paris 1 Panthéon-Sorbonne, Université Paris Cité, Université Paris-Est Créteil",
+      0.7
+    ],
+    "",
+    [
+      "Data: swisstopo (terrain, imagery, 3D buildings)",
+      0.5
+    ],
+    [
+      "Sounds: klankbeeld (CC BY 4.0), craigsmith (CC0), freesound.org",
+      0.5
+    ],
+    [
+      "Trees: EZ-Tree (D. Greenheck, MIT); textures: Poly Haven, texturecan (CC0)",
+      0.5
+    ]
   ]
 }
