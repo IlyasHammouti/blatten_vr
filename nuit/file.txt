@@ -42,3 +42,6 @@ final_v1_inv render --version final_v1 --inverse --paquet 40
 
 # 22 nov., reprise du rendu final_v1 après la pause (Ctrl+C) demandée par Ilyas: même commande, nouvel identifiant. Les images déjà faites sont sautées.
 final_v1_inv2 render --version final_v1 --inverse --paquet 40
+
+# 23 nov. ~00h, demande d'Ilyas (valider le montage avant le `finir`): une fois le rendu final_v1_inv2 terminé, une seule image de l'outro (version anglaise) pour la relire. PAS de `finir` automatique: Ilyas valide d'abord.
+outro_test outro --format 360
