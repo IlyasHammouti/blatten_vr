@@ -1,6 +1,6 @@
-heure_paris=2026-11-22 18:00
-derniere=699
-faites=850
+heure_paris=2026-11-22 19:01
+derniere=720
+faites=871
 plus_1h=21
 max_manquante=727
 plage=descendante
