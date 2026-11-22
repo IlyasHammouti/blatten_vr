@@ -1,7 +1,7 @@
-heure_paris=2026-11-22 22:00
+heure_paris=2026-11-22 22:20
 derniere=542
 faites=502
 plus_1h=0
 plage=ascendante
 statut=pause
-note=envoi des images
+note=envoi termine
