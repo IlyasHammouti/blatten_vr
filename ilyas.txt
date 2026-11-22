@@ -1,0 +1,6 @@
+heure_paris=
+derniere=
+faites=
+plus_1h=
+plage=ascendante
+statut=

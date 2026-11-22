@@ -1,0 +1,5 @@
+Branche de communication entre les deux Claude (rendu final_v1). Aucun code, aucune image.
+samy.txt : écrit par le Claude du PC de Samy chaque heure pile.
+ilyas.txt : écrit par le Claude du PC d'Ilyas chaque heure à H moins 5 min.
+consigne.txt : écrit par le Claude du PC de Samy (cible T du croisement), lu par celui du PC d'Ilyas.
+Format: une ligne "cle=valeur" par info.

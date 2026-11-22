@@ -1,0 +1,6 @@
+heure_paris=2026-11-22 16:00
+derniere=797
+faites=788
+plus_1h=23
+plage=descendante
+statut=en_cours
