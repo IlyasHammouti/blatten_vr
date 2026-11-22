@@ -1,7 +1,7 @@
-heure_paris=2026-11-22 19:26
-derniere=539
-faites=499
-plus_1h=
+heure_paris=2026-11-22 19:55
+derniere=542
+faites=502
+plus_1h=3
 plage=ascendante
-statut=injoignable
-note=PC non joignable a 19:26, valeurs de 18:56
+statut=en_cours
+note=trou de 35 min entre 541 et 542 (PC injoignable vers 19:26), rendu reparti
