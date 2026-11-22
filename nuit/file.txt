@@ -39,3 +39,6 @@ final_v1 render --version final_v1
 
 # 19 nov. ~16h40, GO d'Ilyas: Samy repart de la FIN du film vers le debut (le PC d'Ilyas rend du debut vers la fin a partir de l'image 41, les deux se rejoignent vers l'image 800). Arret propre du rendu ascendant demande par render/ARRET.txt (fin du paquet 1 a 40), puis cette ligne. Le veilleur supprime ARRET.txt avant de la lancer. Meme version final_v1: les images deja faites sont sautees. Arret propre ensuite: creer ARRET.txt.
 final_v1_inv render --version final_v1 --inverse --paquet 40
+
+# 22 nov., reprise du rendu final_v1 après la pause (Ctrl+C) demandée par Ilyas: même commande, nouvel identifiant. Les images déjà faites sont sautées.
+final_v1_inv2 render --version final_v1 --inverse --paquet 40
