@@ -1,7 +1,7 @@
-heure_paris=2026-11-22 19:55
+heure_paris=2026-11-22 20:18
 derniere=542
 faites=502
-plus_1h=3
+plus_1h=0
 plage=ascendante
-statut=en_cours
-note=trou de 35 min entre 541 et 542 (PC injoignable vers 19:26), rendu reparti
+statut=arrete
+note=rendu arrete a la demande d Ilyas (PC fragile, gele depuis 19:52). frame_0543 vide (0 octet), a refaire. Ne plus compter sur ce PC.
