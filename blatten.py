@@ -2037,6 +2037,51 @@ def cmd_nuit_envoi(cfg, paths, extra):
     return 0 if ok else 3
 
 
+def cmd_envoi_frames(cfg, paths, extra):
+    """Envoie TOUTES les images d'un dossier (frame_*.jpg) sur la branche GitHub frames-final, par lots de 80, pour les recuperer
+    sur un autre PC (refaire le montage).   python blatten.py envoi-frames --dir D:/.../final_v1"""
+    import glob, shutil
+    d, extra = _option(extra, "--dir", 1)
+    src = d[0] if d else os.path.join(ROOT, "render", "final", "final_v1")
+    depot = os.path.join(ROOT, "render", "nuit", "depot_frames")
+    os.makedirs(os.path.join(depot, "frames"), exist_ok=True)
+    env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GCM_INTERACTIVE="never")
+    def g(*a, t=900):
+        return subprocess.run(["git", "-C", depot] + list(a), capture_output=True, text=True, errors="replace", env=env, timeout=t)
+    if not os.path.isdir(os.path.join(depot, ".git")):
+        g("init", "-q")
+        g("checkout", "-q", "--orphan", "frames-final")
+        url = subprocess.run(["git", "-C", ROOT, "config", "--get", "remote.origin.url"], capture_output=True, text=True).stdout.strip()
+        g("remote", "add", "origin", url)
+        g("config", "http.postBuffer", "524288000")
+    imgs = sorted(glob.glob(os.path.join(src, "frame_*.jpg")))
+    print(f"envoi-frames: {len(imgs)} images dans {src}", flush=True)
+    lot, fait, echecs = 80, 0, 0
+    for i in range(0, len(imgs), lot):
+        for f in imgs[i:i + lot]:
+            dst = os.path.join(depot, "frames", os.path.basename(f))
+            if not os.path.exists(dst):
+                shutil.copyfile(f, dst)
+        g("add", "-A")
+        g("-c", "user.name=veilleur", "-c", "user.email=veilleur@local", "commit", "-q", "-m", f"frames {i + 1}-{min(i + lot, len(imgs))}")
+        ok = False
+        for essai in range(3):
+            try:
+                r = g("push", "-q", "-f", "origin", "HEAD:refs/heads/frames-final")
+                ok = r.returncode == 0
+                err = (r.stderr or "")[-300:]
+            except Exception as e:
+                ok, err = False, str(e)
+            if ok:
+                break
+            time.sleep(20)
+        print(f"  lot {i + 1}-{min(i + lot, len(imgs))}: {'ok' if ok else 'ECHEC ' + err}", flush=True)
+        echecs += not ok
+        fait += ok
+    print(f"envoi-frames: {fait} lots envoyes, {echecs} echecs", flush=True)
+    return 0 if not echecs else 3
+
+
 def _lin_srgb(a):
     import numpy as np
     a = np.asarray(a, np.float64) / 255.0
@@ -2779,7 +2824,7 @@ def cmd_menu(cfg, paths, extra):
 COMMANDS = {
     "status": cmd_status, "setup": cmd_setup, "download": cmd_download, "prep-env": cmd_prep_env, "prep-batiments": cmd_prep_batiments, "prep-vegetation": cmd_prep_vegetation, "env-complet": cmd_env_complet, "visible": cmd_visible,
     "prep-particules": cmd_prep_particules, "terrain": cmd_terrain, "views": cmd_views, "test360": cmd_test360,
-    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "eau-manuel": cmd_eau_manuel, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "titre-test": cmd_titre_test, "test-son": cmd_test_son, "test-couleurs": cmd_test_couleurs, "test-eau": cmd_test_eau, "test-final": cmd_test_final, "test-couches": cmd_test_couches, "prep-sol": cmd_prep_sol, "test-aspect": cmd_test_aspect, "test-fenetre": cmd_test_fenetre, "test-oiseaux": cmd_test_oiseaux, "nuit-envoi": cmd_nuit_envoi, "carte-oiseaux": cmd_carte_oiseaux, "qgis-oiseaux": cmd_qgis_oiseaux, "essai-fumee": cmd_essai_fumee, "fumee-simu": cmd_fumee_simu, "fumee-17nov": cmd_fumee_17nov, "reprise-test": cmd_reprise_test, "reprise-test2": cmd_reprise_test2, "test-eau-clip": cmd_test_eau_clip, "test-arbres": cmd_test_arbres, "extrait": cmd_extrait, "test-bande": cmd_test_bande, "finir": cmd_finir, "son": cmd_son, "outro": cmd_outro, "cap": cmd_cap, "camera": cmd_camera, "paquet": cmd_paquet, "duo": cmd_duo, "duo-etat": cmd_duo_etat, "duo-envoyer": cmd_duo_envoyer, "duo-importer": cmd_duo_importer, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
+    "valider-env": cmd_valider_env, "prep-eau": cmd_prep_eau, "eau-manuel": cmd_eau_manuel, "brouillon": cmd_brouillon, "montage": cmd_montage, "images-test": cmd_images_test, "apercu-complet": cmd_apercu_complet, "apercu-alea": cmd_apercu_alea, "images-finales": cmd_images_finales, "variantes": cmd_variantes, "titre-test": cmd_titre_test, "test-son": cmd_test_son, "test-couleurs": cmd_test_couleurs, "test-eau": cmd_test_eau, "test-final": cmd_test_final, "test-couches": cmd_test_couches, "prep-sol": cmd_prep_sol, "test-aspect": cmd_test_aspect, "test-fenetre": cmd_test_fenetre, "test-oiseaux": cmd_test_oiseaux, "nuit-envoi": cmd_nuit_envoi, "envoi-frames": cmd_envoi_frames, "carte-oiseaux": cmd_carte_oiseaux, "qgis-oiseaux": cmd_qgis_oiseaux, "essai-fumee": cmd_essai_fumee, "fumee-simu": cmd_fumee_simu, "fumee-17nov": cmd_fumee_17nov, "reprise-test": cmd_reprise_test, "reprise-test2": cmd_reprise_test2, "test-eau-clip": cmd_test_eau_clip, "test-arbres": cmd_test_arbres, "extrait": cmd_extrait, "test-bande": cmd_test_bande, "finir": cmd_finir, "son": cmd_son, "outro": cmd_outro, "cap": cmd_cap, "camera": cmd_camera, "paquet": cmd_paquet, "duo": cmd_duo, "duo-etat": cmd_duo_etat, "duo-envoyer": cmd_duo_envoyer, "duo-importer": cmd_duo_importer, "empreinte-alea": cmd_empreinte_alea, "lite": cmd_lite, "open": cmd_open, "voir360": cmd_voir360, "bench": cmd_bench, "test-clip": cmd_test_clip, "meta360": cmd_meta360, "bench-compare": cmd_bench_compare, "render": cmd_render, "menu": cmd_menu,
 }
 
 

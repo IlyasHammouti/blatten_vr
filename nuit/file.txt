@@ -51,3 +51,5 @@ final_v1_inv3b render --version final_v1 --inverse --paquet 40 --de 533
 final_v1_inv3c render --version final_v1 --inverse --paquet 40 --de 533
 # Puis montage complet (outro anglais, son AmbiX, montage, metadonnees 360). Outro et son se refont apres coup sans re-rendre.
 finir_v1 finir --format 360 --dir D:/BLATTEN_Ilyas/render/final/final_v1
+# Envoi de toutes les images vers GitHub (branche frames-final) pour refaire le montage sur un autre PC
+envoi_frames_v1 envoi-frames --dir D:/BLATTEN_Ilyas/render/final/final_v1
